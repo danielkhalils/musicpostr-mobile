@@ -1,18 +1,21 @@
 {
   "expo": {
-    "name": "musicpostr-mobile",
+    "name": "Musicpostr",
     "slug": "musicpostr-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "musicpostrmobile",
+    "scheme": "musicpostr",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "bundleIdentifier": "com.musicpostr.mobile",
+      "supportsTablet": true,
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "com.musicpostr.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#09090b",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -28,7 +31,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#09090b",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
