@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { Image } from 'expo-image';
 import {
   Music,
   Search,
@@ -247,14 +248,11 @@ export function MobileHeader() {
             onPress={() => router.push('/(tabs)/index' as any)}
             activeOpacity={0.8}
           >
-            <View
-              style={[
-                styles.brandIconBox,
-                { backgroundColor: `${colors.primary}20` },
-              ]}
-            >
-              <Music size={18} color={colors.primary} />
-            </View>
+            <Image
+              source={require('@/assets/icon_transparent_96x96.png')}
+              style={styles.brandLogoImg}
+              contentFit="contain"
+            />
             <Text style={[styles.brandText, { color: colors.foreground }]}>
               MUSICPOSTR
             </Text>
@@ -719,12 +717,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 7,
   },
-  brandIconBox: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
+  brandLogoImg: {
+    width: 28,
+    height: 28,
   },
   brandText: {
     fontSize: 15,

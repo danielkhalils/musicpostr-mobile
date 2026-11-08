@@ -4,27 +4,26 @@
     "slug": "musicpostr-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/icon_512x512.png",
     "scheme": "musicpostr",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.musicpostr.mobile",
       "supportsTablet": true,
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/icon_512x512.png"
     },
     "android": {
       "package": "com.musicpostr.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#09090b",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#170529",
+        "foregroundImage": "./assets/icon_transparent_512x512.png",
+        "monochromeImage": "./assets/icon_transparent_512x512.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "server",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/icon_transparent_48x48.png"
     },
     "plugins": [
       "expo-router",
@@ -32,8 +31,8 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#09090b",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "image": "./assets/icon_transparent_512x512.png",
+          "imageWidth": 110
         }
       ]
     ],

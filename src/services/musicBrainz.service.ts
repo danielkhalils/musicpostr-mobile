@@ -9,15 +9,15 @@ import { Storage, AppEvents } from './storage';
 const MB_API_BASE = 'https://musicbrainz.org/ws/2';
 
 const STORAGE_KEYS = {
-  ALBUM_STATS: 'musicpostr_internal_albums_v2',
-  MY_REVIEWS: 'musicpostr_my_reviews_v2',
-  FAVORITES: 'musicpostr_favorites_v2',
-  FEED: 'musicpostr_community_feed_v2',
-  API_CACHE_PREFIX: 'musicpostr_mb_cache_v3_',
-  NEW_RELEASES_CACHE: 'musicpostr_new_releases_v2',
+  ALBUM_STATS: 'musicpostr_internal_albums_v3',
+  MY_REVIEWS: 'musicpostr_my_reviews_v3',
+  FAVORITES: 'musicpostr_favorites_v3',
+  FEED: 'musicpostr_community_feed_v3',
+  API_CACHE_PREFIX: 'musicpostr_mb_cache_v4_',
+  NEW_RELEASES_CACHE: 'musicpostr_new_releases_v3',
   IDOLS_IDS: 'musicpostr_idols',
-  IDOLS_DATA: 'musicpostr_idols_data',
-  USER_PROFILE: 'musicpostr_user_profile_v1',
+  IDOLS_DATA: 'musicpostr_idols_data_v3',
+  USER_PROFILE: 'musicpostr_user_profile_v2',
   USER_LISTS: 'musicpostr_user_lists_v1',
 };
 
@@ -232,6 +232,193 @@ const BUILTIN_ALBUM_TRACKS: Record<
     { id: 'dsotm-8', title: 'Brain Damage', duration: 226 },
     { id: 'dsotm-9', title: 'Eclipse', duration: 123 },
   ],
+  'd9103c72-3807-4378-9ce7-b6f3e8fdd547': [
+    { id: 'tpab-1', title: 'Wesley’s Theory', duration: 287 },
+    { id: 'tpab-2', title: 'King Kunta', duration: 234 },
+    { id: 'tpab-3', title: 'Institutionalized', duration: 271 },
+    { id: 'tpab-4', title: 'These Walls', duration: 300 },
+    { id: 'tpab-5', title: 'u', duration: 268 },
+    { id: 'tpab-6', title: 'Alright', duration: 219 },
+    { id: 'tpab-7', title: 'How Much a Dollar Cost', duration: 261 },
+    { id: 'tpab-8', title: 'The Blacker the Berry', duration: 328 },
+    { id: 'tpab-9', title: 'i', duration: 336 },
+    { id: 'tpab-10', title: 'Mortal Man', duration: 727 },
+  ],
+  'b1392450-e666-3926-a536-22c65f834433': [
+    { id: 'okc-1', title: 'Airbag', duration: 284 },
+    { id: 'okc-2', title: 'Paranoid Android', duration: 383 },
+    { id: 'okc-3', title: 'Subterranean Homesick Alien', duration: 267 },
+    { id: 'okc-4', title: 'Exit Music (For a Film)', duration: 264 },
+    { id: 'okc-5', title: 'Let Down', duration: 299 },
+    { id: 'okc-6', title: 'Karma Police', duration: 261 },
+    { id: 'okc-7', title: 'No Surprises', duration: 228 },
+    { id: 'okc-8', title: 'Lucky', duration: 259 },
+    { id: 'okc-9', title: 'The Tourist', duration: 324 },
+  ],
+  '0da340a0-6ad7-4fc2-a272-6f94393a7831': [
+    { id: 'bl-1', title: 'Nikes', duration: 314 },
+    { id: 'bl-2', title: 'Ivy', duration: 249 },
+    { id: 'bl-3', title: 'Pink + White', duration: 184 },
+    { id: 'bl-4', title: 'Solo', duration: 257 },
+    { id: 'bl-5', title: 'Self Control', duration: 249 },
+    { id: 'bl-6', title: 'Nights', duration: 307 },
+    { id: 'bl-7', title: 'White Ferrari', duration: 248 },
+    { id: 'bl-8', title: 'Seigfried', duration: 334 },
+    { id: 'bl-9', title: 'Godspeed', duration: 177 },
+  ],
+  '1646286a-d0ad-4288-bfab-34b0fb7b22c1': [
+    { id: 'sos-1', title: 'SOS', duration: 117 },
+    { id: 'sos-2', title: 'Kill Bill', duration: 153 },
+    { id: 'sos-3', title: 'Seek & Destroy', duration: 203 },
+    { id: 'sos-4', title: 'Low', duration: 181 },
+    { id: 'sos-5', title: 'Love Language', duration: 183 },
+    { id: 'sos-6', title: 'Blind', duration: 150 },
+    { id: 'sos-7', title: 'Snooze', duration: 201 },
+    { id: 'sos-8', title: 'Nobody Gets Me', duration: 180 },
+    { id: 'sos-9', title: 'Good Days', duration: 279 },
+  ],
+  '2c385052-5083-43a2-b1e5-36566d2ae3c0': [
+    { id: 'ren-1', title: 'I’M THAT GIRL', duration: 208 },
+    { id: 'ren-2', title: 'COZY', duration: 210 },
+    { id: 'ren-3', title: 'ALIEN SUPERSTAR', duration: 215 },
+    { id: 'ren-4', title: 'CUFF IT', duration: 225 },
+    { id: 'ren-5', title: 'ENERGY', duration: 116 },
+    { id: 'ren-6', title: 'BREAK MY SOUL', duration: 278 },
+    { id: 'ren-7', title: 'VIRGO’S GROOVE', duration: 368 },
+    { id: 'ren-8', title: 'HEATED', duration: 260 },
+    { id: 'ren-9', title: 'SUMMER RENAISSANCE', duration: 273 },
+  ],
+  '37cfca48-dabb-48b9-8a76-0ea08a965eb9': [
+    { id: 'fn-1', title: 'Future Nostalgia', duration: 184 },
+    { id: 'fn-2', title: 'Don’t Start Now', duration: 183 },
+    { id: 'fn-3', title: 'Cool', duration: 209 },
+    { id: 'fn-4', title: 'Physical', duration: 193 },
+    { id: 'fn-5', title: 'Levitating', duration: 203 },
+    { id: 'fn-6', title: 'Pretty Please', duration: 194 },
+    { id: 'fn-7', title: 'Hallucinate', duration: 208 },
+    { id: 'fn-8', title: 'Love Again', duration: 258 },
+    { id: 'fn-9', title: 'Break My Heart', duration: 221 },
+  ],
+  '08aa7a6c-3e43-4459-87b2-e47faf3a088a': [
+    { id: 'cur-1', title: 'Let It Happen', duration: 467 },
+    { id: 'cur-2', title: 'Nangs', duration: 107 },
+    { id: 'cur-3', title: 'The Moment', duration: 255 },
+    { id: 'cur-4', title: 'Yes I’m Changing', duration: 270 },
+    { id: 'cur-5', title: 'Eventually', duration: 318 },
+    { id: 'cur-6', title: 'The Less I Know the Better', duration: 216 },
+    { id: 'cur-7', title: 'Disciples', duration: 108 },
+    { id: 'cur-8', title: 'New Person, Same Old Mistakes', duration: 363 },
+  ],
+  'a348ba2f-f8b3-4686-b928-e63d8d94d543': [
+    { id: 'am-1', title: 'Do I Wanna Know?', duration: 272 },
+    { id: 'am-2', title: 'R U Mine?', duration: 201 },
+    { id: 'am-3', title: 'One for the Road', duration: 206 },
+    { id: 'am-4', title: 'Arabella', duration: 207 },
+    { id: 'am-5', title: 'No. 1 Party Anthem', duration: 243 },
+    { id: 'am-6', title: 'Why’d You Only Call Me When You’re High?', duration: 161 },
+    { id: 'am-7', title: 'Snap Out of It', duration: 193 },
+    { id: 'am-8', title: 'Knee Socks', duration: 257 },
+    { id: 'am-9', title: 'I Wanna Be Yours', duration: 183 },
+  ],
+  '0f1b9e07-b38b-4bba-9794-55e0924d7177': [
+    { id: 'igor-1', title: 'IGOR’S THEME', duration: 200 },
+    { id: 'igor-2', title: 'EARFQUAKE', duration: 190 },
+    { id: 'igor-3', title: 'I THINK', duration: 212 },
+    { id: 'igor-4', title: 'RUNNING OUT OF TIME', duration: 177 },
+    { id: 'igor-5', title: 'NEW MAGIC WAND', duration: 195 },
+    { id: 'igor-6', title: 'A BOY IS A GUN*', duration: 210 },
+    { id: 'igor-7', title: 'WHAT’S GOOD', duration: 205 },
+    { id: 'igor-8', title: 'GONE, GONE / THANK YOU', duration: 375 },
+    { id: 'igor-9', title: 'ARE WE STILL FRIENDS?', duration: 265 },
+  ],
+  '0dcc84fb-c592-46e9-ba92-a52bb44dd553': [
+    { id: 'mid-1', title: 'Lavender Haze', duration: 202 },
+    { id: 'mid-2', title: 'Maroon', duration: 218 },
+    { id: 'mid-3', title: 'Anti-Hero', duration: 200 },
+    { id: 'mid-4', title: 'Snow on the Beach', duration: 256 },
+    { id: 'mid-5', title: 'You’re on Your Own, Kid', duration: 194 },
+    { id: 'mid-6', title: 'Midnight Rain', duration: 174 },
+    { id: 'mid-7', title: 'Bejeweled', duration: 194 },
+    { id: 'mid-8', title: 'Karma', duration: 204 },
+    { id: 'mid-9', title: 'Mastermind', duration: 191 },
+  ],
+  '2ae2e504-7116-4b4f-b632-9748bb18ccd2': [
+    { id: 'sour-1', title: 'brutal', duration: 143 },
+    { id: 'sour-2', title: 'traitor', duration: 229 },
+    { id: 'sour-3', title: 'drivers license', duration: 242 },
+    { id: 'sour-4', title: 'deja vu', duration: 215 },
+    { id: 'sour-5', title: 'good 4 u', duration: 178 },
+    { id: 'sour-6', title: 'enough for you', duration: 202 },
+    { id: 'sour-7', title: 'happier', duration: 175 },
+    { id: 'sour-8', title: 'jealousy, jealousy', duration: 173 },
+    { id: 'sour-9', title: 'favorite crime', duration: 152 },
+  ],
+  'e992b449-141b-4aea-b07b-9b2a478a8570': [
+    { id: 'uvst-1', title: 'Moscow Mule', duration: 245 },
+    { id: 'uvst-2', title: 'Después de la playa', duration: 230 },
+    { id: 'uvst-3', title: 'Me porto bonito', duration: 178 },
+    { id: 'uvst-4', title: 'Tití me preguntó', duration: 243 },
+    { id: 'uvst-5', title: 'Un ratito', duration: 176 },
+    { id: 'uvst-6', title: 'Tarot', duration: 237 },
+    { id: 'uvst-7', title: 'Neverita', duration: 173 },
+    { id: 'uvst-8', title: 'Ojitos lindos', duration: 258 },
+    { id: 'uvst-9', title: 'Callaíta', duration: 250 },
+  ],
+  'c8bea388-c195-4177-bf9b-7469f6e695a1': [
+    { id: 'sns-1', title: 'Taste', duration: 157 },
+    { id: 'sns-2', title: 'Please Please Please', duration: 186 },
+    { id: 'sns-3', title: 'Good Graces', duration: 185 },
+    { id: 'sns-4', title: 'Sharpest Tool', duration: 218 },
+    { id: 'sns-5', title: 'Coincidence', duration: 164 },
+    { id: 'sns-6', title: 'Bed Chem', duration: 171 },
+    { id: 'sns-7', title: 'Espresso', duration: 175 },
+    { id: 'sns-8', title: 'Juno', duration: 223 },
+    { id: 'sns-9', title: 'Don’t Smile', duration: 206 },
+  ],
+  'fa566e7b-254a-4fab-8aa5-ebcb7592d7f2': [
+    { id: 'cc-1', title: 'AMERIICAN REQUIEM', duration: 325 },
+    { id: 'cc-2', title: 'BLACKBIIRD', duration: 131 },
+    { id: 'cc-3', title: '16 CARRIAGES', duration: 227 },
+    { id: 'cc-4', title: 'TEXAS HOLD ’EM', duration: 233 },
+    { id: 'cc-5', title: 'BODYGUARD', duration: 240 },
+    { id: 'cc-6', title: 'JOLENE', duration: 189 },
+    { id: 'cc-7', title: 'SPAGHETTII', duration: 158 },
+    { id: 'cc-8', title: 'YA YA', duration: 274 },
+    { id: 'cc-9', title: 'II MOST WANTED', duration: 208 },
+  ],
+  '9d4e5829-e0a6-44f2-98c4-fe51234b1ba5': [
+    { id: 'ttpd-1', title: 'Fortnight', duration: 228 },
+    { id: 'ttpd-2', title: 'The Tortured Poets Department', duration: 293 },
+    { id: 'ttpd-3', title: 'My Boy Only Breaks His Favorite Toys', duration: 203 },
+    { id: 'ttpd-4', title: 'Down Bad', duration: 261 },
+    { id: 'ttpd-5', title: 'So Long, London', duration: 262 },
+    { id: 'ttpd-6', title: 'But Daddy I Love Him', duration: 340 },
+    { id: 'ttpd-7', title: 'Florida!!!', duration: 215 },
+    { id: 'ttpd-8', title: 'Who’s Afraid of Little Old Me?', duration: 334 },
+    { id: 'ttpd-9', title: 'I Can Do It With a Broken Heart', duration: 218 },
+  ],
+  '155bd1f1-0570-41f3-a38c-0dd81373a5b6': [
+    { id: 'con-1', title: 'Deus lhe pague', duration: 199 },
+    { id: 'con-2', title: 'Cotidiano', duration: 170 },
+    { id: 'con-3', title: 'Desalento', duration: 168 },
+    { id: 'con-4', title: 'Construção', duration: 384 },
+    { id: 'con-5', title: 'Cordão', duration: 151 },
+    { id: 'con-6', title: 'Olê, olá', duration: 220 },
+    { id: 'con-7', title: 'Valsinha', duration: 120 },
+    { id: 'con-8', title: 'Minha história', duration: 181 },
+    { id: 'con-9', title: 'Samba de Orly', duration: 160 },
+  ],
+  '65790705-6d7b-3596-a427-fe5b8ab6481d': [
+    { id: 'ac-1', title: 'Brasil Pandeiro', duration: 235 },
+    { id: 'ac-2', title: 'Preta Pretinha', duration: 396 },
+    { id: 'ac-3', title: 'Tinindo, Trincando', duration: 193 },
+    { id: 'ac-4', title: 'Swing de Campo Grande', duration: 188 },
+    { id: 'ac-5', title: 'Acabou Chorare', duration: 253 },
+    { id: 'ac-6', title: 'Mistério do Planeta', duration: 216 },
+    { id: 'ac-7', title: 'A Menina Dança', duration: 231 },
+    { id: 'ac-8', title: 'Besta É Tu', duration: 265 },
+    { id: 'ac-9', title: 'Um Bilhete pra Didi', duration: 192 },
+  ],
 };
 
 function makeAlbumSeed(
@@ -285,9 +472,9 @@ function makeAlbumSeed(
   return {
     id,
     title,
-    cover_xl: getReleaseGroupCoverUrl(id, '1200'),
-    cover_big: getReleaseGroupCoverUrl(id, '500'),
-    cover_medium: getReleaseGroupCoverUrl(id, '500'),
+    cover_xl: getReleaseGroupCoverUrl(id, '500'),
+    cover_big: getReleaseGroupCoverUrl(id, '250'),
+    cover_medium: getReleaseGroupCoverUrl(id, '250'),
     release_date,
     record_type,
     genreName,
@@ -589,7 +776,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Billie Eilish',
     imageUrl: getReleaseGroupCoverUrl(
       '02a544b3-0459-42c7-bd9c-047162e7b67a',
-      '500'
+      '250'
     ),
     genre: 'Pop / Alt-Pop',
     country: 'US',
@@ -601,7 +788,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Kendrick Lamar',
     imageUrl: getReleaseGroupCoverUrl(
       '32cb822c-a14e-49ce-a169-f209c5f31e0f',
-      '500'
+      '250'
     ),
     genre: 'Hip-Hop / Rap',
     country: 'US',
@@ -613,7 +800,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'The Weeknd',
     imageUrl: getReleaseGroupCoverUrl(
       '78570bea-2a26-467c-a3db-c52723ceb394',
-      '500'
+      '250'
     ),
     genre: 'R&B / Synthpop',
     country: 'CA',
@@ -625,7 +812,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Daft Punk',
     imageUrl: getReleaseGroupCoverUrl(
       'aa997ea0-2936-40bd-884d-3af8a0e064dc',
-      '500'
+      '250'
     ),
     genre: 'Eletrônica / French House',
     country: 'FR',
@@ -637,7 +824,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Pink Floyd',
     imageUrl: getReleaseGroupCoverUrl(
       'f5093c06-23e3-404f-aeaa-40f72885ee3a',
-      '500'
+      '250'
     ),
     genre: 'Progressive Rock',
     country: 'GB',
@@ -649,7 +836,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Charli xcx',
     imageUrl: getReleaseGroupCoverUrl(
       'e0fdb431-0109-420d-8a37-f99eaeb4d671',
-      '500'
+      '250'
     ),
     genre: 'Hyperpop / Eletrônica',
     country: 'GB',
@@ -661,7 +848,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Beyoncé',
     imageUrl: getReleaseGroupCoverUrl(
       '2c385052-5083-43a2-b1e5-36566d2ae3c0',
-      '500'
+      '250'
     ),
     genre: 'Pop / R&B',
     country: 'US',
@@ -673,7 +860,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'SZA',
     imageUrl: getReleaseGroupCoverUrl(
       '1646286a-d0ad-4288-bfab-34b0fb7b22c1',
-      '500'
+      '250'
     ),
     genre: 'R&B / Neo-Soul',
     country: 'US',
@@ -685,7 +872,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Radiohead',
     imageUrl: getReleaseGroupCoverUrl(
       'b1392450-e666-3926-a536-22c65f834433',
-      '500'
+      '250'
     ),
     genre: 'Alternative Rock / Art Rock',
     country: 'GB',
@@ -697,7 +884,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Frank Ocean',
     imageUrl: getReleaseGroupCoverUrl(
       '0da340a0-6ad7-4fc2-a272-6f94393a7831',
-      '500'
+      '250'
     ),
     genre: 'R&B / Alternative R&B',
     country: 'US',
@@ -709,7 +896,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Tame Impala',
     imageUrl: getReleaseGroupCoverUrl(
       '08aa7a6c-3e43-4459-87b2-e47faf3a088a',
-      '500'
+      '250'
     ),
     genre: 'Indie / Psychedelic Pop',
     country: 'AU',
@@ -721,7 +908,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Arctic Monkeys',
     imageUrl: getReleaseGroupCoverUrl(
       'a348ba2f-f8b3-4686-b928-e63d8d94d543',
-      '500'
+      '250'
     ),
     genre: 'Indie Rock',
     country: 'GB',
@@ -733,7 +920,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Dua Lipa',
     imageUrl: getReleaseGroupCoverUrl(
       '37cfca48-dabb-48b9-8a76-0ea08a965eb9',
-      '500'
+      '250'
     ),
     genre: 'Pop / Dance-Pop',
     country: 'GB',
@@ -745,7 +932,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Tyler, The Creator',
     imageUrl: getReleaseGroupCoverUrl(
       '0f1b9e07-b38b-4bba-9794-55e0924d7177',
-      '500'
+      '250'
     ),
     genre: 'Hip-Hop / Neo-Soul',
     country: 'US',
@@ -757,7 +944,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Taylor Swift',
     imageUrl: getReleaseGroupCoverUrl(
       '0dcc84fb-c592-46e9-ba92-a52bb44dd553',
-      '500'
+      '250'
     ),
     genre: 'Pop / Synthpop',
     country: 'US',
@@ -769,7 +956,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Olivia Rodrigo',
     imageUrl: getReleaseGroupCoverUrl(
       '2ae2e504-7116-4b4f-b632-9748bb18ccd2',
-      '500'
+      '250'
     ),
     genre: 'Pop / Pop-Rock',
     country: 'US',
@@ -781,7 +968,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Bad Bunny',
     imageUrl: getReleaseGroupCoverUrl(
       'e992b449-141b-4aea-b07b-9b2a478a8570',
-      '500'
+      '250'
     ),
     genre: 'Urbano / Reggaeton',
     country: 'PR',
@@ -793,7 +980,7 @@ export const FEATURED_ARTISTS: CatalogArtist[] = [
     name: 'Sabrina Carpenter',
     imageUrl: getReleaseGroupCoverUrl(
       'c8bea388-c195-4177-bf9b-7469f6e695a1',
-      '500'
+      '250'
     ),
     genre: 'Pop',
     country: 'US',
@@ -1192,15 +1379,15 @@ export function getAlbumInternalData(
     cover_xl:
       fallbackMeta?.cover_xl ||
       discovered?.cover_xl ||
-      getReleaseGroupCoverUrl(albumId, '1200'),
+      getReleaseGroupCoverUrl(albumId, '500'),
     cover_big:
       fallbackMeta?.cover_big ||
       discovered?.cover_big ||
-      getReleaseGroupCoverUrl(albumId, '500'),
+      getReleaseGroupCoverUrl(albumId, '250'),
     cover_medium:
       fallbackMeta?.cover_medium ||
       discovered?.cover_medium ||
-      getReleaseGroupCoverUrl(albumId, '500'),
+      getReleaseGroupCoverUrl(albumId, '250'),
     release_date:
       fallbackMeta?.release_date || discovered?.release_date || '2025',
     record_type:
@@ -1293,7 +1480,7 @@ export function getInstantArtistPreview(artistId: string): {
     name: known?.name || matchingAlbums[0]?.artist.name || 'Artista',
     bannerUrl:
       known?.imageUrl ||
-      matchingAlbums[0]?.cover_xl ||
+      matchingAlbums[0]?.cover_medium ||
       DEFAULT_ARTIST_IMAGE,
     albums: matchingAlbums.filter((a) => a.record_type === 'album'),
     epsAndSingles: matchingAlbums.filter(
@@ -1423,7 +1610,7 @@ const INITIAL_MY_REVIEWS: MyReviewRecord[] = [
     artistName: 'Billie Eilish',
     coverUrl: getReleaseGroupCoverUrl(
       '02a544b3-0459-42c7-bd9c-047162e7b67a',
-      '500'
+      '250'
     ),
     rating: 10,
     comment: 'Uma obra-prima absoluta de design sonoro e atmosferas.',
@@ -1436,7 +1623,7 @@ const INITIAL_MY_REVIEWS: MyReviewRecord[] = [
     artistName: 'Olivia Rodrigo',
     coverUrl: getReleaseGroupCoverUrl(
       '2ae2e504-7116-4b4f-b632-9748bb18ccd2',
-      '500'
+      '250'
     ),
     rating: 9,
     comment: 'Letras marcantes e produções impecáveis do início ao fim.',
@@ -1497,7 +1684,7 @@ const INITIAL_FAVORITES: FavoriteAlbumRecord[] = [
     artist: 'Pink Floyd',
     cover: getReleaseGroupCoverUrl(
       'f5093c06-23e3-404f-aeaa-40f72885ee3a',
-      '500'
+      '250'
     ),
     rating: 9.9,
   },
@@ -1507,7 +1694,7 @@ const INITIAL_FAVORITES: FavoriteAlbumRecord[] = [
     artist: 'The Weeknd',
     cover: getReleaseGroupCoverUrl(
       '78570bea-2a26-467c-a3db-c52723ceb394',
-      '500'
+      '250'
     ),
     rating: 9.3,
   },
@@ -1517,7 +1704,7 @@ const INITIAL_FAVORITES: FavoriteAlbumRecord[] = [
     artist: 'Daft Punk',
     cover: getReleaseGroupCoverUrl(
       'aa997ea0-2936-40bd-884d-3af8a0e064dc',
-      '500'
+      '250'
     ),
     rating: 9.8,
   },
@@ -1576,12 +1763,12 @@ const INITIAL_FEED_POSTS: FeedPostItem[] = [
     friendName: 'Lucas Sound',
     friendUsername: 'lucas_snd',
     friendAvatar:
-      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=200',
+      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=65&w=150',
     albumTitle: 'HIT ME HARD AND SOFT',
     artistName: 'Billie Eilish',
     albumCover: getReleaseGroupCoverUrl(
       '02a544b3-0459-42c7-bd9c-047162e7b67a',
-      '500'
+      '250'
     ),
     albumId: '02a544b3-0459-42c7-bd9c-047162e7b67a',
     rating: 9.5,
@@ -1595,7 +1782,7 @@ const INITIAL_FEED_POSTS: FeedPostItem[] = [
         id: 'c-1',
         author: 'Ana Beatriz',
         avatar:
-          'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200',
+          'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=65&w=150',
         text: 'Concordo totalmente! "LUNCH" e "CHIHIRO" são surreais.',
         time: 'Há 1 hora',
       },
@@ -1606,12 +1793,12 @@ const INITIAL_FEED_POSTS: FeedPostItem[] = [
     friendName: 'Beat Critic',
     friendUsername: 'beatcritic',
     friendAvatar:
-      'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?q=80&w=200',
+      'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?q=65&w=150',
     albumTitle: 'Random Access Memories',
     artistName: 'Daft Punk',
     albumCover: getReleaseGroupCoverUrl(
       'aa997ea0-2936-40bd-884d-3af8a0e064dc',
-      '500'
+      '250'
     ),
     albumId: 'aa997ea0-2936-40bd-884d-3af8a0e064dc',
     rating: 10,
@@ -1662,9 +1849,9 @@ const DEFAULT_USER_PROFILE: UserProfileData = {
   phone: '+55 (48) 99999-9999',
   bio: 'Amante de música pop, indie e crítica sonora alucinógena. Colecionadora de notas 10/10.',
   avatarUrl:
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=400&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=65&w=250&auto=format&fit=crop',
   bannerUrl:
-    'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=1200&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=65&w=600&auto=format&fit=crop',
   profileVisibility: 'public',
   emailNotif: true,
   communityNotif: true,
@@ -2035,9 +2222,9 @@ export function mapReleaseGroupToCatalogAlbum(rg: any, idx = 0): CatalogAlbum {
     record_type: recordType,
     genreName,
     artist,
-    cover_xl: getReleaseGroupCoverUrl(id, '1200'),
-    cover_big: getReleaseGroupCoverUrl(id, '500'),
-    cover_medium: getReleaseGroupCoverUrl(id, '500'),
+    cover_xl: getReleaseGroupCoverUrl(id, '500'),
+    cover_big: getReleaseGroupCoverUrl(id, '250'),
+    cover_medium: getReleaseGroupCoverUrl(id, '250'),
   });
 
   const result: CatalogAlbum = {
@@ -2050,9 +2237,9 @@ export function mapReleaseGroupToCatalogAlbum(rg: any, idx = 0): CatalogAlbum {
     genreName: internalData.genreName || genreName,
     artist:
       artist.name !== 'Artista Desconhecido' ? artist : internalData.artist,
-    cover_xl: getReleaseGroupCoverUrl(id, '1200'),
-    cover_big: getReleaseGroupCoverUrl(id, '500'),
-    cover_medium: getReleaseGroupCoverUrl(id, '500'),
+    cover_xl: getReleaseGroupCoverUrl(id, '500'),
+    cover_big: getReleaseGroupCoverUrl(id, '250'),
+    cover_medium: getReleaseGroupCoverUrl(id, '250'),
   };
 
   discoveredAlbumsMemory.set(id, result);
@@ -2067,7 +2254,7 @@ export async function fetchNewReleasesFromMusicBrainz(
 
   const query = `status:official AND primarytype:album AND date:[${minYear}-01-01 TO ${currentYear}-12-31] NOT artist:"Various Artists"`;
   const data = await mbFetchJson(
-    `release?query=${encodeURIComponent(query)}&limit=40&fmt=json`
+    `release?query=${encodeURIComponent(query)}&limit=24&fmt=json`
   );
 
   const results: CatalogAlbum[] = [];
@@ -2096,12 +2283,12 @@ export async function fetchNewReleasesFromMusicBrainz(
 
       seenReleaseGroups.add(rgId);
       const hasReleaseArtwork = rel['cover-art-archive']?.artwork === true;
+      const cover250 = hasReleaseArtwork
+        ? getReleaseCoverUrl(rel.id, '250')
+        : getReleaseGroupCoverUrl(rgId, '250');
       const cover500 = hasReleaseArtwork
         ? getReleaseCoverUrl(rel.id, '500')
         : getReleaseGroupCoverUrl(rgId, '500');
-      const cover1200 = hasReleaseArtwork
-        ? getReleaseCoverUrl(rel.id, '1200')
-        : getReleaseGroupCoverUrl(rgId, '1200');
 
       const labelInfo = rel['label-info']?.[0]?.label?.name || 'Oficial';
       const baseAlbum = getAlbumInternalData(rgId, {
@@ -2110,9 +2297,9 @@ export async function fetchNewReleasesFromMusicBrainz(
         record_type: normalizeRecordType(rel['release-group']?.['primary-type']),
         label: labelInfo,
         artist,
-        cover_xl: cover1200,
-        cover_big: cover500,
-        cover_medium: cover500,
+        cover_xl: cover500,
+        cover_big: cover250,
+        cover_medium: cover250,
       });
 
       const albumItem: CatalogAlbum = {
@@ -2123,9 +2310,9 @@ export async function fetchNewReleasesFromMusicBrainz(
         release_date: rel.date || baseAlbum.release_date,
         label: labelInfo,
         artist,
-        cover_xl: cover1200,
-        cover_big: cover500,
-        cover_medium: cover500,
+        cover_xl: cover500,
+        cover_big: cover250,
+        cover_medium: cover250,
       };
 
       discoveredAlbumsMemory.set(rgId, albumItem);
@@ -2382,7 +2569,7 @@ export async function searchTracksInMusicBrainz(
           ? getReleaseGroupCoverUrl(releaseGroupId, '250')
           : DEFAULT_ALBUM_COVER,
         cover_big: releaseGroupId
-          ? getReleaseGroupCoverUrl(releaseGroupId, '500')
+          ? getReleaseGroupCoverUrl(releaseGroupId, '250')
           : DEFAULT_ALBUM_COVER,
       },
     });
@@ -2471,8 +2658,8 @@ export async function fetchArtistDetailsFromMusicBrainz(
 
   const bannerUrl =
     knownArtist?.imageUrl ||
-    albums[0]?.cover_xl ||
-    epsAndSingles[0]?.cover_xl ||
+    albums[0]?.cover_medium ||
+    epsAndSingles[0]?.cover_medium ||
     DEFAULT_ARTIST_IMAGE;
 
   return {
@@ -2539,7 +2726,7 @@ export async function fetchAlbumDetailsFromMusicBrainz(
 
         targetReleaseId = officialRelease.id;
       }
-    } else {
+    } else if (!title) {
       targetReleaseId = albumId;
     }
   }
@@ -2549,7 +2736,7 @@ export async function fetchAlbumDetailsFromMusicBrainz(
 
   if (targetReleaseId && tracksList.length === 0) {
     const releaseDetails = await mbFetchJson(
-      `release/${targetReleaseId}?inc=recordings+artist-credits+release-groups+labels+tags&fmt=json`
+      `release/${targetReleaseId}?inc=recordings+labels&fmt=json`
     );
 
     if (releaseDetails && releaseDetails.id) {
@@ -2612,9 +2799,9 @@ export async function fetchAlbumDetailsFromMusicBrainz(
     genreName,
     label,
     artist,
-    cover_xl: getReleaseGroupCoverUrl(releaseGroupId, '1200'),
-    cover_big: getReleaseGroupCoverUrl(releaseGroupId, '500'),
-    cover_medium: getReleaseGroupCoverUrl(releaseGroupId, '500'),
+    cover_xl: getReleaseGroupCoverUrl(releaseGroupId, '500'),
+    cover_big: getReleaseGroupCoverUrl(releaseGroupId, '250'),
+    cover_medium: getReleaseGroupCoverUrl(releaseGroupId, '250'),
   });
 
   const fullAlbum: CatalogAlbum = {
@@ -2627,9 +2814,9 @@ export async function fetchAlbumDetailsFromMusicBrainz(
     genreName,
     label,
     artist,
-    cover_xl: getReleaseGroupCoverUrl(releaseGroupId, '1200'),
-    cover_big: getReleaseGroupCoverUrl(releaseGroupId, '500'),
-    cover_medium: getReleaseGroupCoverUrl(releaseGroupId, '500'),
+    cover_xl: getReleaseGroupCoverUrl(releaseGroupId, '500'),
+    cover_big: getReleaseGroupCoverUrl(releaseGroupId, '250'),
+    cover_medium: getReleaseGroupCoverUrl(releaseGroupId, '250'),
     isFavorite: isAlbumFavorited(releaseGroupId),
     tracks: {
       data: tracksList,

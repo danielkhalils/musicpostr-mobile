@@ -8,10 +8,10 @@ import {
   Dimensions,
 } from 'react-native';
 import { router } from 'expo-router';
+import { Image } from 'expo-image';
 import {
   Star,
   Play,
-  Disc,
   Sparkles,
   TrendingUp,
   ArrowRight,
@@ -622,14 +622,11 @@ export default function HomeScreen() {
         ]}
       >
         <View style={styles.footerBrandRow}>
-          <View
-            style={[
-              styles.footerLogoIcon,
-              { backgroundColor: `${colors.primary}20` },
-            ]}
-          >
-            <Disc size={18} color={colors.primary} />
-          </View>
+          <Image
+            source={require('@/assets/icon_transparent_96x96.png')}
+            style={styles.footerLogoImg}
+            contentFit="contain"
+          />
           <Text style={[styles.footerBrandName, { color: colors.foreground }]}>
             Musicpostr
           </Text>
@@ -973,12 +970,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  footerLogoIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
+  footerLogoImg: {
+    width: 28,
+    height: 28,
   },
   footerBrandName: {
     fontSize: 16,

@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, StyleProp, ViewStyle, ImageStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { Disc, User } from 'lucide-react-native';
-import { markCoverAsMissing } from '@/services/coverArt.service';
+import {
+  markCoverAsMissing,
+  optimizeCoverUrl,
+} from '@/services/coverArt.service';
 import { useAppTheme } from '@/context/ThemeContext';
 
 interface CoverImageProps {
@@ -11,6 +14,7 @@ interface CoverImageProps {
   containerStyle?: StyleProp<ViewStyle>;
   fallbackType?: 'album' | 'artist';
   contentFit?: 'cover' | 'contain';
+  quality?: 'low' | 'medium';
 }
 
 export function CoverImage({
@@ -19,11 +23,21 @@ export function CoverImage({
   containerStyle,
   fallbackType = 'album',
   contentFit = 'cover',
+  quality = 'low',
 }: CoverImageProps) {
   const [hasError, setHasError] = useState(false);
   const { colors } = useAppTheme();
 
-  if (!uri || hasError) {
+  const resolvedUri = optimizeCoverUrl(
+    uri,
+    quality === 'medium' ? '500' : '250'
+  );
+
+  useEffect(() => {
+    setHasError(false);
+  }, [resolvedUri]);
+
+  if (!resolvedUri || hasError) {
     return (
       <View
         style={[
@@ -48,12 +62,15 @@ export function CoverImage({
 
   return (
     <Image
-      source={{ uri }}
+      source={{ uri: resolvedUri }}
       style={style}
       contentFit={contentFit}
-      transition={180}
+      cachePolicy="memory-disk"
+      allowDownscaling={true}
+      recyclingKey={resolvedUri}
+      transition={120}
       onError={() => {
-        if (uri) markCoverAsMissing(uri);
+        if (resolvedUri) markCoverAsMissing(resolvedUri);
         setHasError(true);
       }}
     />

@@ -31,7 +31,7 @@ export default function FriendsScreen() {
       name: 'Lucas Sound',
       username: 'lucas_snd',
       avatar:
-        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=200',
+        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=65&w=150',
       reviewsCount: 34,
     },
     {
@@ -39,7 +39,7 @@ export default function FriendsScreen() {
       name: 'Beat Critic',
       username: 'beatcritic',
       avatar:
-        'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?q=80&w=200',
+        'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?q=65&w=150',
       reviewsCount: 51,
     },
   ]);

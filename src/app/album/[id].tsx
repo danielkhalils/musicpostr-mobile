@@ -220,7 +220,8 @@ export default function AlbumDetailScreen() {
     );
   }
 
-  const coverImage = album.cover_xl || album.cover_big || album.cover_medium;
+  const coverImage = album.cover_medium || album.cover_big || album.cover_xl;
+  const hdCoverImage = album.cover_xl || album.cover_big || album.cover_medium;
   const artistId = album.artist?.id || '';
   const artistName = album.artist?.name || 'Artista';
   const averageRating = album.communityRating.toFixed(1);
@@ -252,8 +253,8 @@ export default function AlbumDetailScreen() {
   const activeCoverUrl = coverArt
     ? coverSide === 'front'
       ? coverArt.frontUrl
-      : coverArt.backUrl ?? coverImage
-    : coverImage;
+      : coverArt.backUrl ?? hdCoverImage
+    : hdCoverImage;
 
   const streamingLinks = [
     {
@@ -928,6 +929,7 @@ export default function AlbumDetailScreen() {
                   uri={activeCoverUrl}
                   style={{ width: '100%', height: 290 }}
                   contentFit="contain"
+                  quality="medium"
                 />
               ) : (
                 <Music size={42} color={colors.mutedForeground} />

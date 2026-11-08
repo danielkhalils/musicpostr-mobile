@@ -1,9 +1,13 @@
 import React, { useEffect } from 'react';
+import { LogBox } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { AppThemeProvider, useAppTheme } from '@/context/ThemeContext';
-import '@/global.css';
+
+LogBox.ignoreLogs([
+  'ImageBackground is deprecated and will be removed in a future release.',
+]);
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 

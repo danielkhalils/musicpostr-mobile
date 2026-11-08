@@ -82,10 +82,10 @@ export function ProfileView({ visitingUsername }: { visitingUsername?: string })
         bio: 'Entusiasta de álbuns conceituais, vinil e descobertas musicais na comunidade Musicpostr.',
         avatarUrl:
           visitingUsername === 'lucas_snd'
-            ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=200'
-            : 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?q=80&w=200',
+            ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=65&w=150'
+            : 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?q=65&w=150',
         bannerUrl:
-          'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=1000&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=65&w=500&auto=format&fit=crop',
         stats: {
           reviews: visitingUsername === 'lucas_snd' ? 34 : 51,
           favorites: 14,

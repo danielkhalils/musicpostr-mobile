@@ -9,10 +9,10 @@ const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 dias
 const NEGATIVE_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 1 dia
 
 export const DEFAULT_ALBUM_COVER =
-  'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=500&auto=format&fit=crop';
+  'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=65&w=250&auto=format&fit=crop';
 
 export const DEFAULT_ARTIST_IMAGE =
-  'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=500&auto=format&fit=crop';
+  'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=65&w=250&auto=format&fit=crop';
 
 const missingCoversMemory = new Set<string>();
 try {
@@ -59,7 +59,7 @@ const memoryCache = new Map<string, CoverArtResult | null>();
 
 export function getReleaseGroupCoverUrl(
   releaseGroupMbid: string,
-  size: '250' | '500' | '1200' = '500'
+  size: '250' | '500' | '1200' = '250'
 ): string {
   if (!releaseGroupMbid) return DEFAULT_ALBUM_COVER;
   if (missingCoversMemory.has(releaseGroupMbid.toLowerCase())) {
@@ -70,13 +70,29 @@ export function getReleaseGroupCoverUrl(
 
 export function getReleaseCoverUrl(
   releaseMbid: string,
-  size: '250' | '500' | '1200' = '500'
+  size: '250' | '500' | '1200' = '250'
 ): string {
   if (!releaseMbid) return DEFAULT_ALBUM_COVER;
   if (missingCoversMemory.has(releaseMbid.toLowerCase())) {
     return DEFAULT_ALBUM_COVER;
   }
   return `${CAA_RELEASE_BASE}/${releaseMbid}/front-${size}`;
+}
+
+export function optimizeCoverUrl(
+  url?: string | null,
+  targetSize: '250' | '500' = '250'
+): string | undefined {
+  if (!url) return undefined;
+  if (url.includes('coverartarchive.org')) {
+    return url.replace(/\/(front|back)-(1200|500)\b/, `/$1-${targetSize}`);
+  }
+  if (url.includes('images.unsplash.com')) {
+    return url
+      .replace(/([?&])q=\d+/, '$1q=65')
+      .replace(/([?&])w=\d+/, `$1w=${targetSize === '250' ? '250' : '500'}`);
+  }
+  return url;
 }
 
 function buildCacheKey(
@@ -157,12 +173,15 @@ function parseCaaImages(
   if (!frontImg) return null;
 
   const frontUrl =
-    frontImg.thumbnails?.['1200'] ||
+    frontImg.thumbnails?.['500'] ||
     frontImg.thumbnails?.large ||
+    frontImg.thumbnails?.['1200'] ||
     frontImg.image ||
-    `${entityType === 'release-group' ? CAA_RELEASE_GROUP_BASE : CAA_RELEASE_BASE}/${mbid}/front-1200`;
+    `${entityType === 'release-group' ? CAA_RELEASE_GROUP_BASE : CAA_RELEASE_BASE}/${mbid}/front-500`;
 
   const frontMediumUrl =
+    frontImg.thumbnails?.['250'] ||
+    frontImg.thumbnails?.small ||
     frontImg.thumbnails?.['500'] ||
     frontImg.thumbnails?.large ||
     frontImg.image;
@@ -173,10 +192,11 @@ function parseCaaImages(
     frontMediumUrl;
 
   const backUrl = backImg
-    ? backImg.thumbnails?.['1200'] ||
+    ? backImg.thumbnails?.['500'] ||
       backImg.thumbnails?.large ||
-      backImg.image ||
-      `${CAA_RELEASE_BASE}/${mbid}/back`
+      backImg.thumbnails?.['250'] ||
+      backImg.thumbnails?.small ||
+      `${CAA_RELEASE_BASE}/${mbid}/back-500`
     : null;
 
   return {
@@ -287,10 +307,10 @@ export async function findAlbumCoverArt(
     const result: CoverArtResult = {
       mbid: withArtwork.id,
       entityType: 'release',
-      frontUrl: `${CAA_RELEASE_BASE}/${withArtwork.id}/front-1200`,
-      frontMediumUrl: `${CAA_RELEASE_BASE}/${withArtwork.id}/front-500`,
+      frontUrl: `${CAA_RELEASE_BASE}/${withArtwork.id}/front-500`,
+      frontMediumUrl: `${CAA_RELEASE_BASE}/${withArtwork.id}/front-250`,
       frontSmallUrl: `${CAA_RELEASE_BASE}/${withArtwork.id}/front-250`,
-      backUrl: caa.back ? `${CAA_RELEASE_BASE}/${withArtwork.id}/back` : null,
+      backUrl: caa.back ? `${CAA_RELEASE_BASE}/${withArtwork.id}/back-500` : null,
     };
 
     writeCache(cacheKey, result);

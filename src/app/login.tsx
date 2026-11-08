@@ -9,8 +9,8 @@ import {
   StyleSheet,
 } from 'react-native';
 import { router } from 'expo-router';
+import { Image } from 'expo-image';
 import {
-  Music,
   Mail,
   Lock,
   User,
@@ -66,17 +66,11 @@ export default function AuthScreen() {
 
         {/* Cabeçalho */}
         <View style={styles.headerCenter}>
-          <View
-            style={[
-              styles.logoBox,
-              {
-                backgroundColor: `${colors.primary}18`,
-                borderColor: `${colors.primary}40`,
-              },
-            ]}
-          >
-            <Music size={24} color={colors.primary} />
-          </View>
+          <Image
+            source={require('@/assets/icon_transparent_128x128.png')}
+            style={styles.logoImg}
+            contentFit="contain"
+          />
           <Text style={[styles.brandTitle, { color: colors.foreground }]}>
             Musicpostr
           </Text>
@@ -392,13 +386,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  logoBox: {
-    width: 50,
-    height: 50,
-    borderRadius: 16,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+  logoImg: {
+    width: 56,
+    height: 56,
     marginBottom: 4,
   },
   brandTitle: {
