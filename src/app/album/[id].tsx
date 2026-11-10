@@ -9,7 +9,11 @@ import {
   Modal,
   Linking,
   StyleSheet,
+  Platform,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
 import {
@@ -25,10 +29,12 @@ import {
   Headphones,
   Heart,
   X,
+  Disc,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { MobileHeader } from '@/components/MobileHeader';
 import { CoverImage } from '@/components/CoverImage';
+import { StreamingIcon } from '@/components/StreamingIcon';
 import {
   findAlbumCoverArt,
   type CoverArtResult,
@@ -59,7 +65,8 @@ const GEN_Z_PHRASES: Record<number, { text: string; color: string }> = {
 
 export default function AlbumDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
+  const insets = useSafeAreaInsets();
 
   const [album, setAlbum] = useState<CatalogAlbum | null>(() =>
     id ? getInstantAlbumPreview(id) : null
@@ -282,51 +289,92 @@ export default function AlbumDetailScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <MobileHeader />
+      {/* Botão Voltar Fixo no Topo Flutuando */}
+      <View
+        style={[
+          styles.floatingHeaderBar,
+          { top: Math.max(insets.top, 10) },
+        ]}
+        pointerEvents="box-none"
+      >
+        <TouchableOpacity
+          style={styles.backCircleBtn}
+          onPress={() => safeGoBack(artistId ? `/artist/${artistId}` : '/(tabs)/artists')}
+          activeOpacity={0.85}
+        >
+          <ArrowLeft size={18} color="#fff" />
+        </TouchableOpacity>
+      </View>
+
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
       >
-        {/* Botão Voltar */}
-        <TouchableOpacity
-          style={styles.backLink}
-          onPress={() => safeGoBack(artistId ? `/artist/${artistId}` : '/(tabs)/artists')}
-        >
-          <ArrowLeft size={15} color={colors.mutedForeground} />
-          <Text
-            style={{
-              fontSize: 12,
-              fontWeight: '700',
-              color: colors.mutedForeground,
-            }}
-          >
-            Voltar
-          </Text>
-        </TouchableOpacity>
+        {/* Banner Hero com a Capa em Blur no Fundo */}
+        <View style={styles.blurHeroWrapper}>
+        {/* Imagem de Capa no Fundo com Blur */}
+        <View style={StyleSheet.absoluteFill}>
+          <CoverImage
+            uri={coverImage}
+            style={{ width: '100%', height: '100%' }}
+            quality="medium"
+          />
 
-        {/* Hero Card do Álbum */}
-        <View
-          style={[
-            styles.heroCard,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <View style={styles.heroTopRow}>
+          {/* Camada Blur nativa */}
+          {Platform.OS === 'ios' || Platform.OS === 'android' ? (
+            <BlurView
+              intensity={isDark ? 65 : 50}
+              tint={isDark ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFill}
+            />
+          ) : null}
+
+          {/* Gradiente para fundir suavemente com a cor de fundo do tema */}
+          <LinearGradient
+            colors={[
+              isDark ? 'rgba(9, 9, 11, 0.45)' : 'rgba(255, 255, 255, 0.35)',
+              isDark ? 'rgba(9, 9, 11, 0.75)' : 'rgba(255, 255, 255, 0.7)',
+              colors.background,
+            ]}
+            locations={[0, 0.6, 1]}
+            style={StyleSheet.absoluteFill}
+          />
+        </View>
+
+          {/* Conteúdo Central do Hero: Capa Nítida e Nota Pitchfork Style */}
+          <View
+            style={[
+              styles.heroForegroundContent,
+              { paddingTop: Math.max(insets.top + 52, 64) },
+            ]}
+          >
+            {/* Capa Centralizada com Botão de HD */}
             <TouchableOpacity
               onPress={handleOpenCoverModal}
-              style={styles.coverContainer}
-              activeOpacity={0.85}
+              style={styles.heroCoverTouch}
+              activeOpacity={0.88}
             >
-              <CoverImage uri={coverImage} style={styles.coverImg} />
-              <View style={styles.hdOverlay}>
+              <CoverImage
+                uri={coverImage}
+                style={styles.heroCoverImage}
+                quality="high"
+              />
+              <View style={styles.hdBadgeOverlay}>
                 <Maximize2 size={11} color="#fff" />
-                <Text style={styles.hdOverlayText}>Ver em HD</Text>
+                <Text style={styles.hdBadgeText}>HD</Text>
               </View>
             </TouchableOpacity>
 
-            <View style={{ flex: 1, gap: 4 }}>
-              <Text style={[styles.albumTitle, { color: colors.foreground }]}>
+            {/* Título e Artista */}
+            <View style={styles.heroTitlesBlock}>
+              <Text
+                style={[
+                  styles.heroAlbumTitle,
+                  { color: colors.foreground },
+                ]}
+                numberOfLines={2}
+              >
                 {album.title}
               </Text>
               <TouchableOpacity
@@ -334,58 +382,111 @@ export default function AlbumDetailScreen() {
                 onPress={() =>
                   artistId && router.push(`/artist/${artistId}` as any)
                 }
+                activeOpacity={0.7}
               >
-                <Text style={[styles.artistName, { color: colors.primary }]}>
+                <Text style={[styles.heroArtistName, { color: colors.primary }]}>
                   {artistName}
                 </Text>
               </TouchableOpacity>
+            </View>
 
-              <Text
-                style={[styles.metaLine, { color: colors.mutedForeground }]}
-              >
-                {album.release_date?.substring(0, 4) || '2025'} •{' '}
-                {recordTypeLabel}
-              </Text>
-              <Text
-                style={[styles.metaLine, { color: colors.mutedForeground }]}
-              >
-                {album.listenersCount.toLocaleString('pt-BR')} ouvintes •{' '}
-                {album.totalReviews} avaliações
-              </Text>
-
-              {/* Nota da Comunidade */}
+            {/* Círculo de Nota de Destaque Estilo Pitchfork */}
+            <View style={styles.pitchforkScoreSection}>
               <View
                 style={[
-                  styles.scoreBox,
+                  styles.pitchforkCircle,
                   {
-                    backgroundColor: `${colors.primary}18`,
-                    borderColor: `${colors.primary}45`,
+                    backgroundColor: colors.card,
+                    borderColor: colors.primary,
+                    shadowColor: colors.primary,
                   },
                 ]}
               >
-                <Text
-                  style={{
-                    fontSize: 10,
-                    fontWeight: '700',
-                    color: colors.mutedForeground,
-                  }}
-                >
-                  Nota da Comunidade
+                <Text style={[styles.pitchforkScoreText, { color: colors.foreground }]}>
+                  {averageRating}
                 </Text>
-                <Text
-                  style={{
-                    fontSize: 18,
-                    fontWeight: '900',
-                    color: colors.primary,
-                  }}
-                >
-                  ★ {averageRating}
+              </View>
+              <View style={styles.pitchforkMetaCol}>
+                <Text style={[styles.pitchforkLabel, { color: colors.foreground }]}>
+                  NOTA DA COMUNIDADE
+                </Text>
+                <Text style={[styles.pitchforkSubLabel, { color: colors.mutedForeground }]}>
+                  Baseada em {album.totalReviews} avaliações de ouvintes
                 </Text>
               </View>
             </View>
           </View>
+        </View>
 
-          {/* Ações Rápidas (Ouvido / Favorito) */}
+        {/* Sessão de Informações do Álbum (fora do card, estrutura limpa) */}
+        <View style={styles.albumInfoSection}>
+          <View style={styles.sectionHeadingLine}>
+            <Disc size={18} color={colors.primary} />
+            <Text style={[styles.sectionHeadingTitle, { color: colors.foreground }]}>
+              Informações do Álbum
+            </Text>
+          </View>
+
+          {/* Grid de Metadados Limpos */}
+          <View style={styles.infoGrid}>
+            <View
+              style={[
+                styles.infoGridItem,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+            >
+              <Text style={[styles.infoGridLabel, { color: colors.mutedForeground }]}>
+                Formato
+              </Text>
+              <Text style={[styles.infoGridValue, { color: colors.foreground }]}>
+                {recordTypeLabel}
+              </Text>
+            </View>
+
+            <View
+              style={[
+                styles.infoGridItem,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+            >
+              <Text style={[styles.infoGridLabel, { color: colors.mutedForeground }]}>
+                Ano de Lançamento
+              </Text>
+              <Text style={[styles.infoGridValue, { color: colors.foreground }]}>
+                {album.release_date?.substring(0, 4) || '—'}
+              </Text>
+            </View>
+
+            <View
+              style={[
+                styles.infoGridItem,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+            >
+              <Text style={[styles.infoGridLabel, { color: colors.mutedForeground }]}>
+                Gênero Musical
+              </Text>
+              <Text style={[styles.infoGridValue, { color: colors.foreground }]}>
+                {album.genreName || 'Música'}
+              </Text>
+            </View>
+
+            <View
+              style={[
+                styles.infoGridItem,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+            >
+              <Text style={[styles.infoGridLabel, { color: colors.mutedForeground }]}>
+                Ouvintes Registrados
+              </Text>
+              <Text style={[styles.infoGridValue, { color: colors.foreground }]}>
+                {album.listenersCount.toLocaleString('pt-BR')}
+              </Text>
+            </View>
+          </View>
+
+          {/* Ações Rápidas (Já Ouvi / Favoritar) */}
           <View style={styles.quickActionsRow}>
             <TouchableOpacity
               onPress={handleToggleListened}
@@ -450,19 +551,21 @@ export default function AlbumDetailScreen() {
           {/* Links de Streaming */}
           <View
             style={[
-              styles.streamingSection,
-              { borderTopColor: colors.border },
+              styles.streamingBox,
+              { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
             <Text
               style={{
-                fontSize: 11,
-                fontWeight: '700',
+                fontSize: 11.5,
+                fontWeight: '800',
                 color: colors.foreground,
-                marginBottom: 8,
+                marginBottom: 10,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
               }}
             >
-              Ouvir no Streaming:
+              Ouvir no Streaming
             </Text>
             <View style={styles.streamingBtnsWrap}>
               {streamingLinks.map((st) => (
@@ -470,28 +573,17 @@ export default function AlbumDetailScreen() {
                   key={st.label}
                   onPress={() => Linking.openURL(st.url).catch(() => {})}
                   style={[
-                    styles.streamingPill,
+                    styles.streamingLogoBtn,
                     {
                       backgroundColor: colors.secondary,
                       borderColor: colors.border,
                     },
                   ]}
+                  activeOpacity={0.7}
+                  accessibilityLabel={st.label}
+                  accessibilityRole="button"
                 >
-                  <View
-                    style={[
-                      styles.streamingDot,
-                      { backgroundColor: st.color },
-                    ]}
-                  />
-                  <Text
-                    style={{
-                      fontSize: 11,
-                      fontWeight: '700',
-                      color: colors.foreground,
-                    }}
-                  >
-                    {st.label}
-                  </Text>
+                  <StreamingIcon name={st.label} size={28} />
                 </TouchableOpacity>
               ))}
             </View>
@@ -619,24 +711,24 @@ export default function AlbumDetailScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Lista de Faixas (Tracklist) */}
+        {/* Sessão: Músicas do Álbum (fora de card, estrutura limpa de lista) */}
         {album.tracks &&
         album.tracks.data &&
         album.tracks.data.length > 0 ? (
-          <View
-            style={[
-              styles.sectionCard,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
-          >
-            <View style={styles.sectionTitleRow}>
+          <View style={styles.tracksSection}>
+            <View style={styles.sectionHeadingLine}>
               <Clock size={18} color={colors.primary} />
-              <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+              <Text style={[styles.sectionHeadingTitle, { color: colors.foreground }]}>
                 Músicas do Álbum ({album.tracks.data.length})
               </Text>
             </View>
 
-            <View style={{ marginTop: 8 }}>
+            <View
+              style={[
+                styles.tracklistContainer,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+            >
               {album.tracks.data.map((track, index) => (
                 <View
                   key={track.id}
@@ -677,14 +769,10 @@ export default function AlbumDetailScreen() {
         ) : isLoadingTracks ? (
           <View
             style={[
-              styles.sectionCard,
+              styles.tracksLoadingBox,
               {
                 backgroundColor: colors.card,
                 borderColor: colors.border,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
               },
             ]}
           >
@@ -989,7 +1077,6 @@ export default function AlbumDetailScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    padding: 14,
     paddingBottom: 40,
     gap: 16,
   },
@@ -1005,75 +1092,164 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
   },
-  backLink: {
+  floatingHeaderBar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    zIndex: 30,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'space-between',
   },
-  heroCard: {
-    borderRadius: 20,
+  backCircleBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
     borderWidth: 1,
-    padding: 14,
-    gap: 14,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
   },
-  heroTopRow: {
-    flexDirection: 'row',
-    gap: 14,
-  },
-  coverContainer: {
-    width: 122,
-    height: 122,
-    borderRadius: 16,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  coverImg: {
+  blurHeroWrapper: {
     width: '100%',
-    height: '100%',
+    position: 'relative',
+    overflow: 'hidden',
   },
-  hdOverlay: {
+  heroForegroundContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 28,
+    alignItems: 'center',
+    gap: 16,
+  },
+  heroCoverTouch: {
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.45,
+    shadowRadius: 18,
+    elevation: 14,
+  },
+  heroCoverImage: {
+    width: 210,
+    height: 210,
+    borderRadius: 18,
+  },
+  hdBadgeOverlay: {
     position: 'absolute',
-    bottom: 6,
-    right: 6,
+    bottom: 8,
+    right: 8,
     backgroundColor: 'rgba(0,0,0,0.75)',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
-  hdOverlayText: {
+  hdBadgeText: {
     color: '#fff',
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  albumTitle: {
-    fontSize: 19,
-    fontWeight: '900',
-    lineHeight: 23,
-  },
-  artistName: {
-    fontSize: 14,
+    fontSize: 10,
     fontWeight: '800',
   },
-  metaLine: {
-    fontSize: 11,
+  heroTitlesBlock: {
+    alignItems: 'center',
+    gap: 4,
+    maxWidth: '90%',
   },
-  scoreBox: {
-    marginTop: 4,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
+  heroAlbumTitle: {
+    fontSize: 24,
+    fontWeight: '900',
+    lineHeight: 28,
+    textAlign: 'center',
+    letterSpacing: -0.5,
+  },
+  heroArtistName: {
+    fontSize: 16,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  pitchforkScoreSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginTop: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0, 0, 0, 0.22)',
     borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  pitchforkCircle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    borderWidth: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  pitchforkScoreText: {
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: -1,
+  },
+  pitchforkMetaCol: {
+    justifyContent: 'center',
+  },
+  pitchforkLabel: {
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  pitchforkSubLabel: {
+    fontSize: 11,
+    marginTop: 2,
+    maxWidth: 190,
+  },
+  albumInfoSection: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    gap: 14,
+  },
+  sectionHeadingLine: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
+  sectionHeadingTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  infoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  infoGridItem: {
+    width: '48.4%',
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 4,
+  },
+  infoGridLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  infoGridValue: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
   quickActionsRow: {
     flexDirection: 'row',
     gap: 10,
+    marginTop: 2,
   },
   quickActionBtn: {
     flex: 1,
@@ -1081,35 +1257,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    height: 38,
+    height: 40,
     borderRadius: 999,
     borderWidth: 1,
   },
-  streamingSection: {
-    borderTopWidth: 1,
-    paddingTop: 12,
+  streamingBox: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
   },
   streamingBtnsWrap: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  streamingPill: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
+    gap: 12,
   },
-  streamingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
+  streamingLogoBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
   },
   rateCard: {
-    borderRadius: 20,
+    marginHorizontal: 16,
+    borderRadius: 16,
     borderWidth: 1,
     padding: 16,
     gap: 12,
@@ -1169,13 +1346,29 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   sectionCard: {
-    borderRadius: 20,
+    marginHorizontal: 16,
+    borderRadius: 16,
     borderWidth: 1,
     padding: 16,
   },
-  sectionTitleRow: {
+  tracksSection: {
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  tracklistContainer: {
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  tracksLoadingBox: {
+    marginHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
   },
   sectionTitle: {

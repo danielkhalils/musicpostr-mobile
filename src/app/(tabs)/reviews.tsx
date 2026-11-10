@@ -1,5 +1,4 @@
 import { CoverImage } from '@/components/CoverImage';
-import { TabHeader } from '@/components/TabHeader';
 import { useAppTheme } from '@/context/ThemeContext';
 import {
   type CatalogAlbum,
@@ -26,6 +25,7 @@ import {
   X,
 } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Modal,
   ScrollView,
@@ -58,6 +58,7 @@ interface CommunityReviewCardItem {
 
 export default function CommunityReviewsScreen() {
   const { colors, isDark } = useAppTheme();
+  const insets = useSafeAreaInsets();
 
   const [filter, setFilter] = useState<CommunityFilter>('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -245,14 +246,21 @@ export default function CommunityReviewsScreen() {
   }, [allReviews]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <TabHeader title="Comunidades" />
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={styles.container}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.background }}
+      contentContainerStyle={[
+        styles.container,
+        { paddingTop: Math.max(insets.top, 16) },
+      ]}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
+      {/* Título Principal da Página */}
+      <View style={styles.pageHeaderBlock}>
+        <Text style={[styles.mainPageTitle, { color: colors.foreground }]}>
+          Comunidades
+        </Text>
+      </View>
       {/* 1. Barra de Busca de Reviews e Álbuns + Botão de Criar Comunidade */}
       <View style={styles.topSearchContainer}>
         <View
@@ -876,8 +884,7 @@ export default function CommunityReviewsScreen() {
           </View>
         </View>
       </Modal>
-      </ScrollView>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -886,6 +893,15 @@ const styles = StyleSheet.create({
     padding: 14,
     paddingBottom: 110,
     gap: 16,
+  },
+  pageHeaderBlock: {
+    paddingVertical: 2,
+    marginBottom: -4,
+  },
+  mainPageTitle: {
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: -0.6,
   },
   topSearchContainer: {
     flexDirection: 'row',

@@ -23,7 +23,7 @@ import {
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
 import { CoverImage } from '@/components/CoverImage';
-import { TabHeader } from '@/components/TabHeader';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface RankingAlbum extends CatalogAlbum {
   rank: number;
@@ -54,6 +54,7 @@ function computeInitialRankings(mode: RankingFilterMode): RankingAlbum[] {
 
 export default function RankingsScreen() {
   const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ filter?: string }>();
 
   const [filterMode, setFilterMode] = useState<RankingFilterMode>('top-rated');
@@ -108,13 +109,20 @@ export default function RankingsScreen() {
         );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <TabHeader title="Rankings" />
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={styles.container}
-        showsVerticalScrollIndicator={false}
-      >
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.background }}
+      contentContainerStyle={[
+        styles.container,
+        { paddingTop: Math.max(insets.top, 16) },
+      ]}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Título Principal da Página */}
+      <View style={styles.pageHeaderBlock}>
+        <Text style={[styles.mainPageTitle, { color: colors.foreground }]}>
+          Rankings
+        </Text>
+      </View>
       {/* Filtros de Ranking no Topo */}
       <View style={styles.filterBarContainer}>
         <ScrollView
@@ -435,8 +443,7 @@ export default function RankingsScreen() {
           </TouchableOpacity>
         ))}
       </View>
-      </ScrollView>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -445,6 +452,15 @@ const styles = StyleSheet.create({
     padding: 14,
     paddingBottom: 110,
     gap: 16,
+  },
+  pageHeaderBlock: {
+    paddingVertical: 2,
+    marginBottom: -4,
+  },
+  mainPageTitle: {
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: -0.6,
   },
   filterBarContainer: {
     marginBottom: 4,

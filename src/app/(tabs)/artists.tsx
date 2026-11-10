@@ -37,7 +37,7 @@ import {
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
 import { CoverImage } from '@/components/CoverImage';
-import { TabHeader } from '@/components/TabHeader';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type SearchCategory =
   | 'all'
@@ -78,6 +78,7 @@ const RECORD_LABELS = [
 
 export default function GlobalSearchScreen() {
   const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<SearchCategory>('all');
@@ -259,14 +260,21 @@ export default function GlobalSearchScreen() {
       : filteredAlbums;
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <TabHeader title="Buscar" />
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.background }}
+      contentContainerStyle={[
+        styles.container,
+        { paddingTop: Math.max(insets.top, 16) },
+      ]}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Título Principal da Página */}
+      <View style={styles.pageHeaderBlock}>
+        <Text style={[styles.mainPageTitle, { color: colors.foreground }]}>
+          Pesquisar
+        </Text>
+      </View>
       {/* Barra de pesquisa e Filtros no topo (Sem sessão de introdução) */}
       <View style={styles.topFilterBar}>
         <View
@@ -812,8 +820,7 @@ export default function GlobalSearchScreen() {
           )}
         </View>
       )}
-      </ScrollView>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -822,6 +829,15 @@ const styles = StyleSheet.create({
     padding: 14,
     paddingBottom: 110,
     gap: 16,
+  },
+  pageHeaderBlock: {
+    paddingVertical: 2,
+    marginBottom: -4,
+  },
+  mainPageTitle: {
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: -0.6,
   },
   topFilterBar: {
     gap: 12,

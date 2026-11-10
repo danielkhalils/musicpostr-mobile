@@ -10,6 +10,10 @@ LogBox.ignoreLogs([
   'ImageBackground is deprecated and will be removed in a future release.',
 ]);
 
+export const unstable_settings = {
+  anchor: '(tabs)',
+};
+
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function RootNavigator() {

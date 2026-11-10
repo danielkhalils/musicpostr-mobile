@@ -7,15 +7,14 @@ import {
   Share,
   Linking,
   StyleSheet,
-  Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { safeGoBack } from '@/utils/navigation';
 import {
   User,
   Star,
   Heart,
-  Globe,
   Camera,
   Users,
   Award,
@@ -42,9 +41,7 @@ import {
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
 import { CoverImage } from '@/components/CoverImage';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const STAT_PILL_WIDTH = (SCREEN_WIDTH - 76) / 3;
+import { SocialIcon } from '@/components/SocialIcon';
 
 type ProfileHistoryTab = 'all' | 'reviews' | 'favorites' | 'idols' | 'lists';
 
@@ -155,17 +152,6 @@ export function ProfileView({
     }
   };
 
-  const socialLabels: Record<string, string> = {
-    instagram: 'Instagram',
-    twitter: 'X / Twitter',
-    threads: 'Threads',
-    discord: 'Discord',
-    lastfm: 'Last.fm',
-    youtube: 'YouTube',
-    tiktok: 'TikTok',
-    website: 'Site',
-  };
-
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.background }}
@@ -190,7 +176,7 @@ export function ProfileView({
         >
           {isVisiting && (
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={() => safeGoBack('/(tabs)/reviews')}
               style={styles.topCircleBtn}
               accessibilityLabel="Voltar"
               activeOpacity={0.85}
@@ -279,7 +265,7 @@ export function ProfileView({
           {displayProfile.bio}
         </Text>
 
-        {/* Redes Conectadas */}
+        {/* Redes Conectadas com Símbolos dos Apps */}
         {displayProfile.socials && (
           <ScrollView
             horizontal
@@ -293,228 +279,248 @@ export function ProfileView({
                   key={key}
                   onPress={() => Linking.openURL(url).catch(() => {})}
                   style={[
-                    styles.socialPill,
+                    styles.socialCircleBtn,
                     {
                       backgroundColor: colors.secondary,
                       borderColor: colors.border,
                     },
                   ]}
+                  accessibilityLabel={key}
+                  activeOpacity={0.8}
                 >
-                  <Globe size={11} color={colors.primary} />
-                  <Text
-                    style={{
-                      fontSize: 10.5,
-                      fontWeight: '700',
-                      color: colors.foreground,
-                    }}
-                  >
-                    {socialLabels[key] || key}
-                  </Text>
+                  <SocialIcon name={key} size={15} color={colors.foreground} />
                 </TouchableOpacity>
               );
             })}
           </ScrollView>
         )}
 
-        {/* Cards Compactos e Otimizados de Avaliações, Favoritos, Média, Amigos, Ídolos e Listas */}
-        <View style={styles.compactStatsGrid}>
-          <TouchableOpacity
-            style={[
-              styles.compactStatCard,
-              {
-                width: STAT_PILL_WIDTH,
-                backgroundColor:
-                  historyTab === 'reviews'
-                    ? `${colors.primary}20`
-                    : colors.secondary,
-                borderColor:
-                  historyTab === 'reviews' ? colors.primary : colors.border,
-              },
-            ]}
-            onPress={() => setHistoryTab('reviews')}
+        {/* Card Unificado de Estatísticas com Separador Pipe */}
+        <View
+          style={[
+            styles.unifiedStatsCard,
+            {
+              backgroundColor: colors.secondary,
+              borderColor: colors.border,
+            },
+          ]}
+        >
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.unifiedStatsScroll}
           >
-            <View style={styles.compactStatHeader}>
-              <Star size={12} color={colors.primary} fill={colors.primary} />
-              <Text
-                style={[styles.compactStatValue, { color: colors.foreground }]}
-              >
-                {displayProfile.stats.reviews}
-              </Text>
-            </View>
-            <Text
+            {/* Avaliações */}
+            <TouchableOpacity
               style={[
-                styles.compactStatLabel,
-                { color: colors.mutedForeground },
+                styles.unifiedStatItem,
+                historyTab === 'reviews' && {
+                  backgroundColor: `${colors.primary}18`,
+                  borderRadius: 10,
+                },
               ]}
-              numberOfLines={1}
+              onPress={() => setHistoryTab('reviews')}
+              activeOpacity={0.7}
             >
-              Avaliações
-            </Text>
-          </TouchableOpacity>
+              <View style={styles.unifiedStatHeader}>
+                <Star size={12} color={colors.primary} fill={colors.primary} />
+                <Text
+                  style={[styles.unifiedStatValue, { color: colors.foreground }]}
+                >
+                  {displayProfile.stats.reviews}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  styles.unifiedStatLabel,
+                  {
+                    color:
+                      historyTab === 'reviews'
+                        ? colors.primary
+                        : colors.mutedForeground,
+                  },
+                ]}
+              >
+                Avaliações
+              </Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[
-              styles.compactStatCard,
-              {
-                width: STAT_PILL_WIDTH,
-                backgroundColor:
-                  historyTab === 'favorites'
-                    ? `${colors.rose}20`
-                    : colors.secondary,
-                borderColor:
-                  historyTab === 'favorites' ? colors.rose : colors.border,
-              },
-            ]}
-            onPress={() => setHistoryTab('favorites')}
-          >
-            <View style={styles.compactStatHeader}>
-              <Heart size={12} color={colors.rose} fill={colors.rose} />
-              <Text
-                style={[styles.compactStatValue, { color: colors.foreground }]}
-              >
-                {displayProfile.stats.favorites}
-              </Text>
-            </View>
-            <Text
-              style={[
-                styles.compactStatLabel,
-                { color: colors.mutedForeground },
-              ]}
-              numberOfLines={1}
-            >
-              Favoritos
-            </Text>
-          </TouchableOpacity>
+            <View
+              style={[styles.pipeDivider, { backgroundColor: colors.border }]}
+            />
 
-          <View
-            style={[
-              styles.compactStatCard,
-              {
-                width: STAT_PILL_WIDTH,
-                backgroundColor: colors.secondary,
-                borderColor: colors.border,
-              },
-            ]}
-          >
-            <View style={styles.compactStatHeader}>
-              <Award size={12} color={colors.amber} />
+            {/* Média */}
+            <View style={styles.unifiedStatItem}>
+              <View style={styles.unifiedStatHeader}>
+                <Award size={12} color={colors.amber} />
+                <Text
+                  style={[styles.unifiedStatValue, { color: colors.foreground }]}
+                >
+                  {displayProfile.stats.avgRating}
+                </Text>
+              </View>
               <Text
-                style={[styles.compactStatValue, { color: colors.foreground }]}
+                style={[
+                  styles.unifiedStatLabel,
+                  { color: colors.mutedForeground },
+                ]}
               >
-                {displayProfile.stats.avgRating}
+                Média
               </Text>
             </View>
-            <Text
-              style={[
-                styles.compactStatLabel,
-                { color: colors.mutedForeground },
-              ]}
-              numberOfLines={1}
-            >
-              Média
-            </Text>
-          </View>
 
-          <TouchableOpacity
-            style={[
-              styles.compactStatCard,
-              {
-                width: STAT_PILL_WIDTH,
-                backgroundColor:
-                  historyTab === 'idols' ? '#a855f720' : colors.secondary,
-                borderColor:
-                  historyTab === 'idols' ? '#a855f7' : colors.border,
-              },
-            ]}
-            onPress={() => setHistoryTab('idols')}
-          >
-            <View style={styles.compactStatHeader}>
-              <User size={12} color="#a855f7" />
-              <Text
-                style={[styles.compactStatValue, { color: colors.foreground }]}
-              >
-                {displayProfile.stats.idols}
-              </Text>
-            </View>
-            <Text
-              style={[
-                styles.compactStatLabel,
-                { color: colors.mutedForeground },
-              ]}
-              numberOfLines={1}
-            >
-              Ídolos
-            </Text>
-          </TouchableOpacity>
+            <View
+              style={[styles.pipeDivider, { backgroundColor: colors.border }]}
+            />
 
-          <TouchableOpacity
-            style={[
-              styles.compactStatCard,
-              {
-                width: STAT_PILL_WIDTH,
-                backgroundColor:
-                  historyTab === 'lists'
-                    ? `${colors.emerald}20`
-                    : colors.secondary,
-                borderColor:
-                  historyTab === 'lists' ? colors.emerald : colors.border,
-              },
-            ]}
-            onPress={() => setHistoryTab('lists')}
-          >
-            <View style={styles.compactStatHeader}>
-              <ListMusic size={12} color={colors.emerald} />
-              <Text
-                style={[styles.compactStatValue, { color: colors.foreground }]}
-              >
-                {displayProfile.stats.lists}
-              </Text>
-            </View>
-            <Text
+            {/* Listas */}
+            <TouchableOpacity
               style={[
-                styles.compactStatLabel,
-                { color: colors.mutedForeground },
+                styles.unifiedStatItem,
+                historyTab === 'lists' && {
+                  backgroundColor: `${colors.emerald}18`,
+                  borderRadius: 10,
+                },
               ]}
-              numberOfLines={1}
+              onPress={() => setHistoryTab('lists')}
+              activeOpacity={0.7}
             >
-              Listas
-            </Text>
-          </TouchableOpacity>
+              <View style={styles.unifiedStatHeader}>
+                <ListMusic size={12} color={colors.emerald} />
+                <Text
+                  style={[styles.unifiedStatValue, { color: colors.foreground }]}
+                >
+                  {displayProfile.stats.lists}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  styles.unifiedStatLabel,
+                  {
+                    color:
+                      historyTab === 'lists'
+                        ? colors.emerald
+                        : colors.mutedForeground,
+                  },
+                ]}
+              >
+                Listas
+              </Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[
-              styles.compactStatCard,
-              {
-                width: STAT_PILL_WIDTH,
-                backgroundColor: colors.secondary,
-                borderColor: colors.border,
-              },
-            ]}
-            onPress={() =>
-              router.push({
-                pathname: '/friends' as any,
-                params: isVisiting ? { username: displayProfile.username } : {},
-              })
-            }
-          >
-            <View style={styles.compactStatHeader}>
-              <Users size={12} color="#3b82f6" />
-              <Text
-                style={[styles.compactStatValue, { color: colors.foreground }]}
-              >
-                {displayProfile.stats.friends}
-              </Text>
-            </View>
-            <Text
-              style={[
-                styles.compactStatLabel,
-                { color: colors.mutedForeground },
-              ]}
-              numberOfLines={1}
+            <View
+              style={[styles.pipeDivider, { backgroundColor: colors.border }]}
+            />
+
+            {/* Amigos */}
+            <TouchableOpacity
+              style={styles.unifiedStatItem}
+              onPress={() =>
+                router.push({
+                  pathname: '/friends' as any,
+                  params: isVisiting
+                    ? { username: displayProfile.username }
+                    : {},
+                })
+              }
+              activeOpacity={0.7}
             >
-              Amigos
-            </Text>
-          </TouchableOpacity>
+              <View style={styles.unifiedStatHeader}>
+                <Users size={12} color="#3b82f6" />
+                <Text
+                  style={[styles.unifiedStatValue, { color: colors.foreground }]}
+                >
+                  {displayProfile.stats.friends}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  styles.unifiedStatLabel,
+                  { color: colors.mutedForeground },
+                ]}
+              >
+                Amigos
+              </Text>
+            </TouchableOpacity>
+
+            <View
+              style={[styles.pipeDivider, { backgroundColor: colors.border }]}
+            />
+
+            {/* Ídolos */}
+            <TouchableOpacity
+              style={[
+                styles.unifiedStatItem,
+                historyTab === 'idols' && {
+                  backgroundColor: '#a855f718',
+                  borderRadius: 10,
+                },
+              ]}
+              onPress={() => setHistoryTab('idols')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.unifiedStatHeader}>
+                <User size={12} color="#a855f7" />
+                <Text
+                  style={[styles.unifiedStatValue, { color: colors.foreground }]}
+                >
+                  {displayProfile.stats.idols}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  styles.unifiedStatLabel,
+                  {
+                    color:
+                      historyTab === 'idols'
+                        ? '#a855f7'
+                        : colors.mutedForeground,
+                  },
+                ]}
+              >
+                Ídolos
+              </Text>
+            </TouchableOpacity>
+
+            <View
+              style={[styles.pipeDivider, { backgroundColor: colors.border }]}
+            />
+
+            {/* Favoritos */}
+            <TouchableOpacity
+              style={[
+                styles.unifiedStatItem,
+                historyTab === 'favorites' && {
+                  backgroundColor: `${colors.rose}18`,
+                  borderRadius: 10,
+                },
+              ]}
+              onPress={() => setHistoryTab('favorites')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.unifiedStatHeader}>
+                <Heart size={12} color={colors.rose} fill={colors.rose} />
+                <Text
+                  style={[styles.unifiedStatValue, { color: colors.foreground }]}
+                >
+                  {displayProfile.stats.favorites}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  styles.unifiedStatLabel,
+                  {
+                    color:
+                      historyTab === 'favorites'
+                        ? colors.rose
+                        : colors.mutedForeground,
+                  },
+                ]}
+              >
+                Favoritos
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
       </View>
 
@@ -861,7 +867,7 @@ const styles = StyleSheet.create({
   },
   bannerBox: {
     width: '100%',
-    height: 195,
+    height: 165,
     overflow: 'hidden',
     position: 'relative',
   },
@@ -896,97 +902,107 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   mainCard: {
-    marginTop: -26,
+    marginTop: -22,
     marginHorizontal: 14,
-    borderRadius: 22,
+    borderRadius: 20,
     borderWidth: 1,
-    padding: 14,
-    gap: 10,
+    padding: 12,
+    gap: 8,
   },
   avatarHeaderRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 12,
-    marginTop: -38,
+    gap: 10,
+    marginTop: -32,
   },
   avatarWrapper: {
     position: 'relative',
-    borderWidth: 3.5,
+    borderWidth: 3,
     borderRadius: 999,
   },
   avatarImg: {
-    width: 76,
-    height: 76,
+    width: 64,
+    height: 64,
     borderRadius: 999,
   },
   cameraBadge: {
     position: 'absolute',
     bottom: 0,
     right: 0,
-    width: 24,
-    height: 24,
+    width: 22,
+    height: 22,
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
   },
   identityRightCol: {
     flex: 1,
-    paddingBottom: 4,
+    paddingBottom: 2,
   },
   userName: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '900',
   },
   handleText: {
-    fontSize: 12.5,
+    fontSize: 12,
     fontWeight: '700',
-    marginTop: 1,
+    marginTop: 0,
   },
   bioText: {
-    fontSize: 12.5,
-    lineHeight: 18,
-    opacity: 0.92,
+    fontSize: 12,
+    lineHeight: 17,
+    opacity: 0.9,
   },
   socialsRow: {
-    gap: 6,
-    paddingTop: 2,
+    gap: 8,
+    paddingTop: 0,
   },
-  socialPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
+  socialCircleBtn: {
+    width: 34,
+    height: 34,
     borderRadius: 999,
     borderWidth: 1,
-  },
-  compactStatsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 4,
-  },
-  compactStatCard: {
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
   },
-  compactStatHeader: {
+  unifiedStatsCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    marginTop: 4,
+  },
+  unifiedStatsScroll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  unifiedStatItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    minWidth: 70,
+    gap: 3,
+  },
+  unifiedStatHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
-  compactStatValue: {
-    fontSize: 15,
+  unifiedStatValue: {
+    fontSize: 14,
     fontWeight: '900',
   },
-  compactStatLabel: {
+  unifiedStatLabel: {
     fontSize: 10,
     fontWeight: '700',
+  },
+  pipeDivider: {
+    width: 1,
+    height: 22,
+    marginHorizontal: 2,
+    opacity: 0.7,
   },
   historyTabsRow: {
     gap: 8,

@@ -17,6 +17,7 @@ export default function TabsLayout() {
           tabBarShowLabel: false,
           tabBarActiveTintColor: colors.primary,
           tabBarInactiveTintColor: colors.mutedForeground,
+          sceneStyle: { backgroundColor: colors.background },
           tabBarStyle: {
             position: "absolute",
             bottom: bottomOffset,
