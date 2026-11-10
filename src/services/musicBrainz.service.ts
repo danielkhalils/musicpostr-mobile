@@ -1,24 +1,24 @@
 import {
   getReleaseGroupCoverUrl,
   getReleaseCoverUrl,
-  DEFAULT_ALBUM_COVER,
-  DEFAULT_ARTIST_IMAGE,
+  getFallbackImageUrl,
 } from './coverArt.service';
 import { Storage, AppEvents } from './storage';
 
 const MB_API_BASE = 'https://musicbrainz.org/ws/2';
 
 const STORAGE_KEYS = {
-  ALBUM_STATS: 'musicpostr_internal_albums_v3',
+  ALBUM_STATS: 'musicpostr_internal_albums_v4',
   MY_REVIEWS: 'musicpostr_my_reviews_v3',
   FAVORITES: 'musicpostr_favorites_v3',
-  FEED: 'musicpostr_community_feed_v3',
-  API_CACHE_PREFIX: 'musicpostr_mb_cache_v4_',
+  FEED: 'musicpostr_community_feed_v4',
+  API_CACHE_PREFIX: 'musicpostr_mb_cache_v5_',
   NEW_RELEASES_CACHE: 'musicpostr_new_releases_v3',
   IDOLS_IDS: 'musicpostr_idols',
   IDOLS_DATA: 'musicpostr_idols_data_v3',
   USER_PROFILE: 'musicpostr_user_profile_v2',
   USER_LISTS: 'musicpostr_user_lists_v1',
+  TIMELINE_INTRO_PENDING: 'musicpostr_timeline_intro_pending_v1',
 };
 
 const API_CACHE_TTL = 1000 * 60 * 60 * 12; // 12 horas
@@ -91,8 +91,11 @@ export interface CatalogArtist {
   type?: string;
 }
 
+export type FeedActivityType = 'review' | 'favorite' | 'follow_idol' | 'list';
+
 export interface FeedPostItem {
   id: string;
+  activityType?: FeedActivityType;
   friendName: string;
   friendUsername: string;
   friendAvatar: string;
@@ -100,6 +103,8 @@ export interface FeedPostItem {
   artistName: string;
   albumCover: string;
   albumId: string;
+  artistId?: string;
+  artistGenre?: string;
   rating: number;
   comment: string;
   timeAgo: string;
@@ -469,12 +474,20 @@ function makeAlbumSeed(
 
   const builtinTracks = BUILTIN_ALBUM_TRACKS[id];
 
+  const isUuid = /^[a-f0-9-]{36}$/i.test(id);
+  const cover500 = isUuid
+    ? getReleaseGroupCoverUrl(id, '500')
+    : getFallbackImageUrl(id, 'album');
+  const cover250 = isUuid
+    ? getReleaseGroupCoverUrl(id, '250')
+    : getFallbackImageUrl(id, 'album');
+
   return {
     id,
     title,
-    cover_xl: getReleaseGroupCoverUrl(id, '500'),
-    cover_big: getReleaseGroupCoverUrl(id, '250'),
-    cover_medium: getReleaseGroupCoverUrl(id, '250'),
+    cover_xl: cover500,
+    cover_big: cover250,
+    cover_medium: cover250,
     release_date,
     record_type,
     genreName,
@@ -767,6 +780,58 @@ const INITIAL_INTERNAL_ALBUMS: CatalogAlbum[] = [
     9.7,
     150,
     2480
+  ),
+  makeAlbumSeed(
+    'ep-dont-smile-at-me',
+    'dont smile at me',
+    'f4abc0b5-3f7a-4eff-8f78-ac078dbce533',
+    'Billie Eilish',
+    '2017-08-11',
+    'Pop',
+    'Darkroom / Interscope',
+    9.1,
+    118,
+    2450,
+    'ep'
+  ),
+  makeAlbumSeed(
+    'ep-vroom-vroom',
+    'Vroom Vroom',
+    '260b6184-8828-48eb-945c-bc4cb6fc34ca',
+    'Charli xcx',
+    '2016-02-26',
+    'Eletrônica',
+    'Vroom Vroom Recordings',
+    9.3,
+    96,
+    1980,
+    'ep'
+  ),
+  makeAlbumSeed(
+    'single-not-like-us',
+    'Not Like Us',
+    '381086ea-f511-4aba-bdf9-71c753dc5077',
+    'Kendrick Lamar',
+    '2024-05-04',
+    'Hip-Hop',
+    'pgLang / Interscope',
+    9.7,
+    210,
+    3920,
+    'single'
+  ),
+  makeAlbumSeed(
+    'single-espresso',
+    'Espresso',
+    '1882fe91-cdd9-49c9-9956-8e06a3810bd4',
+    'Sabrina Carpenter',
+    '2024-04-11',
+    'Pop',
+    'Island Records',
+    9.0,
+    144,
+    2890,
+    'single'
   ),
 ];
 
@@ -1458,6 +1523,9 @@ export function getInstantArtistPreview(artistId: string): {
   id: string;
   name: string;
   bannerUrl: string;
+  genre: string;
+  country: string;
+  nbFans: number;
   albums: CatalogAlbum[];
   epsAndSingles: CatalogAlbum[];
 } | null {
@@ -1480,8 +1548,13 @@ export function getInstantArtistPreview(artistId: string): {
     name: known?.name || matchingAlbums[0]?.artist.name || 'Artista',
     bannerUrl:
       known?.imageUrl ||
+      matchingAlbums[0]?.cover_xl ||
       matchingAlbums[0]?.cover_medium ||
-      DEFAULT_ARTIST_IMAGE,
+      getFallbackImageUrl(artistId, 'artist'),
+    genre:
+      known?.genre || matchingAlbums[0]?.genreName || 'Artista Oficial',
+    country: known?.country || '',
+    nbFans: known?.nbFans || 1850,
     albums: matchingAlbums.filter((a) => a.record_type === 'album'),
     epsAndSingles: matchingAlbums.filter(
       (a) => a.record_type === 'ep' || a.record_type === 'single'
@@ -1584,6 +1657,7 @@ export function submitInternalAlbumReview(
 
   addCommunityFeedPost({
     id: `feed-${Date.now()}`,
+    activityType: 'review',
     friendName: activeName,
     friendUsername: profile.username,
     friendAvatar: profile.avatarUrl,
@@ -1747,6 +1821,24 @@ export function toggleFavoriteAlbum(album: CatalogAlbum): boolean {
       },
       ...current,
     ];
+    const profile = getUserProfile();
+    addCommunityFeedPost({
+      id: `feed-fav-${Date.now()}`,
+      activityType: 'favorite',
+      friendName: profile.name,
+      friendUsername: profile.username,
+      friendAvatar: profile.avatarUrl,
+      albumTitle: album.title,
+      artistName: album.artist.name,
+      albumCover: album.cover_big || album.cover_medium,
+      albumId: album.id,
+      rating: album.communityRating,
+      comment: `Adicionou "${album.title}" de ${album.artist.name} aos álbuns favoritos! ❤️`,
+      timeAgo: 'Agora mesmo',
+      likesCount: 1,
+      isLiked: true,
+      comments: [],
+    });
   }
   try {
     Storage.setItem(STORAGE_KEYS.FAVORITES, JSON.stringify(next));
@@ -1760,6 +1852,7 @@ export function toggleFavoriteAlbum(album: CatalogAlbum): boolean {
 const INITIAL_FEED_POSTS: FeedPostItem[] = [
   {
     id: 'feed-1',
+    activityType: 'review',
     friendName: 'Lucas Sound',
     friendUsername: 'lucas_snd',
     friendAvatar:
@@ -1774,7 +1867,7 @@ const INITIAL_FEED_POSTS: FeedPostItem[] = [
     rating: 9.5,
     comment:
       'A transição entre as faixas e a produção vocal neste álbum estão em outro patamar. Simplesmente envolvente do início ao fim!',
-    timeAgo: 'Há 2 horas',
+    timeAgo: 'Há 1 hora',
     likesCount: 14,
     isLiked: false,
     comments: [
@@ -1784,12 +1877,90 @@ const INITIAL_FEED_POSTS: FeedPostItem[] = [
         avatar:
           'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=65&w=150',
         text: 'Concordo totalmente! "LUNCH" e "CHIHIRO" são surreais.',
+        time: 'Há 45 min',
+      },
+    ],
+  },
+  {
+    id: 'feed-my-1',
+    activityType: 'review',
+    friendName: 'Ana Beatriz',
+    friendUsername: 'anabeat',
+    friendAvatar:
+      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=65&w=250&auto=format&fit=crop',
+    albumTitle: 'GNX',
+    artistName: 'Kendrick Lamar',
+    albumCover: getReleaseGroupCoverUrl(
+      '32cb822c-a14e-49ce-a169-f209c5f31e0f',
+      '250'
+    ),
+    albumId: '32cb822c-a14e-49ce-a169-f209c5f31e0f',
+    rating: 10,
+    comment:
+      'Compartilhando minha nota: rimas afiadas, batidas pesadas e energia pura da Costa Oeste. Nota 10 sem dúvidas!',
+    timeAgo: 'Há 2 horas',
+    likesCount: 22,
+    isLiked: true,
+    comments: [
+      {
+        id: 'c-2',
+        author: 'Lucas Sound',
+        avatar:
+          'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=65&w=150',
+        text: 'Nota merecidíssima! "luther" não sai do meu repeat.',
         time: 'Há 1 hora',
       },
     ],
   },
   {
+    id: 'feed-fav-1',
+    activityType: 'favorite',
+    friendName: 'Beat Critic',
+    friendUsername: 'beatcritic',
+    friendAvatar:
+      'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?q=65&w=150',
+    albumTitle: 'The Dark Side of the Moon',
+    artistName: 'Pink Floyd',
+    albumCover: getReleaseGroupCoverUrl(
+      'f5093c06-23e3-404f-aeaa-40f72885ee3a',
+      '250'
+    ),
+    albumId: 'f5093c06-23e3-404f-aeaa-40f72885ee3a',
+    rating: 9.9,
+    comment:
+      'Favoritou este álbum clássico na coleção pessoal de discos prediletos.',
+    timeAgo: 'Há 3 horas',
+    likesCount: 19,
+    isLiked: false,
+    comments: [],
+  },
+  {
+    id: 'feed-idol-1',
+    activityType: 'follow_idol',
+    friendName: 'Lucas Sound',
+    friendUsername: 'lucas_snd',
+    friendAvatar:
+      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=65&w=150',
+    albumTitle: 'Daft Punk',
+    artistName: 'Eletrônica / French House',
+    albumCover: getReleaseGroupCoverUrl(
+      'aa997ea0-2936-40bd-884d-3af8a0e064dc',
+      '250'
+    ),
+    albumId: 'aa997ea0-2936-40bd-884d-3af8a0e064dc',
+    artistId: '056e4f3e-d505-4dad-8ec1-d04f521cbb56',
+    artistGenre: 'Eletrônica / French House',
+    rating: 9.8,
+    comment:
+      'Passou a seguir Daft Punk como ídolo musical na comunidade!',
+    timeAgo: 'Há 4 horas',
+    likesCount: 11,
+    isLiked: true,
+    comments: [],
+  },
+  {
     id: 'feed-2',
+    activityType: 'review',
     friendName: 'Beat Critic',
     friendUsername: 'beatcritic',
     friendAvatar:
@@ -1836,6 +2007,28 @@ export function saveCommunityFeedPosts(posts: FeedPostItem[]): void {
 export function addCommunityFeedPost(post: FeedPostItem): void {
   const current = getCommunityFeedPosts();
   saveCommunityFeedPosts([post, ...current]);
+}
+
+export function triggerTimelineIntroOnSignup(): void {
+  try {
+    Storage.setItem(STORAGE_KEYS.TIMELINE_INTRO_PENDING, 'true');
+    AppEvents.emit('musicpostr:albums-updated');
+  } catch {
+    // ignore
+  }
+}
+
+export function consumeTimelineIntroOnce(): boolean {
+  try {
+    const val = Storage.getItem(STORAGE_KEYS.TIMELINE_INTRO_PENDING);
+    if (val === 'true') {
+      Storage.removeItem(STORAGE_KEYS.TIMELINE_INTRO_PENDING);
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 // ============================================================================
@@ -1963,6 +2156,27 @@ export function toggleFollowArtist(artist: CatalogArtist): string[] {
     } catch {
       // ignore
     }
+
+    const profile = getUserProfile();
+    addCommunityFeedPost({
+      id: `feed-idol-${Date.now()}`,
+      activityType: 'follow_idol',
+      friendName: profile.name,
+      friendUsername: profile.username,
+      friendAvatar: profile.avatarUrl,
+      albumTitle: artist.name,
+      artistName: artist.genre || 'Artista',
+      albumCover: artist.imageUrl,
+      albumId: '',
+      artistId: artist.id,
+      artistGenre: artist.genre,
+      rating: 10,
+      comment: `Começou a seguir ${artist.name} como ídolo musical! 🌟`,
+      timeAgo: 'Agora mesmo',
+      likesCount: 1,
+      isLiked: true,
+      comments: [],
+    });
   }
 
   try {
@@ -2511,7 +2725,10 @@ export async function searchArtistsInMusicBrainz(
       const item: CatalogArtist = {
         id: artist.id,
         name: artist.name,
-        imageUrl: known?.imageUrl || internalArtistAlbum?.cover_medium || '',
+        imageUrl:
+          known?.imageUrl ||
+          internalArtistAlbum?.cover_medium ||
+          getFallbackImageUrl(artist.id || artist.name, 'artist'),
         genre,
         country: artist.country || artist.area?.name || '',
         nbFans: known?.nbFans || 150 + (hash % 2500),
@@ -2567,10 +2784,10 @@ export async function searchTracksInMusicBrainz(
         title: albumTitle,
         cover_medium: releaseGroupId
           ? getReleaseGroupCoverUrl(releaseGroupId, '250')
-          : DEFAULT_ALBUM_COVER,
+          : getFallbackImageUrl(rec.id || rec.title, 'album'),
         cover_big: releaseGroupId
           ? getReleaseGroupCoverUrl(releaseGroupId, '250')
-          : DEFAULT_ALBUM_COVER,
+          : getFallbackImageUrl(rec.id || rec.title, 'album'),
       },
     });
   }
@@ -2658,9 +2875,10 @@ export async function fetchArtistDetailsFromMusicBrainz(
 
   const bannerUrl =
     knownArtist?.imageUrl ||
+    albums[0]?.cover_xl ||
     albums[0]?.cover_medium ||
     epsAndSingles[0]?.cover_medium ||
-    DEFAULT_ARTIST_IMAGE;
+    getFallbackImageUrl(artistId || artistName, 'artist');
 
   return {
     id: artistId,

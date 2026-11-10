@@ -290,11 +290,15 @@ export default function AlbumDetailScreen() {
         {/* Botão Voltar */}
         <TouchableOpacity
           style={styles.backLink}
-          onPress={() =>
-            artistId
-              ? router.push(`/artist/${artistId}` as any)
-              : router.back()
-          }
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else if (artistId) {
+              router.replace(`/artist/${artistId}` as any);
+            } else {
+              router.replace('/(tabs)/artists' as any);
+            }
+          }}
         >
           <ArrowLeft size={15} color={colors.mutedForeground} />
           <Text
@@ -304,7 +308,7 @@ export default function AlbumDetailScreen() {
               color: colors.mutedForeground,
             }}
           >
-            Voltar para {artistId ? artistName : 'Catálogo'}
+            Voltar
           </Text>
         </TouchableOpacity>
 

@@ -12,10 +12,8 @@ import {
 import { router } from 'expo-router';
 import {
   User,
-  Mail,
   Star,
   Heart,
-  Edit3,
   Globe,
   Camera,
   Users,
@@ -24,12 +22,19 @@ import {
   Share2,
   Check,
   Settings,
+  Trash2,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import {
+  type MyReviewRecord,
+  type FavoriteAlbumRecord,
+  type CatalogArtist,
+  type UserListRecord,
   getUserProfile,
   getMyReviews,
+  deleteMyReview,
   getFavoriteAlbums,
+  getFollowedArtists,
   getFollowedArtistIds,
   getUserLists,
   subscribeAlbumsUpdated,
@@ -37,37 +42,55 @@ import {
 import { CoverImage } from '@/components/CoverImage';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const STAT_CARD_WIDTH = (SCREEN_WIDTH - 64) / 2;
+const STAT_PILL_WIDTH = (SCREEN_WIDTH - 76) / 3;
 
-export function ProfileView({ visitingUsername }: { visitingUsername?: string }) {
+type ProfileHistoryTab = 'all' | 'reviews' | 'favorites' | 'idols' | 'lists';
+
+export function ProfileView({
+  visitingUsername,
+}: {
+  visitingUsername?: string;
+}) {
   const { colors } = useAppTheme();
   const isVisiting = Boolean(
     visitingUsername && visitingUsername !== 'anabeat'
   );
 
   const [copied, setCopied] = useState(false);
+  const [historyTab, setHistoryTab] = useState<ProfileHistoryTab>('all');
+
   const [profile, setProfile] = useState(() => getUserProfile());
-  const [reviewsCount, setReviewsCount] = useState(
-    () => getMyReviews().length + 26
+  const [reviews, setReviews] = useState<MyReviewRecord[]>(() =>
+    getMyReviews()
   );
-  const [favoritesCount, setFavoritesCount] = useState(
-    () => getFavoriteAlbums().length
+  const [favorites, setFavorites] = useState<FavoriteAlbumRecord[]>(() =>
+    getFavoriteAlbums()
+  );
+  const [idols, setIdols] = useState<CatalogArtist[]>(() =>
+    getFollowedArtists()
   );
   const [idolsCount, setIdolsCount] = useState(
     () => getFollowedArtistIds().length
   );
-  const [listsCount, setListsCount] = useState(() => getUserLists().length);
+  const [lists, setLists] = useState<UserListRecord[]>(() => getUserLists());
 
   useEffect(() => {
     const unsubscribe = subscribeAlbumsUpdated(() => {
       setProfile(getUserProfile());
-      setReviewsCount(getMyReviews().length + 26);
-      setFavoritesCount(getFavoriteAlbums().length);
+      setReviews(getMyReviews());
+      setFavorites(getFavoriteAlbums());
+      setIdols(getFollowedArtists());
       setIdolsCount(getFollowedArtistIds().length);
-      setListsCount(getUserLists().length);
+      setLists(getUserLists());
     });
     return unsubscribe;
   }, []);
+
+  const handleDeleteReview = (id: string) => {
+    if (isVisiting) return;
+    const updated = deleteMyReview(id);
+    setReviews(updated);
+  };
 
   const displayProfile = isVisiting
     ? {
@@ -99,12 +122,20 @@ export function ProfileView({ visitingUsername }: { visitingUsername?: string })
     : {
         ...profile,
         stats: {
-          reviews: reviewsCount,
-          favorites: favoritesCount,
-          avgRating: 9.2,
+          reviews: reviews.length,
+          favorites: favorites.length,
+          avgRating:
+            reviews.length > 0
+              ? Number(
+                  (
+                    reviews.reduce((acc, r) => acc + r.rating, 0) /
+                    reviews.length
+                  ).toFixed(1)
+                )
+              : 9.2,
           friends: 42,
           idols: idolsCount,
-          lists: listsCount,
+          lists: lists.length,
         },
       };
 
@@ -138,15 +169,43 @@ export function ProfileView({ visitingUsername }: { visitingUsername?: string })
       contentContainerStyle={styles.container}
       showsVerticalScrollIndicator={false}
     >
-      {/* Banner */}
+      {/* Foto de Capa com Botão de Configurações no Topo */}
       <View style={styles.bannerBox}>
         <CoverImage
           uri={displayProfile.bannerUrl}
           style={styles.bannerImg}
         />
+        <View style={styles.bannerOverlay} />
+
+        {/* Ações no topo da tela (Engrenagem de Configurações e Compartilhar) */}
+        <View style={styles.topHeaderBar}>
+          <TouchableOpacity
+            onPress={handleShareProfile}
+            style={styles.topCircleBtn}
+            accessibilityLabel="Compartilhar Perfil"
+            activeOpacity={0.85}
+          >
+            {copied ? (
+              <Check size={17} color={colors.emerald} />
+            ) : (
+              <Share2 size={17} color="#fff" />
+            )}
+          </TouchableOpacity>
+
+          {!isVisiting && (
+            <TouchableOpacity
+              onPress={() => router.push('/settings' as any)}
+              style={styles.topCircleBtn}
+              accessibilityLabel="Configurações"
+              activeOpacity={0.85}
+            >
+              <Settings size={18} color="#fff" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
-      {/* Card Principal */}
+      {/* Card Principal de Perfil Social Móvel */}
       <View
         style={[
           styles.mainCard,
@@ -156,7 +215,8 @@ export function ProfileView({ visitingUsername }: { visitingUsername?: string })
           },
         ]}
       >
-        <View style={styles.topRow}>
+        {/* Linha do Avatar e Identidade */}
+        <View style={styles.avatarHeaderRow}>
           <View
             style={[
               styles.avatarWrapper,
@@ -176,226 +236,236 @@ export function ProfileView({ visitingUsername }: { visitingUsername?: string })
                   { backgroundColor: colors.primary },
                 ]}
               >
-                <Camera size={12} color="#fff" />
+                <Camera size={11} color="#fff" />
               </TouchableOpacity>
             )}
           </View>
 
-          <View style={styles.actionBtnsRow}>
-            <TouchableOpacity
-              onPress={handleShareProfile}
-              style={[
-                styles.outlineBtn,
-                {
-                  backgroundColor: colors.secondary,
-                  borderColor: colors.border,
-                },
-              ]}
+          <View style={styles.identityRightCol}>
+            <Text
+              style={[styles.userName, { color: colors.foreground }]}
+              numberOfLines={1}
             >
-              {copied ? (
-                <>
-                  <Check size={14} color={colors.emerald} />
+              {displayProfile.name}
+            </Text>
+            <Text style={[styles.handleText, { color: colors.primary }]}>
+              @{displayProfile.username}
+            </Text>
+          </View>
+        </View>
+
+        {/* Descrição (Bio) */}
+        <Text style={[styles.bioText, { color: colors.foreground }]}>
+          {displayProfile.bio}
+        </Text>
+
+        {/* Redes Conectadas */}
+        {displayProfile.socials && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.socialsRow}
+          >
+            {Object.entries(displayProfile.socials).map(([key, url]) => {
+              if (!url) return null;
+              return (
+                <TouchableOpacity
+                  key={key}
+                  onPress={() => Linking.openURL(url).catch(() => {})}
+                  style={[
+                    styles.socialPill,
+                    {
+                      backgroundColor: colors.secondary,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Globe size={11} color={colors.primary} />
                   <Text
                     style={{
-                      fontSize: 12,
-                      fontWeight: '700',
-                      color: colors.emerald,
-                    }}
-                  >
-                    Compartilhado
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Share2 size={14} color={colors.foreground} />
-                  <Text
-                    style={{
-                      fontSize: 12,
+                      fontSize: 10.5,
                       fontWeight: '700',
                       color: colors.foreground,
                     }}
                   >
-                    Compartilhar
+                    {socialLabels[key] || key}
                   </Text>
-                </>
-              )}
-            </TouchableOpacity>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
 
-            {!isVisiting && (
-              <TouchableOpacity
-                onPress={() => router.push('/settings' as any)}
-                style={[
-                  styles.outlineBtn,
-                  {
-                    backgroundColor: colors.secondary,
-                    borderColor: colors.border,
-                  },
-                ]}
-              >
-                <Edit3 size={14} color={colors.foreground} />
-                <Text
-                  style={{
-                    fontSize: 12,
-                    fontWeight: '700',
-                    color: colors.foreground,
-                  }}
-                >
-                  Editar
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        {/* Identidade e Bio */}
-        <View style={styles.identitySection}>
-          <Text style={[styles.userName, { color: colors.foreground }]}>
-            {displayProfile.name}
-          </Text>
-          <View style={styles.handleRow}>
-            <Text style={[styles.handleText, { color: colors.primary }]}>
-              @{displayProfile.username}
-            </Text>
-            <Text style={{ color: colors.mutedForeground }}>•</Text>
-            <Mail size={12} color={colors.mutedForeground} />
-            <Text
-              style={[styles.emailText, { color: colors.mutedForeground }]}
-              numberOfLines={1}
-            >
-              {displayProfile.email}
-            </Text>
-          </View>
-
-          <Text style={[styles.bioText, { color: colors.foreground }]}>
-            {displayProfile.bio}
-          </Text>
-
-          {/* Links de Redes Sociais */}
-          {displayProfile.socials && (
-            <View style={styles.socialsRow}>
-              {Object.entries(displayProfile.socials).map(([key, url]) => {
-                if (!url) return null;
-                return (
-                  <TouchableOpacity
-                    key={key}
-                    onPress={() => Linking.openURL(url).catch(() => {})}
-                    style={[
-                      styles.socialPill,
-                      {
-                        backgroundColor: colors.secondary,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  >
-                    <Globe size={12} color={colors.primary} />
-                    <Text
-                      style={{
-                        fontSize: 11,
-                        fontWeight: '700',
-                        color: colors.foreground,
-                      }}
-                    >
-                      {socialLabels[key] || key}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
-        </View>
-
-        {/* Painel de 6 Estatísticas */}
-        <View style={styles.statsGrid}>
+        {/* Cards Compactos e Otimizados de Avaliações, Favoritos, Média, Amigos, Ídolos e Listas */}
+        <View style={styles.compactStatsGrid}>
           <TouchableOpacity
             style={[
-              styles.statCard,
+              styles.compactStatCard,
               {
-                width: STAT_CARD_WIDTH,
-                backgroundColor: `${colors.primary}15`,
-                borderColor: `${colors.primary}45`,
+                width: STAT_PILL_WIDTH,
+                backgroundColor:
+                  historyTab === 'reviews'
+                    ? `${colors.primary}20`
+                    : colors.secondary,
+                borderColor:
+                  historyTab === 'reviews' ? colors.primary : colors.border,
               },
             ]}
-            onPress={() => router.push('/my-reviews' as any)}
+            onPress={() => setHistoryTab('reviews')}
           >
-            <View style={styles.statTopRow}>
+            <View style={styles.compactStatHeader}>
+              <Star size={12} color={colors.primary} fill={colors.primary} />
               <Text
-                style={[styles.statLabel, { color: colors.mutedForeground }]}
+                style={[styles.compactStatValue, { color: colors.foreground }]}
               >
-                Avaliações
+                {displayProfile.stats.reviews}
               </Text>
-              <Star size={15} color={colors.primary} fill={colors.primary} />
             </View>
-            <Text style={[styles.statNumber, { color: colors.foreground }]}>
-              {displayProfile.stats.reviews}
-            </Text>
-            <Text style={[styles.statSub, { color: colors.mutedForeground }]}>
-              Discos avaliados
+            <Text
+              style={[
+                styles.compactStatLabel,
+                { color: colors.mutedForeground },
+              ]}
+              numberOfLines={1}
+            >
+              Avaliações
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[
-              styles.statCard,
+              styles.compactStatCard,
               {
-                width: STAT_CARD_WIDTH,
-                backgroundColor: colors.secondary,
-                borderColor: colors.border,
+                width: STAT_PILL_WIDTH,
+                backgroundColor:
+                  historyTab === 'favorites'
+                    ? `${colors.rose}20`
+                    : colors.secondary,
+                borderColor:
+                  historyTab === 'favorites' ? colors.rose : colors.border,
               },
             ]}
-            onPress={() =>
-              router.push({
-                pathname: '/favorites' as any,
-                params: isVisiting ? { username: displayProfile.username } : {},
-              })
-            }
+            onPress={() => setHistoryTab('favorites')}
           >
-            <View style={styles.statTopRow}>
+            <View style={styles.compactStatHeader}>
+              <Heart size={12} color={colors.rose} fill={colors.rose} />
               <Text
-                style={[styles.statLabel, { color: colors.mutedForeground }]}
+                style={[styles.compactStatValue, { color: colors.foreground }]}
               >
-                Favoritos
+                {displayProfile.stats.favorites}
               </Text>
-              <Heart size={15} color={colors.rose} fill={colors.rose} />
             </View>
-            <Text style={[styles.statNumber, { color: colors.foreground }]}>
-              {displayProfile.stats.favorites}
-            </Text>
-            <Text style={[styles.statSub, { color: colors.mutedForeground }]}>
-              No acervo pessoal
+            <Text
+              style={[
+                styles.compactStatLabel,
+                { color: colors.mutedForeground },
+              ]}
+              numberOfLines={1}
+            >
+              Favoritos
             </Text>
           </TouchableOpacity>
 
           <View
             style={[
-              styles.statCard,
+              styles.compactStatCard,
               {
-                width: STAT_CARD_WIDTH,
+                width: STAT_PILL_WIDTH,
                 backgroundColor: colors.secondary,
                 borderColor: colors.border,
               },
             ]}
           >
-            <View style={styles.statTopRow}>
+            <View style={styles.compactStatHeader}>
+              <Award size={12} color={colors.amber} />
               <Text
-                style={[styles.statLabel, { color: colors.mutedForeground }]}
+                style={[styles.compactStatValue, { color: colors.foreground }]}
               >
-                Média
+                {displayProfile.stats.avgRating}
               </Text>
-              <Award size={15} color={colors.amber} />
             </View>
-            <Text style={[styles.statNumber, { color: colors.foreground }]}>
-              {displayProfile.stats.avgRating}
-            </Text>
-            <Text style={[styles.statSub, { color: colors.mutedForeground }]}>
-              Nota geral dada
+            <Text
+              style={[
+                styles.compactStatLabel,
+                { color: colors.mutedForeground },
+              ]}
+              numberOfLines={1}
+            >
+              Média
             </Text>
           </View>
 
           <TouchableOpacity
             style={[
-              styles.statCard,
+              styles.compactStatCard,
               {
-                width: STAT_CARD_WIDTH,
+                width: STAT_PILL_WIDTH,
+                backgroundColor:
+                  historyTab === 'idols' ? '#a855f720' : colors.secondary,
+                borderColor:
+                  historyTab === 'idols' ? '#a855f7' : colors.border,
+              },
+            ]}
+            onPress={() => setHistoryTab('idols')}
+          >
+            <View style={styles.compactStatHeader}>
+              <User size={12} color="#a855f7" />
+              <Text
+                style={[styles.compactStatValue, { color: colors.foreground }]}
+              >
+                {displayProfile.stats.idols}
+              </Text>
+            </View>
+            <Text
+              style={[
+                styles.compactStatLabel,
+                { color: colors.mutedForeground },
+              ]}
+              numberOfLines={1}
+            >
+              Ídolos
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.compactStatCard,
+              {
+                width: STAT_PILL_WIDTH,
+                backgroundColor:
+                  historyTab === 'lists'
+                    ? `${colors.emerald}20`
+                    : colors.secondary,
+                borderColor:
+                  historyTab === 'lists' ? colors.emerald : colors.border,
+              },
+            ]}
+            onPress={() => setHistoryTab('lists')}
+          >
+            <View style={styles.compactStatHeader}>
+              <ListMusic size={12} color={colors.emerald} />
+              <Text
+                style={[styles.compactStatValue, { color: colors.foreground }]}
+              >
+                {displayProfile.stats.lists}
+              </Text>
+            </View>
+            <Text
+              style={[
+                styles.compactStatLabel,
+                { color: colors.mutedForeground },
+              ]}
+              numberOfLines={1}
+            >
+              Listas
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.compactStatCard,
+              {
+                width: STAT_PILL_WIDTH,
                 backgroundColor: colors.secondary,
                 borderColor: colors.border,
               },
@@ -407,214 +477,355 @@ export function ProfileView({ visitingUsername }: { visitingUsername?: string })
               })
             }
           >
-            <View style={styles.statTopRow}>
+            <View style={styles.compactStatHeader}>
+              <Users size={12} color="#3b82f6" />
               <Text
-                style={[styles.statLabel, { color: colors.mutedForeground }]}
+                style={[styles.compactStatValue, { color: colors.foreground }]}
               >
-                Amigos
+                {displayProfile.stats.friends}
               </Text>
-              <Users size={15} color="#3b82f6" />
             </View>
-            <Text style={[styles.statNumber, { color: colors.foreground }]}>
-              {displayProfile.stats.friends}
-            </Text>
-            <Text style={[styles.statSub, { color: colors.mutedForeground }]}>
-              Conectados
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.statCard,
-              {
-                width: STAT_CARD_WIDTH,
-                backgroundColor: colors.secondary,
-                borderColor: colors.border,
-              },
-            ]}
-            onPress={() =>
-              router.push({
-                pathname: '/idols' as any,
-                params: isVisiting ? { username: displayProfile.username } : {},
-              })
-            }
-          >
-            <View style={styles.statTopRow}>
-              <Text
-                style={[styles.statLabel, { color: colors.mutedForeground }]}
-              >
-                Ídolos
-              </Text>
-              <User size={15} color="#a855f7" />
-            </View>
-            <Text style={[styles.statNumber, { color: colors.foreground }]}>
-              {displayProfile.stats.idols}
-            </Text>
-            <Text style={[styles.statSub, { color: colors.mutedForeground }]}>
-              Artistas seguidos
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.statCard,
-              {
-                width: STAT_CARD_WIDTH,
-                backgroundColor: colors.secondary,
-                borderColor: colors.border,
-              },
-            ]}
-            onPress={() =>
-              router.push({
-                pathname: '/lists' as any,
-                params: isVisiting ? { username: displayProfile.username } : {},
-              })
-            }
-          >
-            <View style={styles.statTopRow}>
-              <Text
-                style={[styles.statLabel, { color: colors.mutedForeground }]}
-              >
-                Listas
-              </Text>
-              <ListMusic size={15} color={colors.emerald} />
-            </View>
-            <Text style={[styles.statNumber, { color: colors.foreground }]}>
-              {displayProfile.stats.lists}
-            </Text>
-            <Text style={[styles.statSub, { color: colors.mutedForeground }]}>
-              Playlists criadas
+            <Text
+              style={[
+                styles.compactStatLabel,
+                { color: colors.mutedForeground },
+              ]}
+              numberOfLines={1}
+            >
+              Amigos
             </Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Cards de Acesso Rápido */}
-      <View style={{ gap: 12, marginTop: 16 }}>
-        <TouchableOpacity
-          style={[
-            styles.shortcutCard,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-          onPress={() => router.push('/my-reviews' as any)}
-        >
-          <View
-            style={[
-              styles.shortcutIconBox,
-              { backgroundColor: `${colors.primary}18` },
-            ]}
-          >
-            <Star size={20} color={colors.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text
-              style={[styles.shortcutTitle, { color: colors.foreground }]}
-            >
-              Histórico de Avaliações
-            </Text>
-            <Text
+      {/* Abas de Filtro do Feed Completo do Perfil */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.historyTabsRow}
+      >
+        {(
+          [
+            { key: 'all', label: 'Todo o Histórico' },
+            { key: 'reviews', label: `Avaliados (${reviews.length})` },
+            { key: 'favorites', label: `Favoritados (${favorites.length})` },
+            { key: 'idols', label: `Artistas Seguidos (${idols.length})` },
+            { key: 'lists', label: `Listas (${lists.length})` },
+          ] as const
+        ).map((tab) => {
+          const active = historyTab === tab.key;
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              onPress={() => setHistoryTab(tab.key)}
               style={[
-                styles.shortcutSubtitle,
-                { color: colors.mutedForeground },
+                styles.historyTabChip,
+                {
+                  backgroundColor: active ? colors.primary : colors.card,
+                  borderColor: active ? colors.primary : colors.border,
+                },
               ]}
             >
-              Veja o histórico completo das notas publicadas.
-            </Text>
-          </View>
-          <Text
-            style={{
-              fontSize: 12,
-              fontWeight: '800',
-              color: colors.primary,
-            }}
-          >
-            Ver →
-          </Text>
-        </TouchableOpacity>
+              <Text
+                style={{
+                  fontSize: 11.5,
+                  fontWeight: '700',
+                  color: active ? '#fff' : colors.foreground,
+                }}
+              >
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
 
-        <TouchableOpacity
-          style={[
-            styles.shortcutCard,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-          onPress={() => router.push('/favorites' as any)}
-        >
-          <View
-            style={[
-              styles.shortcutIconBox,
-              { backgroundColor: `${colors.amber}18` },
-            ]}
-          >
-            <Heart size={20} color={colors.amber} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text
-              style={[styles.shortcutTitle, { color: colors.foreground }]}
-            >
-              Álbuns Favoritos
-            </Text>
-            <Text
-              style={[
-                styles.shortcutSubtitle,
-                { color: colors.mutedForeground },
-              ]}
-            >
-              Gerencie e visualize a lista de discos prediletos.
-            </Text>
-          </View>
-          <Text
-            style={{
-              fontSize: 12,
-              fontWeight: '800',
-              color: colors.amber,
-            }}
-          >
-            Ver →
-          </Text>
-        </TouchableOpacity>
-
-        {!isVisiting && (
-          <TouchableOpacity
-            style={[
-              styles.shortcutCard,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
-            onPress={() => router.push('/settings' as any)}
-          >
+      {/* Histórico Completo Carregado Direto no Perfil */}
+      <View style={styles.feedHistoryContainer}>
+        {/* 1. Álbuns Avaliados */}
+        {(historyTab === 'all' || historyTab === 'reviews') &&
+          reviews.map((rev) => (
             <View
+              key={`rev-${rev.id}`}
               style={[
-                styles.shortcutIconBox,
-                { backgroundColor: colors.secondary },
+                styles.activityItemCard,
+                { backgroundColor: colors.card, borderColor: colors.border },
               ]}
             >
-              <Settings size={20} color={colors.foreground} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text
-                style={[styles.shortcutTitle, { color: colors.foreground }]}
+              <TouchableOpacity
+                style={styles.activityRowMain}
+                onPress={() => router.push(`/album/${rev.albumId}` as any)}
+                activeOpacity={0.85}
               >
-                Configurações da Conta
-              </Text>
-              <Text
-                style={[
-                  styles.shortcutSubtitle,
-                  { color: colors.mutedForeground },
-                ]}
-              >
-                Edite seu perfil, redes sociais, privacidade e notificações.
-              </Text>
+                <CoverImage uri={rev.coverUrl} style={styles.activityThumb} />
+                <View style={{ flex: 1, gap: 2 }}>
+                  <View style={styles.activityHeaderLine}>
+                    <View
+                      style={[
+                        styles.typeTag,
+                        { backgroundColor: `${colors.primary}18` },
+                      ]}
+                    >
+                      <Star
+                        size={10}
+                        color={colors.primary}
+                        fill={colors.primary}
+                      />
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: '800',
+                          color: colors.primary,
+                        }}
+                      >
+                        Avaliou • {rev.rating}/10
+                      </Text>
+                    </View>
+                    <Text
+                      style={{ fontSize: 10, color: colors.mutedForeground }}
+                    >
+                      {rev.date}
+                    </Text>
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.activityTitle,
+                      { color: colors.foreground },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {rev.albumTitle}
+                  </Text>
+                  <Text
+                    style={{ fontSize: 11, color: colors.mutedForeground }}
+                    numberOfLines={1}
+                  >
+                    {rev.artistName}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.activityComment,
+                      { color: colors.foreground },
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {`"${rev.comment}"`}
+                  </Text>
+                </View>
+
+                {!isVisiting && (
+                  <TouchableOpacity
+                    onPress={() => handleDeleteReview(rev.id)}
+                    style={styles.deleteIconBtn}
+                  >
+                    <Trash2 size={14} color={colors.mutedForeground} />
+                  </TouchableOpacity>
+                )}
+              </TouchableOpacity>
             </View>
-            <Text
-              style={{
-                fontSize: 12,
-                fontWeight: '800',
-                color: colors.primary,
-              }}
+          ))}
+
+        {/* 2. Álbuns Favoritados */}
+        {(historyTab === 'all' || historyTab === 'favorites') &&
+          favorites.map((fav) => (
+            <TouchableOpacity
+              key={`fav-${fav.id}`}
+              style={[
+                styles.activityItemCard,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+              onPress={() => router.push(`/album/${fav.id}` as any)}
+              activeOpacity={0.85}
             >
-              Abrir →
-            </Text>
-          </TouchableOpacity>
-        )}
+              <View style={styles.activityRowMain}>
+                <CoverImage uri={fav.cover} style={styles.activityThumb} />
+                <View style={{ flex: 1, gap: 3 }}>
+                  <View style={styles.activityHeaderLine}>
+                    <View
+                      style={[
+                        styles.typeTag,
+                        { backgroundColor: `${colors.rose}18` },
+                      ]}
+                    >
+                      <Heart size={10} color={colors.rose} fill={colors.rose} />
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: '800',
+                          color: colors.rose,
+                        }}
+                      >
+                        Álbum Favoritado
+                      </Text>
+                    </View>
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: '800',
+                        color: colors.amber,
+                      }}
+                    >
+                      ★ {fav.rating}
+                    </Text>
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.activityTitle,
+                      { color: colors.foreground },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {fav.title}
+                  </Text>
+                  <Text
+                    style={{ fontSize: 11, color: colors.mutedForeground }}
+                    numberOfLines={1}
+                  >
+                    {fav.artist}
+                  </Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          ))}
+
+        {/* 3. Artistas / Ídolos Seguidos */}
+        {(historyTab === 'all' || historyTab === 'idols') &&
+          idols.map((artist) => (
+            <TouchableOpacity
+              key={`idol-${artist.id}`}
+              style={[
+                styles.activityItemCard,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+              onPress={() => router.push(`/artist/${artist.id}` as any)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.activityRowMain}>
+                <CoverImage
+                  uri={artist.imageUrl}
+                  style={[styles.activityThumb, { borderRadius: 999 }]}
+                  fallbackType="artist"
+                />
+                <View style={{ flex: 1, gap: 3 }}>
+                  <View style={styles.activityHeaderLine}>
+                    <View
+                      style={[
+                        styles.typeTag,
+                        { backgroundColor: '#a855f718' },
+                      ]}
+                    >
+                      <Award size={10} color="#a855f7" />
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: '800',
+                          color: '#a855f7',
+                        }}
+                      >
+                        Artista Seguido
+                      </Text>
+                    </View>
+                    <Text
+                      style={{ fontSize: 10, color: colors.mutedForeground }}
+                    >
+                      {artist.nbFans.toLocaleString('pt-BR')} ouvintes
+                    </Text>
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.activityTitle,
+                      { color: colors.foreground },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {artist.name}
+                  </Text>
+                  <Text
+                    style={{ fontSize: 11, color: colors.mutedForeground }}
+                    numberOfLines={1}
+                  >
+                    {artist.genre}
+                  </Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          ))}
+
+        {/* 4. Listas Criadas */}
+        {(historyTab === 'all' || historyTab === 'lists') &&
+          lists.map((list) => (
+            <TouchableOpacity
+              key={`list-${list.id}`}
+              style={[
+                styles.activityItemCard,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+              onPress={() =>
+                router.push({
+                  pathname: '/lists' as any,
+                  params: isVisiting
+                    ? { username: displayProfile.username }
+                    : {},
+                })
+              }
+              activeOpacity={0.85}
+            >
+              <View style={styles.activityRowMain}>
+                <View
+                  style={[
+                    styles.listIconBox,
+                    { backgroundColor: `${colors.emerald}18` },
+                  ]}
+                >
+                  <ListMusic size={20} color={colors.emerald} />
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <View style={styles.activityHeaderLine}>
+                    <View
+                      style={[
+                        styles.typeTag,
+                        { backgroundColor: `${colors.emerald}18` },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: '800',
+                          color: colors.emerald,
+                        }}
+                      >
+                        Lista Musical • {list.count} álbuns
+                      </Text>
+                    </View>
+                    <Text
+                      style={{ fontSize: 10, color: colors.mutedForeground }}
+                    >
+                      {list.createdAt}
+                    </Text>
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.activityTitle,
+                      { color: colors.foreground },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {list.title}
+                  </Text>
+                  <Text
+                    style={{ fontSize: 11, color: colors.mutedForeground }}
+                    numberOfLines={1}
+                  >
+                    {list.description}
+                  </Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          ))}
       </View>
     </ScrollView>
   );
@@ -627,155 +838,197 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     padding: 14,
-    paddingBottom: 36,
+    paddingBottom: 110,
   },
   bannerBox: {
-    height: 130,
+    height: 135,
     borderRadius: 20,
     overflow: 'hidden',
+    position: 'relative',
   },
   bannerImg: {
     width: '100%',
     height: '100%',
   },
+  bannerOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(0,0,0,0.22)',
+  },
+  topHeaderBar: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  topCircleBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 999,
+    backgroundColor: 'rgba(9,9,11,0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   mainCard: {
-    marginTop: -28,
+    marginTop: -26,
     borderRadius: 22,
     borderWidth: 1,
-    padding: 16,
+    padding: 14,
+    gap: 10,
   },
-  topRow: {
+  avatarHeaderRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    marginTop: -42,
-    marginBottom: 12,
+    gap: 12,
+    marginTop: -38,
   },
   avatarWrapper: {
     position: 'relative',
-    borderWidth: 4,
+    borderWidth: 3.5,
     borderRadius: 999,
   },
   avatarImg: {
-    width: 82,
-    height: 82,
+    width: 76,
+    height: 76,
     borderRadius: 999,
   },
   cameraBadge: {
     position: 'absolute',
     bottom: 0,
     right: 0,
-    width: 26,
-    height: 26,
+    width: 24,
+    height: 24,
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionBtnsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  outlineBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    height: 34,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  identitySection: {
-    gap: 4,
+  identityRightCol: {
+    flex: 1,
+    paddingBottom: 4,
   },
   userName: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '900',
   },
-  handleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
   handleText: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: '700',
-  },
-  emailText: {
-    fontSize: 12,
-    flex: 1,
+    marginTop: 1,
   },
   bioText: {
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 6,
-    opacity: 0.9,
+    fontSize: 12.5,
+    lineHeight: 18,
+    opacity: 0.92,
   },
   socialsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 10,
+    gap: 6,
+    paddingTop: 2,
   },
   socialPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
     borderWidth: 1,
   },
-  statsGrid: {
+  compactStatsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 18,
+    gap: 8,
+    marginTop: 4,
   },
-  statCard: {
-    borderRadius: 16,
+  compactStatCard: {
+    borderRadius: 12,
     borderWidth: 1,
-    padding: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 2,
   },
-  statTopRow: {
+  compactStatHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 4,
   },
-  statLabel: {
-    fontSize: 11,
+  compactStatValue: {
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  compactStatLabel: {
+    fontSize: 10,
     fontWeight: '700',
   },
-  statNumber: {
-    fontSize: 22,
-    fontWeight: '900',
-    marginTop: 2,
+  historyTabsRow: {
+    gap: 8,
+    marginTop: 14,
+    marginBottom: 12,
   },
-  statSub: {
-    fontSize: 10,
+  historyTabChip: {
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
   },
-  shortcutCard: {
+  feedHistoryContainer: {
+    gap: 10,
+  },
+  activityItemCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 11,
+  },
+  activityRowMain: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    padding: 14,
-    borderRadius: 18,
-    borderWidth: 1,
   },
-  shortcutIconBox: {
-    width: 42,
-    height: 42,
+  activityThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+  },
+  listIconBox: {
+    width: 56,
+    height: 56,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  shortcutTitle: {
-    fontSize: 14,
+  activityHeaderLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  typeTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  activityTitle: {
+    fontSize: 13.5,
     fontWeight: '800',
   },
-  shortcutSubtitle: {
-    fontSize: 11,
+  activityComment: {
+    fontSize: 11.5,
+    fontStyle: 'italic',
     marginTop: 2,
+    opacity: 0.9,
+  },
+  deleteIconBtn: {
+    padding: 6,
   },
 });

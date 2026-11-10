@@ -460,7 +460,7 @@ export default function RankingsScreen() {
 const styles = StyleSheet.create({
   container: {
     padding: 14,
-    paddingBottom: 36,
+    paddingBottom: 110,
   },
   headerBox: {
     paddingBottom: 16,

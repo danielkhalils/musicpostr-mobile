@@ -14,6 +14,9 @@ import {
   Disc,
   Radio,
   ChevronDown,
+  Award,
+  Globe,
+  Sparkles,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { MobileHeader } from '@/components/MobileHeader';
@@ -22,6 +25,9 @@ import {
   type CatalogAlbum,
   getInstantArtistPreview,
   fetchArtistDetailsFromMusicBrainz,
+  getFollowedArtistIds,
+  toggleFollowArtist,
+  subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -37,6 +43,15 @@ export default function ArtistDetailScreen() {
   const [artistBanner, setArtistBanner] = useState(
     initialPreview?.bannerUrl || ''
   );
+  const [artistGenre, setArtistGenre] = useState(
+    initialPreview?.genre || 'Artista Oficial'
+  );
+  const [artistCountry, setArtistCountry] = useState(
+    initialPreview?.country || ''
+  );
+  const [artistFans, setArtistFans] = useState(
+    initialPreview?.nbFans || 2150
+  );
   const [albums, setAlbums] = useState<CatalogAlbum[]>(
     initialPreview?.albums || []
   );
@@ -46,8 +61,19 @@ export default function ArtistDetailScreen() {
   const [isLoading, setIsLoading] = useState(!initialPreview);
   const [isSyncing, setIsSyncing] = useState(false);
 
+  const [followedIds, setFollowedIds] = useState<string[]>(() =>
+    getFollowedArtistIds()
+  );
+
   const [visibleAlbumsCount, setVisibleAlbumsCount] = useState(10);
   const [visibleEpsCount, setVisibleEpsCount] = useState(10);
+
+  useEffect(() => {
+    const unsubscribe = subscribeAlbumsUpdated(() => {
+      setFollowedIds(getFollowedArtistIds());
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -60,6 +86,9 @@ export default function ArtistDetailScreen() {
     if (preview) {
       setArtistName(preview.name);
       setArtistBanner(preview.bannerUrl);
+      setArtistGenre(preview.genre);
+      setArtistCountry(preview.country);
+      setArtistFans(preview.nbFans);
       setAlbums(preview.albums);
       setEpsAndSingles(preview.epsAndSingles);
       setIsLoading(false);
@@ -73,6 +102,8 @@ export default function ArtistDetailScreen() {
         if (!isMounted) return;
         setArtistName(details.name);
         setArtistBanner(details.bannerUrl);
+        if (details.genre) setArtistGenre(details.genre);
+        if (details.country) setArtistCountry(details.country);
         setAlbums(details.albums);
         setEpsAndSingles(details.epsAndSingles);
       })
@@ -88,6 +119,29 @@ export default function ArtistDetailScreen() {
       isMounted = false;
     };
   }, [id]);
+
+  const handleGoBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/artists' as any);
+    }
+  };
+
+  const isFollowing = Boolean(id && followedIds.includes(id));
+
+  const handleToggleFollow = () => {
+    if (!id) return;
+    const next = toggleFollowArtist({
+      id,
+      name: artistName || 'Artista',
+      imageUrl: artistBanner,
+      genre: artistGenre,
+      country: artistCountry,
+      nbFans: artistFans,
+    });
+    setFollowedIds(next);
+  };
 
   if (isLoading) {
     return (
@@ -111,66 +165,193 @@ export default function ArtistDetailScreen() {
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
       >
-        {/* Banner do Artista */}
+        {/* Card do Artista com Foto de Capa (Cover Photo) */}
         <View
           style={[
-            styles.bannerCard,
+            styles.artistHeroCard,
             { backgroundColor: colors.card, borderColor: colors.border },
           ]}
         >
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => router.back()}
-          >
-            <ArrowLeft size={15} color={colors.mutedForeground} />
-            <Text
-              style={{
-                fontSize: 12,
-                fontWeight: '700',
-                color: colors.mutedForeground,
-              }}
-            >
-              Voltar para Artistas
-            </Text>
-          </TouchableOpacity>
-
-          <View style={styles.bannerMainRow}>
+          {/* Foto de Capa do Artista */}
+          <View style={styles.coverPhotoWrapper}>
             <CoverImage
               uri={artistBanner}
-              style={styles.artistBannerAvatar}
+              style={styles.coverPhotoImg}
               fallbackType="artist"
+              quality="medium"
             />
-            <View style={{ flex: 1 }}>
-              <Text
-                style={[styles.artistTitle, { color: colors.foreground }]}
-              >
-                {artistName || 'Detalhes do Artista'}
-              </Text>
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: colors.mutedForeground,
-                  marginTop: 4,
-                  lineHeight: 17,
-                }}
-              >
-                Discografia completa via MusicBrainz & Cover Art Archive
-              </Text>
-              {isSyncing && (
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 6,
-                    marginTop: 6,
-                  }}
-                >
-                  <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={{ fontSize: 11, color: colors.primary }}>
-                    Sincronizando discografia...
-                  </Text>
+            <View style={styles.coverPhotoOverlay} />
+
+            {/* Botão Voltar sobre a Foto de Capa */}
+            <TouchableOpacity
+              style={styles.backFloatingBtn}
+              onPress={handleGoBack}
+              activeOpacity={0.85}
+            >
+              <ArrowLeft size={16} color="#fff" />
+              <Text style={styles.backFloatingBtnText}>Voltar</Text>
+            </TouchableOpacity>
+
+            {/* Badge de Sincronização ou Oficial */}
+            <View style={styles.coverTopRightBadge}>
+              {isSyncing ? (
+                <View style={styles.syncPill}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={styles.syncPillText}>Sincronizando...</Text>
+                </View>
+              ) : (
+                <View style={styles.verifiedPill}>
+                  <Sparkles size={11} color="#fff" />
+                  <Text style={styles.syncPillText}>Artista Oficial</Text>
                 </View>
               )}
+            </View>
+          </View>
+
+          {/* Informações e Ações do Artista abaixo da Capa */}
+          <View style={styles.artistInfoBody}>
+            <View style={styles.artistTitleRow}>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text
+                  style={[styles.artistTitle, { color: colors.foreground }]}
+                >
+                  {artistName || 'Detalhes do Artista'}
+                </Text>
+
+                <View style={styles.artistMetaRow}>
+                  <View
+                    style={[
+                      styles.genreBadge,
+                      {
+                        backgroundColor: `${colors.primary}18`,
+                        borderColor: `${colors.primary}38`,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: '800',
+                        color: colors.primary,
+                      }}
+                    >
+                      {artistGenre}
+                    </Text>
+                  </View>
+
+                  {Boolean(artistCountry) && (
+                    <View
+                      style={[
+                        styles.countryBadge,
+                        {
+                          backgroundColor: colors.secondary,
+                          borderColor: colors.border,
+                        },
+                      ]}
+                    >
+                      <Globe size={11} color={colors.mutedForeground} />
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontWeight: '700',
+                          color: colors.mutedForeground,
+                        }}
+                      >
+                        {artistCountry}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+
+              <TouchableOpacity
+                onPress={handleToggleFollow}
+                style={[
+                  styles.followArtistBtn,
+                  {
+                    backgroundColor: isFollowing
+                      ? colors.primary
+                      : colors.secondary,
+                    borderColor: isFollowing ? colors.primary : colors.border,
+                  },
+                ]}
+                activeOpacity={0.85}
+              >
+                <Award
+                  size={14}
+                  color={isFollowing ? '#fff' : colors.foreground}
+                />
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '800',
+                    color: isFollowing ? '#fff' : colors.foreground,
+                  }}
+                >
+                  {isFollowing ? 'Seguindo' : 'Seguir Ídolo'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Métricas Rápidas da Discografia */}
+            <View
+              style={[
+                styles.statsStrip,
+                { borderTopColor: colors.border },
+              ]}
+            >
+              <View style={styles.statItem}>
+                <Text
+                  style={[styles.statValue, { color: colors.foreground }]}
+                >
+                  {albums.length}
+                </Text>
+                <Text
+                  style={[styles.statLabel, { color: colors.mutedForeground }]}
+                >
+                  Álbuns
+                </Text>
+              </View>
+
+              <View
+                style={[
+                  styles.statDivider,
+                  { backgroundColor: colors.border },
+                ]}
+              />
+
+              <View style={styles.statItem}>
+                <Text
+                  style={[styles.statValue, { color: colors.foreground }]}
+                >
+                  {epsAndSingles.length}
+                </Text>
+                <Text
+                  style={[styles.statLabel, { color: colors.mutedForeground }]}
+                >
+                  EPs & Singles
+                </Text>
+              </View>
+
+              <View
+                style={[
+                  styles.statDivider,
+                  { backgroundColor: colors.border },
+                ]}
+              />
+
+              <View style={styles.statItem}>
+                <Text
+                  style={[styles.statValue, { color: colors.foreground }]}
+                >
+                  {artistFans.toLocaleString('pt-BR')}
+                </Text>
+                <Text
+                  style={[styles.statLabel, { color: colors.mutedForeground }]}
+                >
+                  Fãs na Comunidade
+                </Text>
+              </View>
             </View>
           </View>
         </View>
@@ -370,7 +551,7 @@ export default function ArtistDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     padding: 14,
-    paddingBottom: 36,
+    paddingBottom: 40,
     gap: 20,
   },
   centerBox: {
@@ -378,30 +559,144 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bannerCard: {
-    borderRadius: 20,
+  artistHeroCard: {
+    borderRadius: 24,
     borderWidth: 1,
-    padding: 16,
-    gap: 14,
+    overflow: 'hidden',
   },
-  backBtn: {
+  coverPhotoWrapper: {
+    height: 195,
+    width: '100%',
+    position: 'relative',
+  },
+  coverPhotoImg: {
+    width: '100%',
+    height: '100%',
+  },
+  coverPhotoOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(9, 9, 11, 0.34)',
+  },
+  backFloatingBtn: {
+    position: 'absolute',
+    top: 14,
+    left: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(9, 9, 11, 0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
-  bannerMainRow: {
+  backFloatingBtnText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  coverTopRightBadge: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+  },
+  syncPill: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(9, 9, 11, 0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+  },
+  verifiedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(139, 92, 246, 0.85)',
+  },
+  syncPillText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  artistInfoBody: {
+    padding: 16,
     gap: 14,
   },
-  artistBannerAvatar: {
-    width: 84,
-    height: 84,
-    borderRadius: 999,
+  artistTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
   },
   artistTitle: {
     fontSize: 24,
     fontWeight: '900',
+  },
+  artistMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  genreBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  countryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  followArtistBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    height: 36,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  statsStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingTop: 12,
+    borderTopWidth: 1,
+  },
+  statItem: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  statValue: {
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  statLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  statDivider: {
+    width: 1,
+    height: 24,
   },
   sectionBlock: {
     gap: 12,

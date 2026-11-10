@@ -8,11 +8,40 @@ const MISSING_COVERS_KEY = 'musicpostr_missing_covers_v2';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 dias
 const NEGATIVE_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 1 dia
 
-export const DEFAULT_ALBUM_COVER =
-  'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=65&w=250&auto=format&fit=crop';
+const FALLBACK_ALBUM_POOL = [
+  'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=65&w=250&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=65&w=250&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?q=65&w=250&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=65&w=250&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?q=65&w=250&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?q=65&w=250&auto=format&fit=crop',
+];
 
-export const DEFAULT_ARTIST_IMAGE =
-  'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=65&w=250&auto=format&fit=crop';
+const FALLBACK_ARTIST_POOL = [
+  'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?q=65&w=500&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=65&w=500&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=65&w=500&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?q=65&w=500&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?q=65&w=500&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?q=65&w=500&auto=format&fit=crop',
+];
+
+export const DEFAULT_ALBUM_COVER = FALLBACK_ALBUM_POOL[0];
+
+export const DEFAULT_ARTIST_IMAGE = FALLBACK_ARTIST_POOL[0];
+
+export function getFallbackImageUrl(
+  seed?: string | null,
+  type: 'album' | 'artist' = 'album'
+): string {
+  const pool = type === 'artist' ? FALLBACK_ARTIST_POOL : FALLBACK_ALBUM_POOL;
+  if (!seed) return pool[0];
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return pool[hash % pool.length];
+}
 
 const missingCoversMemory = new Set<string>();
 try {
@@ -63,7 +92,7 @@ export function getReleaseGroupCoverUrl(
 ): string {
   if (!releaseGroupMbid) return DEFAULT_ALBUM_COVER;
   if (missingCoversMemory.has(releaseGroupMbid.toLowerCase())) {
-    return DEFAULT_ALBUM_COVER;
+    return getFallbackImageUrl(releaseGroupMbid, 'album');
   }
   return `${CAA_RELEASE_GROUP_BASE}/${releaseGroupMbid}/front-${size}`;
 }
@@ -74,7 +103,7 @@ export function getReleaseCoverUrl(
 ): string {
   if (!releaseMbid) return DEFAULT_ALBUM_COVER;
   if (missingCoversMemory.has(releaseMbid.toLowerCase())) {
-    return DEFAULT_ALBUM_COVER;
+    return getFallbackImageUrl(releaseMbid, 'album');
   }
   return `${CAA_RELEASE_BASE}/${releaseMbid}/front-${size}`;
 }

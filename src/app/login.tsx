@@ -19,7 +19,10 @@ import {
   X,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
-import { saveUserProfile } from '@/services/musicBrainz.service';
+import {
+  saveUserProfile,
+  triggerTimelineIntroOnSignup,
+} from '@/services/musicBrainz.service';
 
 export default function AuthScreen() {
   const { colors } = useAppTheme();
@@ -32,16 +35,19 @@ export default function AuthScreen() {
   const [successMsg, setSuccessMsg] = useState(false);
 
   const handleSubmit = () => {
-    if (!isLogin && (name.trim() || username.trim())) {
-      saveUserProfile({
-        name: name.trim() || 'Ana Beatriz',
-        username: username.trim().replace(/^@/, '') || 'anabeat',
-        email: email.trim() || 'anabeat@musicpostr.com',
-      });
+    if (!isLogin) {
+      if (name.trim() || username.trim()) {
+        saveUserProfile({
+          name: name.trim() || 'Ana Beatriz',
+          username: username.trim().replace(/^@/, '') || 'anabeat',
+          email: email.trim() || 'anabeat@musicpostr.com',
+        });
+      }
+      triggerTimelineIntroOnSignup();
     }
     setSuccessMsg(true);
     setTimeout(() => {
-      router.replace('/(tabs)/profile');
+      router.replace(!isLogin ? ('/(tabs)/index' as any) : '/(tabs)/profile');
     }, 900);
   };
 

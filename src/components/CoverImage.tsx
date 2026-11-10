@@ -3,6 +3,7 @@ import { View, StyleProp, ViewStyle, ImageStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { Disc, User } from 'lucide-react-native';
 import {
+  getFallbackImageUrl,
   markCoverAsMissing,
   optimizeCoverUrl,
 } from '@/services/coverArt.service';
@@ -25,19 +26,20 @@ export function CoverImage({
   contentFit = 'cover',
   quality = 'low',
 }: CoverImageProps) {
-  const [hasError, setHasError] = useState(false);
+  const [stage, setStage] = useState<'primary' | 'fallback' | 'icon'>('primary');
   const { colors } = useAppTheme();
 
   const resolvedUri = optimizeCoverUrl(
     uri,
     quality === 'medium' ? '500' : '250'
   );
+  const fallbackUri = getFallbackImageUrl(resolvedUri || fallbackType, fallbackType);
 
   useEffect(() => {
-    setHasError(false);
+    setStage(resolvedUri ? 'primary' : 'fallback');
   }, [resolvedUri]);
 
-  if (!resolvedUri || hasError) {
+  if (stage === 'icon') {
     return (
       <View
         style={[
@@ -60,18 +62,25 @@ export function CoverImage({
     );
   }
 
+  const activeUri =
+    stage === 'primary' && resolvedUri ? resolvedUri : fallbackUri;
+
   return (
     <Image
-      source={{ uri: resolvedUri }}
+      source={{ uri: activeUri }}
       style={style}
       contentFit={contentFit}
       cachePolicy="memory-disk"
       allowDownscaling={true}
-      recyclingKey={resolvedUri}
+      recyclingKey={activeUri}
       transition={120}
       onError={() => {
-        if (resolvedUri) markCoverAsMissing(resolvedUri);
-        setHasError(true);
+        if (stage === 'primary') {
+          if (resolvedUri) markCoverAsMissing(resolvedUri);
+          setStage('fallback');
+        } else {
+          setStage('icon');
+        }
       }}
     />
   );
