@@ -9,6 +9,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { router } from 'expo-router';
+import { safeGoBack } from '@/utils/navigation';
 import {
   ArrowLeft,
   Disc,
@@ -74,7 +75,7 @@ export default function TopAlbunsScreen() {
       >
         <TouchableOpacity
           style={styles.backBtn}
-          onPress={() => router.back()}
+          onPress={() => safeGoBack('/(tabs)/profile')}
         >
           <ArrowLeft size={15} color={colors.mutedForeground} />
           <Text

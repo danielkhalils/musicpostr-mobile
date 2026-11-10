@@ -8,7 +8,7 @@ import {
   Switch,
   StyleSheet,
 } from 'react-native';
-import { router } from 'expo-router';
+import { safeGoBack } from '@/utils/navigation';
 import {
   Settings,
   User,
@@ -95,7 +95,7 @@ export default function SettingsScreen() {
       >
         <TouchableOpacity
           style={styles.backBtn}
-          onPress={() => router.back()}
+          onPress={() => safeGoBack('/(tabs)/profile')}
         >
           <ArrowLeft size={15} color={colors.mutedForeground} />
           <Text

@@ -9,6 +9,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { router } from 'expo-router';
+import { safeGoBack } from '@/utils/navigation';
 import { Image } from 'expo-image';
 import {
   Mail,
@@ -65,7 +66,7 @@ export default function AuthScreen() {
       >
         <TouchableOpacity
           style={styles.closeBtn}
-          onPress={() => router.back()}
+          onPress={() => safeGoBack('/(tabs)/index')}
         >
           <X size={20} color={colors.mutedForeground} />
         </TouchableOpacity>

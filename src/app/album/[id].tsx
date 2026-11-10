@@ -11,6 +11,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { safeGoBack } from '@/utils/navigation';
 import {
   Star,
   Music,
@@ -205,7 +206,7 @@ export default function AlbumDetailScreen() {
             Álbum não encontrado.
           </Text>
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={() => safeGoBack(artistId ? `/artist/${artistId}` : '/(tabs)/artists')}
             style={[
               styles.backPillBtn,
               { backgroundColor: colors.card, borderColor: colors.border },
@@ -290,15 +291,7 @@ export default function AlbumDetailScreen() {
         {/* Botão Voltar */}
         <TouchableOpacity
           style={styles.backLink}
-          onPress={() => {
-            if (router.canGoBack()) {
-              router.back();
-            } else if (artistId) {
-              router.replace(`/artist/${artistId}` as any);
-            } else {
-              router.replace('/(tabs)/artists' as any);
-            }
-          }}
+          onPress={() => safeGoBack(artistId ? `/artist/${artistId}` : '/(tabs)/artists')}
         >
           <ArrowLeft size={15} color={colors.mutedForeground} />
           <Text

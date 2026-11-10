@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,8 +7,11 @@ import {
   TouchableOpacity,
   Share,
   StyleSheet,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useHeaderVisibility } from '@/context/HeaderVisibilityContext';
 import {
   Star,
   Heart,
@@ -34,9 +37,12 @@ import {
   consumeTimelineIntroOnce,
 } from '@/services/musicBrainz.service';
 import { CoverImage } from '@/components/CoverImage';
+import { MobileHeader } from '@/components/MobileHeader';
 
 export default function HomeScreen() {
   const { colors, isDark } = useAppTheme();
+  const { setIsHeaderVisible } = useHeaderVisibility();
+  const lastScrollY = useRef(0);
 
   const [feedItems, setFeedItems] = useState<FeedPostItem[]>(() =>
     getCommunityFeedPosts()
@@ -73,6 +79,30 @@ export default function HomeScreen() {
     }, 6500);
     return () => clearTimeout(timer);
   }, [showTimelineIntro]);
+
+  useEffect(() => {
+    return () => {
+      setIsHeaderVisible(true);
+    };
+  }, [setIsHeaderVisible]);
+
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const currentScrollY = event.nativeEvent.contentOffset.y;
+    const diff = currentScrollY - lastScrollY.current;
+
+    // Se estiver no topo da tela, sempre mostra o header
+    if (currentScrollY <= 20) {
+      setIsHeaderVisible(true);
+    } else if (diff > 12) {
+      // Rolando para baixo: oculta o header
+      setIsHeaderVisible(false);
+    } else if (diff < -15) {
+      // Rolando para cima: mostra o header novamente
+      setIsHeaderVisible(true);
+    }
+
+    lastScrollY.current = currentScrollY;
+  };
 
   const handleToggleLike = (id: string) => {
     setFeedItems((prev) => {
@@ -250,11 +280,15 @@ export default function HomeScreen() {
   };
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.background }}
-      contentContainerStyle={styles.container}
-      showsVerticalScrollIndicator={false}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <MobileHeader />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+      >
       {/* Sessão "Timeline de Atividades" - exibida apenas uma vez quando o usuário se cadastra e depois some */}
       {showTimelineIntro && (
         <View
@@ -860,7 +894,8 @@ export default function HomeScreen() {
           })}
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

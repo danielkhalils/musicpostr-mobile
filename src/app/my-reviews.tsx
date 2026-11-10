@@ -7,6 +7,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { router } from 'expo-router';
+import { safeGoBack } from '@/utils/navigation';
 import {
   Star,
   Trash2,
@@ -51,7 +52,7 @@ export default function MyReviewsScreen() {
       >
         <TouchableOpacity
           style={styles.backBtn}
-          onPress={() => router.back()}
+          onPress={() => safeGoBack('/(tabs)/profile')}
         >
           <ArrowLeft size={15} color={colors.mutedForeground} />
           <Text

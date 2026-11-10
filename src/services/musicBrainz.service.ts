@@ -58,6 +58,7 @@ export interface CatalogAlbum {
   cover_xl: string;
   cover_big: string;
   cover_medium: string;
+  cover_small?: string;
   release_date: string;
   record_type: 'album' | 'ep' | 'single';
   genreName: string;

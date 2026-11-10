@@ -4,10 +4,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Image } from 'expo-image';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useHeaderVisibility } from '@/context/HeaderVisibilityContext';
 
 export function MobileHeader() {
   const insets = useSafeAreaInsets();
   const { colors } = useAppTheme();
+  const { isHeaderVisible } = useHeaderVisibility();
+
+  if (!isHeaderVisible) {
+    return null;
+  }
 
   return (
     <View
@@ -16,7 +22,6 @@ export function MobileHeader() {
         {
           paddingTop: Math.max(insets.top, 10),
           backgroundColor: colors.background,
-          borderBottomColor: colors.border,
         },
       ]}
     >
@@ -42,8 +47,7 @@ export function MobileHeader() {
 
 const styles = StyleSheet.create({
   headerContainer: {
-    borderBottomWidth: 1,
-    paddingBottom: 10,
+    paddingBottom: 6,
     paddingHorizontal: 14,
   },
   headerRow: {

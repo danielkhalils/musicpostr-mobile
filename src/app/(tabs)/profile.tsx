@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import {
   User,
@@ -23,6 +24,7 @@ import {
   Check,
   Settings,
   Trash2,
+  ArrowLeft,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import {
@@ -52,6 +54,7 @@ export function ProfileView({
   visitingUsername?: string;
 }) {
   const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const isVisiting = Boolean(
     visitingUsername && visitingUsername !== 'anabeat'
   );
@@ -174,11 +177,28 @@ export function ProfileView({
         <CoverImage
           uri={displayProfile.bannerUrl}
           style={styles.bannerImg}
+          quality="high"
         />
         <View style={styles.bannerOverlay} />
 
         {/* Ações no topo da tela (Engrenagem de Configurações e Compartilhar) */}
-        <View style={styles.topHeaderBar}>
+        <View
+          style={[
+            styles.topHeaderBar,
+            { top: Math.max(insets.top + 8, 14) },
+          ]}
+        >
+          {isVisiting && (
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={styles.topCircleBtn}
+              accessibilityLabel="Voltar"
+              activeOpacity={0.85}
+            >
+              <ArrowLeft size={18} color="#fff" />
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity
             onPress={handleShareProfile}
             style={styles.topCircleBtn}
@@ -837,12 +857,11 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    padding: 14,
     paddingBottom: 110,
   },
   bannerBox: {
-    height: 135,
-    borderRadius: 20,
+    width: '100%',
+    height: 195,
     overflow: 'hidden',
     position: 'relative',
   },
@@ -878,6 +897,7 @@ const styles = StyleSheet.create({
   },
   mainCard: {
     marginTop: -26,
+    marginHorizontal: 14,
     borderRadius: 22,
     borderWidth: 1,
     padding: 14,
@@ -972,6 +992,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 14,
     marginBottom: 12,
+    paddingHorizontal: 14,
   },
   historyTabChip: {
     paddingHorizontal: 13,
@@ -981,6 +1002,7 @@ const styles = StyleSheet.create({
   },
   feedHistoryContainer: {
     gap: 10,
+    paddingHorizontal: 14,
   },
   activityItemCard: {
     borderRadius: 16,

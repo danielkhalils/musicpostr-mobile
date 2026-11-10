@@ -8,7 +8,6 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
-  Trophy,
   Flame,
   TrendingUp,
   Award,
@@ -24,6 +23,7 @@ import {
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
 import { CoverImage } from '@/components/CoverImage';
+import { TabHeader } from '@/components/TabHeader';
 
 interface RankingAlbum extends CatalogAlbum {
   rank: number;
@@ -108,37 +108,19 @@ export default function RankingsScreen() {
         );
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.background }}
-      contentContainerStyle={styles.container}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* Cabeçalho */}
-      <View
-        style={[
-          styles.headerBox,
-          { borderBottomColor: colors.border },
-        ]}
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <TabHeader title="Rankings" />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.titleRow}>
-          <Trophy size={26} color={colors.amber} fill={colors.amber} />
-          <Text style={[styles.pageTitle, { color: colors.foreground }]}>
-            Rankings & Estatísticas
-          </Text>
-        </View>
-        <Text style={[styles.pageSubtitle, { color: colors.mutedForeground }]}>
-          {filterMode === 'releases'
-            ? 'Novos lançamentos oficiais de álbuns via MusicBrainz & Cover Art Archive.'
-            : filterMode === 'popular'
-              ? 'Álbuns populares no momento com base nas avaliações internas e ouvintes.'
-              : 'Os álbuns mais bem avaliados pela comunidade com base nas notas internas.'}
-        </Text>
-
-        {/* Modos de Ranking */}
+      {/* Filtros de Ranking no Topo */}
+      <View style={styles.filterBarContainer}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 8, marginTop: 12 }}
+          contentContainerStyle={{ gap: 8 }}
         >
           <TouchableOpacity
             onPress={() => setFilterMode('top-rated')}
@@ -197,7 +179,7 @@ export default function RankingsScreen() {
                 },
               ]}
             >
-              Populares (Mais Ouvidos)
+              Populares
             </Text>
           </TouchableOpacity>
 
@@ -453,7 +435,8 @@ export default function RankingsScreen() {
           </TouchableOpacity>
         ))}
       </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -461,25 +444,10 @@ const styles = StyleSheet.create({
   container: {
     padding: 14,
     paddingBottom: 110,
+    gap: 16,
   },
-  headerBox: {
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    marginBottom: 16,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  pageTitle: {
-    fontSize: 22,
-    fontWeight: '900',
-  },
-  pageSubtitle: {
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 4,
+  filterBarContainer: {
+    marginBottom: 4,
   },
   modePill: {
     flexDirection: 'row',

@@ -110,16 +110,18 @@ export function getReleaseCoverUrl(
 
 export function optimizeCoverUrl(
   url?: string | null,
-  targetSize: '250' | '500' = '250'
+  targetSize: '250' | '500' | '1200' = '250'
 ): string | undefined {
   if (!url) return undefined;
   if (url.includes('coverartarchive.org')) {
-    return url.replace(/\/(front|back)-(1200|500)\b/, `/$1-${targetSize}`);
+    return url.replace(/\/(front|back)-(1200|500|250)\b/, `/$1-${targetSize}`);
   }
   if (url.includes('images.unsplash.com')) {
+    const width = targetSize === '1200' ? '1080' : targetSize === '500' ? '500' : '250';
+    const quality = targetSize === '1200' ? '80' : '65';
     return url
-      .replace(/([?&])q=\d+/, '$1q=65')
-      .replace(/([?&])w=\d+/, `$1w=${targetSize === '250' ? '250' : '500'}`);
+      .replace(/([?&])q=\d+/, `$1q=${quality}`)
+      .replace(/([?&])w=\d+/, `$1w=${width}`);
   }
   return url;
 }

@@ -14,11 +14,11 @@ import {
   Disc,
   Mic,
   Music,
-  User,
   Award,
   X,
-  Star,
   Radio,
+  Layers,
+  Building2,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import {
@@ -37,53 +37,43 @@ import {
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
 import { CoverImage } from '@/components/CoverImage';
+import { TabHeader } from '@/components/TabHeader';
 
 type SearchCategory =
   | 'all'
   | 'artist'
+  | 'track'
   | 'album'
   | 'ep'
-  | 'single'
-  | 'track'
-  | 'user';
+  | 'genre'
+  | 'label';
 
-interface CommunityUser {
-  id: string;
-  name: string;
-  username: string;
-  avatar: string;
-  bio: string;
-  route: string;
-}
+const MUSIC_GENRES = [
+  { name: 'Pop', emoji: '🎤' },
+  { name: 'Hip-Hop', emoji: '🔥' },
+  { name: 'Rock', emoji: '🎸' },
+  { name: 'Indie', emoji: '🎧' },
+  { name: 'R&B', emoji: '🎷' },
+  { name: 'Eletrônica', emoji: '⚡' },
+  { name: 'MPB', emoji: '🇧🇷' },
+  { name: 'Samba e Pagode', emoji: '🥁' },
+  { name: 'Metal', emoji: '🤘' },
+  { name: 'Jazz', emoji: '🎺' },
+  { name: 'Trap', emoji: '💣' },
+  { name: 'K-Pop', emoji: '✨' },
+];
 
-const COMMUNITY_USERS: CommunityUser[] = [
-  {
-    id: 'user-1',
-    name: 'Ana Beatriz',
-    username: 'anabeat',
-    avatar:
-      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=65&w=250&auto=format&fit=crop',
-    bio: 'Amante de música pop, indie e crítica sonora.',
-    route: '/(tabs)/profile',
-  },
-  {
-    id: 'user-2',
-    name: 'Lucas Sound',
-    username: 'lucas_snd',
-    avatar:
-      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=65&w=150',
-    bio: 'Entusiasta de álbuns conceituais e vinil.',
-    route: '/user/lucas_snd',
-  },
-  {
-    id: 'user-3',
-    name: 'Beat Critic',
-    username: 'beatcritic',
-    avatar:
-      'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?q=65&w=150',
-    bio: 'Crítico de música eletrônica, rock e hip-hop.',
-    route: '/user/beatcritic',
-  },
+const RECORD_LABELS = [
+  { name: 'Sony Music', desc: 'Columbia, RCA, Epic' },
+  { name: 'Universal Music Group', desc: 'Interscope, Republic, Def Jam' },
+  { name: 'Warner Music Group', desc: 'Atlantic, Elektra, Parlophone' },
+  { name: 'Sub Pop', desc: 'Indie & Alternative' },
+  { name: 'XL Recordings', desc: 'Indie, Eletrônica & Hip-Hop' },
+  { name: 'Som Livre', desc: 'Nacional & MPB' },
+  { name: '4AD', desc: 'Post-Punk & Dream Pop' },
+  { name: 'Def Jam Recordings', desc: 'Hip-Hop & R&B Legend' },
+  { name: 'Atlantic Records', desc: 'Pop, Rock & Urban' },
+  { name: 'Interscope Records', desc: 'Pop, Hip-Hop & Mainstream' },
 ];
 
 export default function GlobalSearchScreen() {
@@ -91,6 +81,8 @@ export default function GlobalSearchScreen() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<SearchCategory>('all');
+  const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+  const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const [artists, setArtists] = useState<CatalogArtist[]>(() =>
@@ -102,7 +94,6 @@ export default function GlobalSearchScreen() {
   const [tracks, setTracks] = useState<CatalogTrack[]>(() =>
     INITIAL_TOP_TRACKS.slice(0, 10)
   );
-  const [users, setUsers] = useState<CommunityUser[]>(COMMUNITY_USERS);
 
   const [followedIds, setFollowedIds] = useState<string[]>(() =>
     getFollowedArtistIds()
@@ -120,6 +111,28 @@ export default function GlobalSearchScreen() {
     setFollowedIds(nextIds);
   };
 
+  const handleSelectGenre = (genre: string) => {
+    if (selectedGenre === genre) {
+      setSelectedGenre(null);
+      setSearchQuery('');
+    } else {
+      setSelectedGenre(genre);
+      setSelectedLabel(null);
+      setSearchQuery(genre);
+    }
+  };
+
+  const handleSelectLabel = (label: string) => {
+    if (selectedLabel === label) {
+      setSelectedLabel(null);
+      setSearchQuery('');
+    } else {
+      setSelectedLabel(label);
+      setSelectedGenre(null);
+      setSearchQuery(label);
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
     const trimmed = searchQuery.trim();
@@ -128,47 +141,40 @@ export default function GlobalSearchScreen() {
       setArtists(FEATURED_ARTISTS.slice(0, 10));
       setReleases(getInternalAlbumsStore());
       setTracks(INITIAL_TOP_TRACKS.slice(0, 10));
-      setUsers(COMMUNITY_USERS);
       setIsLoading(false);
       return;
     }
 
     // Resultados instantâneos locais
     const local = searchLocalCatalogInstant(trimmed);
-    const matchedUsers = COMMUNITY_USERS.filter(
-      (u) =>
-        u.name.toLowerCase().includes(trimmed.toLowerCase()) ||
-        u.username.toLowerCase().includes(trimmed.toLowerCase()) ||
-        u.bio.toLowerCase().includes(trimmed.toLowerCase())
-    );
-
     setArtists(local.artists);
     setReleases(local.albums);
     setTracks(local.tracks);
-    setUsers(matchedUsers);
 
     const hasInstant =
       local.artists.length > 0 ||
       local.albums.length > 0 ||
-      local.tracks.length > 0 ||
-      matchedUsers.length > 0;
+      local.tracks.length > 0;
     setIsLoading(!hasInstant);
 
     const timer = setTimeout(async () => {
       try {
         const shouldSearchArtists =
-          activeCategory === 'all' || activeCategory === 'artist';
+          activeCategory === 'all' ||
+          activeCategory === 'artist' ||
+          activeCategory === 'genre' ||
+          activeCategory === 'label';
         const shouldSearchReleases =
           activeCategory === 'all' ||
           activeCategory === 'album' ||
           activeCategory === 'ep' ||
-          activeCategory === 'single';
+          activeCategory === 'genre';
         const shouldSearchTracks =
           activeCategory === 'all' || activeCategory === 'track';
 
         const [artistRes, albumRes, trackRes] = await Promise.all([
           shouldSearchArtists
-            ? searchArtistsInMusicBrainz(trimmed, 12, 0)
+            ? searchArtistsInMusicBrainz(trimmed, 14, 0)
             : Promise.resolve({ artists: local.artists, total: 0 }),
           shouldSearchReleases
             ? searchAlbumsInMusicBrainz(trimmed, 18, 0)
@@ -186,7 +192,7 @@ export default function GlobalSearchScreen() {
         artistRes.artists.forEach((a) => artistMap.set(a.id, a));
         setArtists(Array.from(artistMap.values()));
 
-        // Mesclar álbuns / EPs / singles
+        // Mesclar álbuns / EPs
         const releaseMap = new Map<string, CatalogAlbum>();
         local.albums.forEach((r) => releaseMap.set(r.id, r));
         albumRes.albums.forEach((r) => releaseMap.set(r.id, r));
@@ -214,34 +220,36 @@ export default function GlobalSearchScreen() {
 
   const filteredAlbums = releases.filter((r) => r.record_type === 'album');
   const filteredEps = releases.filter((r) => r.record_type === 'ep');
-  const filteredSingles = releases.filter((r) => r.record_type === 'single');
 
   const showArtists =
-    (activeCategory === 'all' || activeCategory === 'artist') &&
+    (activeCategory === 'all' ||
+      activeCategory === 'artist' ||
+      activeCategory === 'genre' ||
+      activeCategory === 'label') &&
     artists.length > 0;
-  const showAlbums =
-    (activeCategory === 'all' || activeCategory === 'album') &&
-    (activeCategory === 'album' ? releases.length > 0 : filteredAlbums.length > 0);
-  const showEps =
-    (activeCategory === 'all' || activeCategory === 'ep') &&
-    filteredEps.length > 0;
-  const showSingles =
-    (activeCategory === 'all' || activeCategory === 'single') &&
-    filteredSingles.length > 0;
   const showTracks =
     (activeCategory === 'all' || activeCategory === 'track') &&
     tracks.length > 0;
-  const showUsers =
-    (activeCategory === 'all' || activeCategory === 'user') &&
-    users.length > 0;
+  const showAlbums =
+    (activeCategory === 'all' || activeCategory === 'album') &&
+    (activeCategory === 'album'
+      ? releases.length > 0
+      : filteredAlbums.length > 0);
+  const showEps =
+    (activeCategory === 'all' || activeCategory === 'ep') &&
+    filteredEps.length > 0;
+  const showGenres =
+    activeCategory === 'all' || activeCategory === 'genre';
+  const showLabels =
+    activeCategory === 'all' || activeCategory === 'label';
 
   const hasAnyResult =
     showArtists ||
+    showTracks ||
     showAlbums ||
     showEps ||
-    showSingles ||
-    showTracks ||
-    showUsers;
+    showGenres ||
+    showLabels;
 
   const albumsToRender =
     activeCategory === 'album'
@@ -251,27 +259,16 @@ export default function GlobalSearchScreen() {
       : filteredAlbums;
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.background }}
-      contentContainerStyle={styles.container}
-      keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
-    >
-      {/* Header de Busca Unificada */}
-      <View
-        style={[
-          styles.headerBox,
-          { borderBottomColor: colors.border },
-        ]}
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <TabHeader title="Buscar" />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <Text style={[styles.pageTitle, { color: colors.foreground }]}>
-          Buscar no Musicpostr
-        </Text>
-        <Text style={[styles.pageSubtitle, { color: colors.mutedForeground }]}>
-          Encontre artistas, músicas, usuários, álbuns, EPs e singles em todo o
-          catálogo e comunidade.
-        </Text>
-
+      {/* Barra de pesquisa e Filtros no topo (Sem sessão de introdução) */}
+      <View style={styles.topFilterBar}>
         <View
           style={[
             styles.searchBox,
@@ -281,22 +278,34 @@ export default function GlobalSearchScreen() {
             },
           ]}
         >
-          <Search size={17} color={colors.mutedForeground} />
+          <Search size={18} color={colors.mutedForeground} />
           <TextInput
-            placeholder="Buscar artistas, músicas, álbuns, EPs, singles ou usuários..."
+            placeholder="Buscar artistas, músicas, álbuns, EPs, gêneros..."
             placeholderTextColor={colors.mutedForeground}
             value={searchQuery}
-            onChangeText={setSearchQuery}
+            onChangeText={(text) => {
+              setSearchQuery(text);
+              if (!text) {
+                setSelectedGenre(null);
+                setSelectedLabel(null);
+              }
+            }}
             style={[styles.searchInput, { color: colors.foreground }]}
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <X size={17} color={colors.mutedForeground} />
+            <TouchableOpacity
+              onPress={() => {
+                setSearchQuery('');
+                setSelectedGenre(null);
+                setSelectedLabel(null);
+              }}
+            >
+              <X size={18} color={colors.mutedForeground} />
             </TouchableOpacity>
           )}
         </View>
 
-        {/* Abas de Categoria */}
+        {/* Abas / Filtros de Categoria */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -309,8 +318,8 @@ export default function GlobalSearchScreen() {
               { key: 'track', label: 'Músicas' },
               { key: 'album', label: 'Álbuns' },
               { key: 'ep', label: 'EPs' },
-              { key: 'single', label: 'Singles' },
-              { key: 'user', label: 'Usuários' },
+              { key: 'genre', label: 'Gêneros' },
+              { key: 'label', label: 'Gravadoras' },
             ] as const
           ).map((cat) => {
             const active = activeCategory === cat.key;
@@ -325,6 +334,7 @@ export default function GlobalSearchScreen() {
                     borderColor: active ? colors.primary : colors.border,
                   },
                 ]}
+                activeOpacity={0.8}
               >
                 <Text
                   style={{
@@ -345,7 +355,7 @@ export default function GlobalSearchScreen() {
         <View style={styles.emptyBox}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={{ fontSize: 12, color: colors.mutedForeground }}>
-            Pesquisando no catálogo e na comunidade...
+            Pesquisando no catálogo...
           </Text>
         </View>
       ) : !hasAnyResult ? (
@@ -358,12 +368,12 @@ export default function GlobalSearchScreen() {
               textAlign: 'center',
             }}
           >
-            {`Nenhum resultado encontrado para "${searchQuery}" nesta categoria.`}
+            {`Nenhum resultado encontrado para "${searchQuery}".`}
           </Text>
         </View>
       ) : (
         <View style={{ gap: 20 }}>
-          {/* 1. Artistas */}
+          {/* 1. Artistas em alta */}
           {showArtists && (
             <View style={styles.sectionBlock}>
               <View style={styles.sectionHeaderRow}>
@@ -371,13 +381,15 @@ export default function GlobalSearchScreen() {
                 <Text
                   style={[styles.sectionTitle, { color: colors.foreground }]}
                 >
-                  Artistas ({artists.length})
+                  {searchQuery
+                    ? `Artistas (${artists.length})`
+                    : 'Artistas em alta'}
                 </Text>
               </View>
 
               <View style={{ gap: 8 }}>
                 {artists
-                  .slice(0, activeCategory === 'artist' ? 24 : 5)
+                  .slice(0, activeCategory === 'artist' ? 24 : 6)
                   .map((artist) => {
                     const isFollowing = followedIds.includes(artist.id);
                     return (
@@ -402,6 +414,7 @@ export default function GlobalSearchScreen() {
                             uri={artist.imageUrl}
                             style={[styles.thumb, { borderRadius: 999 }]}
                             fallbackType="artist"
+                            quality="low"
                           />
                           <View style={{ flex: 1 }}>
                             <Text
@@ -420,7 +433,7 @@ export default function GlobalSearchScreen() {
                               ]}
                               numberOfLines={1}
                             >
-                              Artista • {artist.genre || 'Catálogo'}
+                              Artista • {artist.genre || 'Oficial'}
                             </Text>
                           </View>
                         </TouchableOpacity>
@@ -460,7 +473,7 @@ export default function GlobalSearchScreen() {
             </View>
           )}
 
-          {/* 2. Músicas */}
+          {/* 2. Musicas em alta */}
           {showTracks && (
             <View style={styles.sectionBlock}>
               <View style={styles.sectionHeaderRow}>
@@ -468,13 +481,15 @@ export default function GlobalSearchScreen() {
                 <Text
                   style={[styles.sectionTitle, { color: colors.foreground }]}
                 >
-                  Músicas ({tracks.length})
+                  {searchQuery
+                    ? `Músicas (${tracks.length})`
+                    : 'Musicas em alta'}
                 </Text>
               </View>
 
               <View style={{ gap: 8 }}>
                 {tracks
-                  .slice(0, activeCategory === 'track' ? 24 : 5)
+                  .slice(0, activeCategory === 'track' ? 24 : 6)
                   .map((track) => (
                     <TouchableOpacity
                       key={track.id}
@@ -497,6 +512,7 @@ export default function GlobalSearchScreen() {
                       <CoverImage
                         uri={track.album?.cover_medium}
                         style={styles.thumb}
+                        quality="low"
                       />
                       <View style={{ flex: 1 }}>
                         <Text
@@ -541,7 +557,9 @@ export default function GlobalSearchScreen() {
                 <Text
                   style={[styles.sectionTitle, { color: colors.foreground }]}
                 >
-                  Álbuns ({albumsToRender.length})
+                  {searchQuery
+                    ? `Álbuns (${albumsToRender.length})`
+                    : 'Álbuns em destaque'}
                 </Text>
               </View>
 
@@ -564,6 +582,7 @@ export default function GlobalSearchScreen() {
                       <CoverImage
                         uri={album.cover_medium || album.cover_big}
                         style={styles.thumb}
+                        quality="low"
                       />
                       <View style={{ flex: 1 }}>
                         <Text
@@ -586,34 +605,22 @@ export default function GlobalSearchScreen() {
                           {album.release_date?.substring(0, 4) || '2025'}
                         </Text>
                       </View>
-                      <View
-                        style={[
-                          styles.scoreBadge,
-                          { backgroundColor: `${colors.primary}18` },
-                        ]}
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          fontWeight: '700',
+                          color: colors.primary,
+                        }}
                       >
-                        <Star
-                          size={11}
-                          color={colors.primary}
-                          fill={colors.primary}
-                        />
-                        <Text
-                          style={{
-                            fontSize: 11,
-                            fontWeight: '800',
-                            color: colors.primary,
-                          }}
-                        >
-                          {album.communityRating.toFixed(1)}
-                        </Text>
-                      </View>
+                        Ver álbum →
+                      </Text>
                     </TouchableOpacity>
                   ))}
               </View>
             </View>
           )}
 
-          {/* 4. EPs */}
+          {/* 4. EPS em alta */}
           {showEps && (
             <View style={styles.sectionBlock}>
               <View style={styles.sectionHeaderRow}>
@@ -621,12 +628,12 @@ export default function GlobalSearchScreen() {
                 <Text
                   style={[styles.sectionTitle, { color: colors.foreground }]}
                 >
-                  EPs ({filteredEps.length})
+                  {searchQuery ? `EPs (${filteredEps.length})` : 'EPS em alta'}
                 </Text>
               </View>
 
               <View style={{ gap: 8 }}>
-                {filteredEps.map((ep) => (
+                {filteredEps.slice(0, 6).map((ep) => (
                   <TouchableOpacity
                     key={ep.id}
                     style={[
@@ -642,6 +649,7 @@ export default function GlobalSearchScreen() {
                     <CoverImage
                       uri={ep.cover_medium || ep.cover_big}
                       style={styles.thumb}
+                      quality="low"
                     />
                     <View style={{ flex: 1 }}>
                       <Text
@@ -675,133 +683,137 @@ export default function GlobalSearchScreen() {
             </View>
           )}
 
-          {/* 5. Singles */}
-          {showSingles && (
+          {/* 5. Gênero Musical (antes de Buscar por gravadora) */}
+          {showGenres && (
             <View style={styles.sectionBlock}>
               <View style={styles.sectionHeaderRow}>
-                <Radio size={17} color={colors.amber} />
+                <Layers size={17} color={colors.primary} />
                 <Text
                   style={[styles.sectionTitle, { color: colors.foreground }]}
                 >
-                  Singles ({filteredSingles.length})
+                  Gênero musical
                 </Text>
               </View>
 
-              <View style={{ gap: 8 }}>
-                {filteredSingles.map((single) => (
-                  <TouchableOpacity
-                    key={single.id}
-                    style={[
-                      styles.itemRowCard,
-                      {
-                        backgroundColor: colors.card,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                    onPress={() => router.push(`/album/${single.id}` as any)}
-                    activeOpacity={0.85}
-                  >
-                    <CoverImage
-                      uri={single.cover_medium || single.cover_big}
-                      style={styles.thumb}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={[styles.itemTitle, { color: colors.foreground }]}
-                        numberOfLines={1}
-                      >
-                        {single.title}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.itemSubtitle,
-                          { color: colors.mutedForeground },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        Single • {single.artist?.name}
-                      </Text>
-                    </View>
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        fontWeight: '700',
-                        color: colors.primary,
-                      }}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipsScrollRow}
+              >
+                {MUSIC_GENRES.map((item) => {
+                  const isSelected = selectedGenre === item.name;
+                  return (
+                    <TouchableOpacity
+                      key={item.name}
+                      onPress={() => handleSelectGenre(item.name)}
+                      style={[
+                        styles.genreChip,
+                        {
+                          backgroundColor: isSelected
+                            ? colors.primary
+                            : colors.card,
+                          borderColor: isSelected
+                            ? colors.primary
+                            : colors.border,
+                        },
+                      ]}
+                      activeOpacity={0.8}
                     >
-                      Ver Single →
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+                      <Text style={styles.genreEmoji}>{item.emoji}</Text>
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          fontWeight: '700',
+                          color: isSelected ? '#fff' : colors.foreground,
+                        }}
+                      >
+                        {item.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
           )}
 
-          {/* 6. Usuários */}
-          {showUsers && (
+          {/* 6. Buscar por gravadora (ao final da página) */}
+          {showLabels && (
             <View style={styles.sectionBlock}>
               <View style={styles.sectionHeaderRow}>
-                <User size={17} color="#3b82f6" />
+                <Building2 size={17} color={colors.amber} />
                 <Text
                   style={[styles.sectionTitle, { color: colors.foreground }]}
                 >
-                  Usuários ({users.length})
+                  Buscar por gravadora
                 </Text>
               </View>
 
-              <View style={{ gap: 8 }}>
-                {users.map((user) => (
-                  <TouchableOpacity
-                    key={user.id}
-                    style={[
-                      styles.itemRowCard,
-                      {
-                        backgroundColor: colors.card,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                    onPress={() => router.push(user.route as any)}
-                    activeOpacity={0.85}
-                  >
-                    <CoverImage
-                      uri={user.avatar}
-                      style={[styles.thumb, { borderRadius: 999 }]}
-                      fallbackType="artist"
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={[styles.itemTitle, { color: colors.foreground }]}
-                        numberOfLines={1}
-                      >
-                        {user.name}
-                      </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipsScrollRow}
+              >
+                {RECORD_LABELS.map((item) => {
+                  const isSelected = selectedLabel === item.name;
+                  return (
+                    <TouchableOpacity
+                      key={item.name}
+                      onPress={() => handleSelectLabel(item.name)}
+                      style={[
+                        styles.labelCard,
+                        {
+                          backgroundColor: isSelected
+                            ? `${colors.primary}22`
+                            : colors.card,
+                          borderColor: isSelected
+                            ? colors.primary
+                            : colors.border,
+                        },
+                      ]}
+                      activeOpacity={0.8}
+                    >
+                      <View style={styles.labelHeaderRow}>
+                        <Building2
+                          size={13}
+                          color={
+                            isSelected
+                              ? colors.primary
+                              : colors.mutedForeground
+                          }
+                        />
+                        <Text
+                          style={[
+                            styles.labelCardTitle,
+                            {
+                              color: isSelected
+                                ? colors.primary
+                                : colors.foreground,
+                            },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {item.name}
+                        </Text>
+                      </View>
                       <Text
                         style={[
-                          styles.itemSubtitle,
+                          styles.labelCardDesc,
                           { color: colors.mutedForeground },
                         ]}
                         numberOfLines={1}
                       >
-                        @{user.username} • {user.bio}
+                        {item.desc}
                       </Text>
-                    </View>
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        fontWeight: '700',
-                        color: colors.primary,
-                      }}
-                    >
-                      Perfil →
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
           )}
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -809,26 +821,16 @@ const styles = StyleSheet.create({
   container: {
     padding: 14,
     paddingBottom: 110,
+    gap: 16,
   },
-  headerBox: {
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    marginBottom: 16,
-  },
-  pageTitle: {
-    fontSize: 22,
-    fontWeight: '900',
-  },
-  pageSubtitle: {
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 4,
+  topFilterBar: {
+    gap: 12,
+    marginBottom: 4,
   },
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 12,
     paddingHorizontal: 12,
     height: 44,
     borderRadius: 14,
@@ -841,13 +843,48 @@ const styles = StyleSheet.create({
   },
   categoriesRow: {
     gap: 8,
-    marginTop: 12,
   },
   categoryChip: {
     paddingHorizontal: 14,
     paddingVertical: 7,
     borderRadius: 999,
     borderWidth: 1,
+  },
+  chipsScrollRow: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  genreChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  genreEmoji: {
+    fontSize: 13,
+  },
+  labelCard: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    minWidth: 145,
+    gap: 3,
+  },
+  labelHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  labelCardTitle: {
+    fontSize: 12.5,
+    fontWeight: '800',
+  },
+  labelCardDesc: {
+    fontSize: 10.5,
   },
   emptyBox: {
     paddingVertical: 60,
@@ -864,7 +901,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 15.5,
     fontWeight: '800',
   },
   itemRowCard: {
@@ -902,13 +939,5 @@ const styles = StyleSheet.create({
     height: 30,
     borderRadius: 999,
     borderWidth: 1,
-  },
-  scoreBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
   },
 });

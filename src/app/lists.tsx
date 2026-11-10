@@ -9,6 +9,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { safeGoBack } from '@/utils/navigation';
 import { ListMusic, ArrowLeft, Plus, X } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { MobileHeader } from '@/components/MobileHeader';
@@ -55,7 +56,7 @@ export default function ListsScreen() {
       >
         <TouchableOpacity
           style={styles.backBtn}
-          onPress={() => router.back()}
+          onPress={() => safeGoBack('/(tabs)/profile')}
         >
           <ArrowLeft size={15} color={colors.mutedForeground} />
           <Text

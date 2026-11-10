@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleProp, ViewStyle, ImageStyle } from 'react-native';
-import { Image } from 'expo-image';
-import { Disc, User } from 'lucide-react-native';
+import { useAppTheme } from '@/context/ThemeContext';
 import {
   getFallbackImageUrl,
   markCoverAsMissing,
   optimizeCoverUrl,
 } from '@/services/coverArt.service';
-import { useAppTheme } from '@/context/ThemeContext';
+import { Image } from 'expo-image';
+import { Disc, User } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
+import { ImageStyle, StyleProp, View, ViewStyle } from 'react-native';
 
 interface CoverImageProps {
   uri?: string | null;
@@ -15,7 +15,7 @@ interface CoverImageProps {
   containerStyle?: StyleProp<ViewStyle>;
   fallbackType?: 'album' | 'artist';
   contentFit?: 'cover' | 'contain';
-  quality?: 'low' | 'medium';
+  quality?: 'low' | 'medium' | 'high';
 }
 
 export function CoverImage({
@@ -31,7 +31,7 @@ export function CoverImage({
 
   const resolvedUri = optimizeCoverUrl(
     uri,
-    quality === 'medium' ? '500' : '250'
+    quality === 'high' ? '500' : quality === 'medium' ? '500' : '250'
   );
   const fallbackUri = getFallbackImageUrl(resolvedUri || fallbackType, fallbackType);
 

@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { AppThemeProvider, useAppTheme } from '@/context/ThemeContext';
+import { HeaderVisibilityProvider } from '@/context/HeaderVisibilityContext';
 
 LogBox.ignoreLogs([
   'ImageBackground is deprecated and will be removed in a future release.',
@@ -51,7 +52,9 @@ function RootNavigator() {
 export default function RootLayout() {
   return (
     <AppThemeProvider>
-      <RootNavigator />
+      <HeaderVisibilityProvider>
+        <RootNavigator />
+      </HeaderVisibilityProvider>
     </AppThemeProvider>
   );
 }
