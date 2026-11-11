@@ -8,7 +8,7 @@ import {
   saveCommunityFeedPosts,
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import {
   Award,
   ChevronDown,
@@ -57,12 +57,22 @@ interface CommunityReviewCardItem {
 }
 
 export default function CommunityReviewsScreen() {
+  const params = useLocalSearchParams<{ albumId?: string; search?: string }>();
   const { colors, isDark } = useAppTheme();
   const insets = useSafeAreaInsets();
 
   const [filter, setFilter] = useState<CommunityFilter>('all');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState(params.search || '');
+  const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(params.albumId || null);
+
+  useEffect(() => {
+    if (params.albumId) {
+      setSelectedAlbumId(params.albumId);
+    }
+    if (params.search !== undefined) {
+      setSearchTerm(params.search);
+    }
+  }, [params.albumId, params.search]);
   const [visibleCount, setVisibleCount] = useState(10);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newCommunityAlbum, setNewCommunityAlbum] = useState('');

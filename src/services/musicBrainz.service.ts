@@ -49,6 +49,7 @@ export interface AlbumUserReview {
   date?: string;
   likes?: number;
   likedByMe?: boolean;
+  commentsCount?: number;
 }
 
 export interface CatalogAlbum {
@@ -2245,6 +2246,26 @@ export function addUserList(
     // ignore
   }
   return next;
+}
+
+export function addAlbumToUserList(listId: string, albumTitle: string): boolean {
+  try {
+    const lists = getUserLists();
+    const updated = lists.map((l) => {
+      if (l.id === listId) {
+        return {
+          ...l,
+          count: (l.count || 0) + 1,
+        };
+      }
+      return l;
+    });
+    Storage.setItem(STORAGE_KEYS.USER_LISTS, JSON.stringify(updated));
+    AppEvents.emit('musicpostr:albums-updated');
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ============================================================================
