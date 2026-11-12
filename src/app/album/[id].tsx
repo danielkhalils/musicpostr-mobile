@@ -1163,7 +1163,10 @@ export default function AlbumDetailScreen() {
           <View
             style={[
               styles.floatingBarIconWrap,
-              rating > 0 && { backgroundColor: `${colors.amber}20` },
+              rating > 0 && {
+                backgroundColor: `${colors.amber}22`,
+                borderRadius: 999,
+              },
             ]}
           >
             <Star
@@ -1192,7 +1195,10 @@ export default function AlbumDetailScreen() {
           <View
             style={[
               styles.floatingBarIconWrap,
-              album.isFavorite && { backgroundColor: `${colors.rose}20` },
+              album.isFavorite && {
+                backgroundColor: `${colors.rose}22`,
+                borderRadius: 999,
+              },
             ]}
           >
             <Heart
@@ -1221,7 +1227,10 @@ export default function AlbumDetailScreen() {
           <View
             style={[
               styles.floatingBarIconWrap,
-              album.listenedByMe && { backgroundColor: `${colors.primary}20` },
+              album.listenedByMe && {
+                backgroundColor: `${colors.primary}22`,
+                borderRadius: 999,
+              },
             ]}
           >
             <Headphones
@@ -2090,6 +2099,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 2,
     paddingVertical: 6,
+    borderRadius: 999,
+    overflow: 'hidden',
   },
   floatingBarIconWrap: {
     width: 32,
@@ -2097,6 +2108,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   floatingBarLabel: {
     fontSize: 10,

@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from "react-native";
+import { View, TouchableOpacity, StyleSheet, Platform } from "react-native";
 import { Tabs } from "expo-router";
 import { Home, Search, Trophy, User, Users } from "lucide-react-native";
 import { useAppTheme } from "@/context/ThemeContext";
@@ -50,17 +50,53 @@ function FloatingTabsBar({ state, descriptors, navigateToTab, insets }: TabBarPr
         const renderIcon = () => {
           switch (route.name) {
             case "index":
-              return <Home size={18} color={color} />;
+              return (
+                <Home
+                  size={20}
+                  color={color}
+                  fill={isFocused ? color : "transparent"}
+                />
+              );
             case "reviews":
-              return <Users size={18} color={color} />;
+              return (
+                <Users
+                  size={20}
+                  color={color}
+                  strokeWidth={isFocused ? 2.5 : 2}
+                />
+              );
             case "rankings":
-              return <Trophy size={18} color={color} />;
+              return (
+                <Trophy
+                  size={20}
+                  color={color}
+                  fill={isFocused ? color : "transparent"}
+                />
+              );
             case "artists":
-              return <Search size={18} color={color} />;
+              return (
+                <Search
+                  size={20}
+                  color={color}
+                  strokeWidth={isFocused ? 2.6 : 2}
+                />
+              );
             case "profile":
-              return <User size={18} color={color} />;
+              return (
+                <User
+                  size={20}
+                  color={color}
+                  fill={isFocused ? color : "transparent"}
+                />
+              );
             default:
-              return <Home size={18} color={color} />;
+              return (
+                <Home
+                  size={20}
+                  color={color}
+                  fill={isFocused ? color : "transparent"}
+                />
+              );
           }
         };
 
@@ -72,23 +108,21 @@ function FloatingTabsBar({ state, descriptors, navigateToTab, insets }: TabBarPr
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityState={isFocused ? { selected: true } : {}}
-            accessibilityLabel={options.tabBarAccessibilityLabel}
+            accessibilityLabel={options.tabBarAccessibilityLabel || label}
             testID={options.tabBarButtonTestID}
           >
             <View
               style={[
                 styles.floatingBarIconWrap,
-                isFocused && { backgroundColor: `${colors.primary}20` },
+                isFocused && {
+                  backgroundColor: isDark
+                    ? "rgba(139, 92, 246, 0.22)"
+                    : "rgba(139, 92, 246, 0.14)",
+                },
               ]}
             >
               {renderIcon()}
             </View>
-            <Text
-              style={[styles.floatingBarLabel, { color }]}
-              numberOfLines={1}
-            >
-              {label}
-            </Text>
           </TouchableOpacity>
         );
       })}
@@ -171,19 +205,15 @@ const styles = StyleSheet.create({
     height: "100%",
     alignItems: "center",
     justifyContent: "center",
-    gap: 2,
-    paddingVertical: 6,
+    borderRadius: 999,
+    overflow: "hidden",
   },
   floatingBarIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
-  },
-  floatingBarLabel: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: -0.2,
+    overflow: "hidden",
   },
 });
