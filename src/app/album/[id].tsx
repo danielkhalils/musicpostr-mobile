@@ -16,6 +16,10 @@ import {
   addAlbumToUserList,
   addUserList,
   getCommunityFeedPosts,
+  getUserProfile,
+  getMyReviews,
+  getAlbumAwards,
+  getFallbackImageUrl,
   type AlbumUserReview,
   type CatalogAlbum,
   type UserListRecord,
@@ -33,16 +37,18 @@ import {
   Heart,
   Layers,
   Maximize2,
-  MessageSquare,
   Music,
   Star,
-  ThumbsUp,
   Users,
   X,
   ListPlus,
   Check,
   Plus,
   ArrowRight,
+  Trophy,
+  Quote,
+  ExternalLink,
+  Award,
 } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -185,7 +191,7 @@ export default function AlbumDetailScreen() {
 
   const handleAddToList = (listId: string, listTitle: string) => {
     if (!album) return;
-    addAlbumToUserList(listId, album.title);
+    addAlbumToUserList(listId, album.title, album.id, album.cover_medium);
     setUserLists(getUserLists());
     setListSuccessMessage(`Adicionado à lista "${listTitle}"!`);
     setTimeout(() => {
@@ -224,27 +230,65 @@ export default function AlbumDetailScreen() {
     });
   };
 
-  const handleLikeReview = (reviewId: string | number) => {
-    setSubmittedReviews((prev) =>
-      prev.map((r) => {
-        if (r.id === reviewId) {
-          const liked = !r.likedByMe;
-          return {
-            ...r,
-            likedByMe: liked,
-            likes: (r.likes || 0) + (liked ? 1 : -1),
-          };
-        }
-        return r;
-      })
-    );
-  };
-
   const formatDuration = (seconds: number) => {
     if (!seconds) return '—:—';
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+  };
+
+  const userProfile = useMemo(() => getUserProfile(), []);
+
+  const currentUserReview = useMemo(() => {
+    if (!album) return null;
+    const myRevs = getMyReviews();
+    const foundInMy = myRevs.find(
+      (r) =>
+        r.albumId === album.id ||
+        (r.albumTitle && r.albumTitle.toLowerCase() === album.title.toLowerCase())
+    );
+    if (foundInMy) return foundInMy;
+
+    const foundInSubmitted = submittedReviews.find(
+      (r) =>
+        (r.username && r.username.toLowerCase() === userProfile.username.toLowerCase()) ||
+        (r.user && r.user.toLowerCase() === userProfile.name.toLowerCase())
+    );
+    if (foundInSubmitted) {
+      return {
+        id: String(foundInSubmitted.id),
+        albumId: album.id,
+        albumTitle: album.title,
+        artistName: album.artist?.name || 'Artista',
+        coverUrl: album.cover_medium || album.cover_big,
+        rating: foundInSubmitted.rating,
+        comment: foundInSubmitted.comment,
+        date: foundInSubmitted.date || 'Recente',
+      };
+    }
+    return null;
+  }, [album, submittedReviews, userProfile]);
+
+  const awards = useMemo(() => {
+    if (!album) return [];
+    return getAlbumAwards(album.id, album.title, album.artist.name);
+  }, [album]);
+
+  const handleStarPress = (starIndex: number) => {
+    if (starIndex === 10) {
+      setRating(10);
+      return;
+    }
+    const currentBase = Math.floor(rating);
+    if (currentBase === starIndex) {
+      // Já está nesta estrela: incrementa décimos de 0 a 9 em ciclo
+      const currentDec = Math.round((rating - currentBase) * 10);
+      const nextDec = (currentDec + 1) % 10;
+      const nextVal = Number((starIndex + nextDec * 0.1).toFixed(1));
+      setRating(nextVal);
+    } else {
+      setRating(starIndex);
+    }
   };
 
   const albumId = album?.id;
@@ -651,11 +695,11 @@ export default function AlbumDetailScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Círculo de Nota de Destaque Estilo Pitchfork */}
-            <View style={styles.pitchforkScoreSection}>
+            {/* Círculo de Nota de Destaque Estilo Musicpostr */}
+            <View style={styles.musicpostrScoreSection}>
               <View
                 style={[
-                  styles.pitchforkCircle,
+                  styles.musicpostrCircle,
                   {
                     backgroundColor: colors.card,
                     borderColor: colors.primary,
@@ -663,23 +707,130 @@ export default function AlbumDetailScreen() {
                   },
                 ]}
               >
-                <Text style={[styles.pitchforkScoreText, { color: colors.foreground }]}>
+                <Text style={[styles.musicpostrScoreText, { color: colors.foreground }]}>
                   {averageRating}
                 </Text>
               </View>
-              <View style={styles.pitchforkMetaCol}>
-                <Text style={[styles.pitchforkLabel, { color: colors.foreground }]}>
-                  NOTA DA COMUNIDADE
+              <View style={styles.musicpostrMetaCol}>
+                <Text style={[styles.musicpostrLabel, { color: colors.foreground }]}>
+                  NOTA MUSICPOSTR
                 </Text>
-                <Text style={[styles.pitchforkSubLabel, { color: colors.mutedForeground }]}>
-                  Baseada em {album.totalReviews} avaliações de ouvintes
+                <Text style={[styles.musicpostrSubLabel, { color: colors.mutedForeground }]}>
+                  Baseada em {album.totalReviews} avaliações da comunidade
                 </Text>
               </View>
             </View>
+
+            {/* Avaliação do Usuário Logado (ou CTA de Não Avaliado) */}
+            {currentUserReview ? (
+              <View
+                style={[
+                  styles.userReviewQuoteCard,
+                  {
+                    backgroundColor: colors.card,
+                    borderColor: `${colors.primary}45`,
+                  },
+                ]}
+              >
+                <View style={styles.userReviewQuoteHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                    <CoverImage
+                      uri={userProfile.avatarUrl || getFallbackImageUrl(userProfile.name)}
+                      style={styles.userReviewAvatar}
+                      quality="low"
+                    />
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text
+                          style={[styles.userReviewAuthorName, { color: colors.foreground }]}
+                          numberOfLines={1}
+                        >
+                          {userProfile.name}
+                        </Text>
+                        <View style={[styles.myReviewBadge, { backgroundColor: `${colors.primary}22` }]}>
+                          <Text style={[styles.myReviewBadgeText, { color: colors.primary }]}>
+                            Sua Avaliação
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={[styles.userReviewHandle, { color: colors.mutedForeground }]}>
+                        @{userProfile.username}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={[styles.userReviewScoreBadge, { backgroundColor: `${colors.amber}22` }]}>
+                    <Star size={13} color={colors.amber} fill={colors.amber} />
+                    <Text style={[styles.userReviewScoreText, { color: colors.amber }]}>
+                      {Number(currentUserReview.rating).toFixed(1)}/10
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Comentário estilo citação */}
+                <View style={styles.quoteBodyRow}>
+                  <Quote size={18} color={colors.primary} style={{ opacity: 0.8, marginRight: 8, marginTop: 2 }} />
+                  <Text
+                    style={[
+                      styles.quoteBodyText,
+                      { color: colors.foreground },
+                    ]}
+                  >
+                    {`"${currentUserReview.comment}"`}
+                  </Text>
+                </View>
+
+                <View style={styles.userReviewFooter}>
+                  <Text style={[styles.userReviewDateText, { color: colors.mutedForeground }]}>
+                    {currentUserReview.date || 'Recente'}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setRating(Number(currentUserReview.rating) || 8);
+                      setReviewText(currentUserReview.comment || '');
+                      setIsReviewModalOpen(true);
+                    }}
+                    style={styles.editReviewLink}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.editReviewLinkText, { color: colors.primary }]}>
+                      Editar nota
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <View
+                style={[
+                  styles.unratedCard,
+                  {
+                    backgroundColor: colors.card,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={[styles.unratedTitle, { color: colors.foreground }]}>
+                    Ainda não avaliado
+                  </Text>
+                  <Text style={[styles.unratedSub, { color: colors.mutedForeground }]}>
+                    Dê sua nota e compartilhe suas impressões com os amigos.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setIsReviewModalOpen(true)}
+                  style={[styles.rateNowBtn, { backgroundColor: colors.primary }]}
+                  activeOpacity={0.8}
+                >
+                  <Star size={13} color="#fff" fill="#fff" />
+                  <Text style={styles.rateNowBtnText}>Avaliar</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         </View>
 
-        {/* Links de Streaming */}
+        {/* Links de Streaming Melhorados */}
         <View style={styles.albumActionsSection}>
           <View
             style={[
@@ -687,35 +838,61 @@ export default function AlbumDetailScreen() {
               { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
-            <Text
-              style={{
-                fontSize: 11.5,
-                fontWeight: '800',
-                color: colors.foreground,
-                marginBottom: 10,
-                textTransform: 'uppercase',
-                letterSpacing: 0.5,
-              }}
-            >
-              Ouvir no Streaming
-            </Text>
-            <View style={styles.streamingBtnsWrap}>
+            <View style={styles.streamingHeaderRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Headphones size={15} color={colors.primary} />
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '800',
+                    color: colors.foreground,
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.6,
+                  }}
+                >
+                  Ouvir no Streaming
+                </Text>
+              </View>
+              <Text style={{ fontSize: 11, color: colors.mutedForeground }}>
+                Escolha seu app favorito
+              </Text>
+            </View>
+
+            <View style={styles.streamingPlatformGrid}>
               {streamingLinks.map((st) => (
                 <TouchableOpacity
                   key={st.label}
                   onPress={() => Linking.openURL(st.url).catch(() => {})}
                   style={[
-                    styles.streamingLogoBtn,
+                    styles.streamingPlatformCard,
                     {
                       backgroundColor: colors.secondary,
                       borderColor: colors.border,
                     },
                   ]}
-                  activeOpacity={0.7}
+                  activeOpacity={0.75}
                   accessibilityLabel={st.label}
                   accessibilityRole="button"
                 >
-                  <StreamingIcon name={st.label} size={28} />
+                  <View style={[styles.streamingIconWrapper, { backgroundColor: `${st.color}15` }]}>
+                    <StreamingIcon name={st.label} size={24} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        fontWeight: '700',
+                        color: colors.foreground,
+                      }}
+                      numberOfLines={1}
+                    >
+                      {st.label}
+                    </Text>
+                    <Text style={{ fontSize: 10.5, color: colors.mutedForeground }}>
+                      Reproduzir álbum
+                    </Text>
+                  </View>
+                  <ExternalLink size={13} color={colors.mutedForeground} />
                 </TouchableOpacity>
               ))}
             </View>
@@ -794,6 +971,125 @@ export default function AlbumDetailScreen() {
           </View>
         ) : null}
 
+        {/* Sessão: Indicações e Premiações */}
+        <View
+          style={[
+            styles.sectionCard,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.sectionHeadingLine}>
+            <Trophy size={18} color="#eab308" />
+            <Text
+              style={[
+                styles.sectionTitle,
+                { color: colors.foreground, marginBottom: 0 },
+              ]}
+            >
+              Indicações e Premiações ({awards.length})
+            </Text>
+          </View>
+          <Text
+            style={{
+              fontSize: 12,
+              color: colors.mutedForeground,
+              marginTop: 4,
+              marginBottom: 12,
+            }}
+          >
+            Reconhecimento oficial e cerimônias de premiação da indústria da música.
+          </Text>
+
+          {awards.length === 0 ? (
+            <View style={styles.emptyAwardsBox}>
+              <Award size={26} color={colors.mutedForeground} style={{ opacity: 0.5 }} />
+              <Text style={{ fontSize: 13, color: colors.mutedForeground, textAlign: 'center' }}>
+                Nenhuma premiação oficial registrada para este álbum até o momento.
+              </Text>
+            </View>
+          ) : (
+            <View style={{ gap: 10 }}>
+              {awards.map((aw) => {
+                const isWinner = aw.result === 'winner';
+                return (
+                  <View
+                    key={aw.id}
+                    style={[
+                      styles.awardCardItem,
+                      {
+                        backgroundColor: colors.secondary,
+                        borderColor: isWinner ? 'rgba(234, 179, 8, 0.35)' : colors.border,
+                      },
+                    ]}
+                  >
+                    <View style={styles.awardLogoWrapper}>
+                      <CoverImage
+                        uri={aw.logoUrl}
+                        style={styles.awardLogoImage}
+                        quality="low"
+                      />
+                    </View>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 6,
+                        }}
+                      >
+                        <Text
+                          style={[styles.awardNameText, { color: colors.foreground }]}
+                          numberOfLines={1}
+                        >
+                          {aw.awardName}
+                        </Text>
+                        <View
+                          style={[
+                            styles.awardResultBadge,
+                            {
+                              backgroundColor: isWinner
+                                ? 'rgba(234, 179, 8, 0.2)'
+                                : `${colors.mutedForeground}22`,
+                              borderColor: isWinner
+                                ? 'rgba(234, 179, 8, 0.45)'
+                                : 'transparent',
+                            },
+                          ]}
+                        >
+                          {isWinner && <Trophy size={10} color="#eab308" />}
+                          <Text
+                            style={[
+                              styles.awardResultBadgeText,
+                              { color: isWinner ? '#eab308' : colors.mutedForeground },
+                            ]}
+                          >
+                            {isWinner ? 'Vencedor' : 'Indicado'}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={[styles.awardCategoryText, { color: colors.primary }]}>
+                        {aw.category}
+                      </Text>
+                      {aw.description ? (
+                        <Text
+                          style={[styles.awardDescText, { color: colors.mutedForeground }]}
+                          numberOfLines={2}
+                        >
+                          {aw.description}
+                        </Text>
+                      ) : null}
+                      <Text style={{ fontSize: 10.5, color: colors.mutedForeground, marginTop: 2 }}>
+                        Ano: {aw.year}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </View>
+
         {/* Avaliações dos Amigos */}
         <View
           style={[
@@ -821,7 +1117,7 @@ export default function AlbumDetailScreen() {
               marginBottom: 12,
             }}
           >
-            Principais impressões de amigos e pessoas que você segue.
+            Principais impressões da comunidade e amigos. Toque no perfil para se conectar.
           </Text>
 
           {displayedReviews.length === 0 ? (
@@ -847,6 +1143,8 @@ export default function AlbumDetailScreen() {
               {displayedReviews.map((rev) => {
                 const revPhrase =
                   GEN_Z_PHRASES[Math.round(rev.rating)] || GEN_Z_PHRASES[0];
+                const authorTag = rev.username || rev.user;
+                const authorAvatar = rev.avatar || getFallbackImageUrl(rev.user);
                 return (
                   <View
                     key={rev.id}
@@ -861,61 +1159,83 @@ export default function AlbumDetailScreen() {
                     <View style={styles.revHeader}>
                       <TouchableOpacity
                         onPress={() => {
-                          const userTag = rev.username || rev.user;
-                          if (userTag) {
-                            router.push(`/user/${userTag}` as any);
+                          if (authorTag) {
+                            router.push(`/user/${authorTag}` as any);
                           }
                         }}
-                        style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}
                         activeOpacity={0.7}
                       >
-                        <Text
-                          style={{
-                            fontSize: 13,
-                            fontWeight: '800',
-                            color: colors.foreground,
-                          }}
-                        >
-                          @{rev.username || rev.user}
-                        </Text>
-                        <View
-                          style={{
-                            backgroundColor: `${colors.primary}18`,
-                            paddingHorizontal: 6,
-                            paddingVertical: 2,
-                            borderRadius: 6,
-                          }}
-                        >
+                        <CoverImage
+                          uri={authorAvatar}
+                          style={styles.revUserAvatar}
+                          quality="low"
+                        />
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text
+                              style={{
+                                fontSize: 13.5,
+                                fontWeight: '800',
+                                color: colors.foreground,
+                              }}
+                              numberOfLines={1}
+                            >
+                              {rev.user}
+                            </Text>
+                            {rev.isFriend && (
+                              <View
+                                style={{
+                                  backgroundColor: `${colors.primary}18`,
+                                  paddingHorizontal: 6,
+                                  paddingVertical: 1.5,
+                                  borderRadius: 6,
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    fontSize: 9.5,
+                                    fontWeight: '700',
+                                    color: colors.primary,
+                                  }}
+                                >
+                                  Amigo
+                                </Text>
+                              </View>
+                            )}
+                          </View>
                           <Text
                             style={{
-                              fontSize: 9.5,
-                              fontWeight: '700',
-                              color: colors.primary,
+                              fontSize: 11.5,
+                              color: colors.mutedForeground,
                             }}
                           >
-                            Amigo
+                            @{authorTag}
                           </Text>
                         </View>
                       </TouchableOpacity>
+
                       <View
                         style={[
                           styles.revScorePill,
                           { backgroundColor: `${revPhrase.color}22` },
                         ]}
                       >
+                        <Star size={11} color={revPhrase.color} fill={revPhrase.color} />
                         <Text
                           style={{
-                            fontSize: 11,
+                            fontSize: 11.5,
                             fontWeight: '900',
                             color: revPhrase.color,
                           }}
                         >
-                          {rev.rating}/10
+                          {Number(rev.rating).toFixed(1)}/10
                         </Text>
                       </View>
                     </View>
 
-                    <View style={{ flexDirection: 'row', gap: 2, marginTop: 4 }}>
+                    {/* Estrelas */}
+                    <View style={{ flexDirection: 'row', gap: 2, marginTop: 6 }}>
                       {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((s) => (
                         <Star
                           key={s}
@@ -932,62 +1252,22 @@ export default function AlbumDetailScreen() {
 
                     <Text
                       style={{
-                        fontSize: 11,
-                        fontWeight: '700',
-                        color: revPhrase.color,
-                        marginTop: 6,
-                      }}
-                    >
-                      {revPhrase.text}
-                    </Text>
-
-                    <Text
-                      style={{
                         fontSize: 12.5,
                         color: colors.foreground,
-                        marginTop: 4,
+                        marginTop: 6,
                         lineHeight: 18,
                       }}
                     >
                       {`"${rev.comment}"`}
                     </Text>
 
-                    <View style={styles.revFooterRow}>
-                      <TouchableOpacity
-                        onPress={() => handleLikeReview(rev.id)}
-                        style={styles.revActionBtn}
-                      >
-                        <ThumbsUp
-                          size={12}
-                          color={
-                            rev.likedByMe
-                              ? colors.primary
-                              : colors.mutedForeground
-                          }
-                        />
-                        <Text
-                          style={{
-                            fontSize: 11,
-                            fontWeight: '700',
-                            color: rev.likedByMe
-                              ? colors.primary
-                              : colors.mutedForeground,
-                          }}
-                        >
-                          Curtir ({rev.likes || 0})
-                        </Text>
-                      </TouchableOpacity>
-                      <View style={styles.revActionBtn}>
-                        <MessageSquare size={12} color={colors.mutedForeground} />
-                        <Text
-                          style={{
-                            fontSize: 11,
-                            color: colors.mutedForeground,
-                          }}
-                        >
-                          {rev.date || 'Recente'}
-                        </Text>
-                      </View>
+                    <View style={{ marginTop: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 11, color: colors.mutedForeground }}>
+                        {rev.date || 'Recente'}
+                      </Text>
+                      <Text style={{ fontSize: 11, fontStyle: 'italic', color: revPhrase.color }}>
+                        {revPhrase.text}
+                      </Text>
                     </View>
                   </View>
                 );
@@ -1344,13 +1624,31 @@ export default function AlbumDetailScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* Frase Gen Z */}
+            {/* Destaque da Nota Selecionada */}
+            <View style={{ alignItems: 'center', marginVertical: 6 }}>
+              <Text
+                style={{
+                  fontSize: 36,
+                  fontWeight: '900',
+                  color: rating > 0 ? colors.amber : colors.mutedForeground,
+                  letterSpacing: -1,
+                }}
+              >
+                {rating > 0 ? rating.toFixed(1) : '—'}
+                <Text style={{ fontSize: 16, fontWeight: '700', color: colors.mutedForeground }}>
+                  {' '}/ 10
+                </Text>
+              </Text>
+            </View>
+
+            {/* Frase de Feedback de Acordo com a Nota */}
             <View
               style={[
                 styles.genZBadge,
                 {
                   borderColor: `${currentGenZ.color}50`,
                   backgroundColor: `${currentGenZ.color}15`,
+                  alignSelf: 'center',
                 },
               ]}
             >
@@ -1365,16 +1663,24 @@ export default function AlbumDetailScreen() {
               </Text>
             </View>
 
-            {/* 10 Estrelas Interativas */}
+            {/* 10 Estrelas Interativas com Incremento Decimal */}
             <View style={styles.starsRow}>
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => {
                 const active = rating >= star;
+                const isSelectedBase = Math.floor(rating) === star;
                 return (
                   <TouchableOpacity
                     key={star}
-                    onPress={() => setRating(star)}
-                    style={styles.starBtn}
-                    activeOpacity={0.7}
+                    onPress={() => handleStarPress(star)}
+                    style={[
+                      styles.starBtn,
+                      isSelectedBase && {
+                        backgroundColor: `${colors.amber}18`,
+                        borderRadius: 8,
+                      },
+                    ]}
+                    activeOpacity={0.65}
+                    accessibilityLabel={`Nota ${star}`}
                   >
                     <Star
                       size={24}
@@ -1384,6 +1690,77 @@ export default function AlbumDetailScreen() {
                   </TouchableOpacity>
                 );
               })}
+            </View>
+
+            {/* Ajuste fino decimal */}
+            <View style={{ alignItems: 'center', marginTop: 4, marginBottom: 8, gap: 6 }}>
+              <Text style={{ fontSize: 11, color: colors.mutedForeground, textAlign: 'center' }}>
+                Toque na mesma estrela até 9x para ajustar os décimos (ex: 9.1 a 9.9)
+              </Text>
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <TouchableOpacity
+                  onPress={() => {
+                    const next = Math.max(1, Number((rating - 0.1).toFixed(1)));
+                    setRating(next);
+                  }}
+                  style={[
+                    styles.decStepBtn,
+                    { backgroundColor: colors.secondary, borderColor: colors.border },
+                  ]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: colors.foreground }}>
+                    -0.1
+                  </Text>
+                </TouchableOpacity>
+
+                {[0, 2, 5, 8].map((dec) => {
+                  const base = Math.max(1, Math.floor(rating) || 8);
+                  const candidate = Number((base + dec * 0.1).toFixed(1));
+                  const isCurrent = rating === candidate;
+                  return (
+                    <TouchableOpacity
+                      key={dec}
+                      onPress={() => setRating(candidate)}
+                      style={[
+                        styles.decChipBtn,
+                        {
+                          backgroundColor: isCurrent ? colors.primary : colors.secondary,
+                          borderColor: isCurrent ? colors.primary : colors.border,
+                        },
+                      ]}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontWeight: '700',
+                          color: isCurrent ? '#fff' : colors.foreground,
+                        }}
+                      >
+                        .{dec}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+
+                <TouchableOpacity
+                  onPress={() => {
+                    const next = Math.min(10, Number((rating + 0.1).toFixed(1)));
+                    setRating(next);
+                  }}
+                  style={[
+                    styles.decStepBtn,
+                    { backgroundColor: colors.secondary, borderColor: colors.border },
+                  ]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: colors.foreground }}>
+                    +0.1
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             {postSuccess && (
@@ -1543,37 +1920,83 @@ export default function AlbumDetailScreen() {
               style={{ maxHeight: 250, marginTop: 8 }}
               showsVerticalScrollIndicator={false}
             >
-              {userLists.map((item) => (
-                <TouchableOpacity
-                  key={item.id}
-                  onPress={() => handleAddToList(item.id, item.title)}
-                  style={[
-                    styles.userListItemBtn,
-                    {
-                      backgroundColor: colors.secondary,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                  activeOpacity={0.7}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={[styles.userListItemTitle, { color: colors.foreground }]}
-                    >
-                      {item.title}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.userListItemSub,
-                        { color: colors.mutedForeground },
-                      ]}
-                    >
-                      {item.count} {item.count === 1 ? 'álbum' : 'álbuns'} • {item.description}
-                    </Text>
-                  </View>
-                  <Plus size={16} color={colors.primary} />
-                </TouchableOpacity>
-              ))}
+              {userLists.map((item) => {
+                const isDefaultList =
+                  item.id === 'want-to-listen' || item.isDefault;
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    onPress={() => handleAddToList(item.id, item.title)}
+                    style={[
+                      styles.userListItemBtn,
+                      {
+                        backgroundColor: isDefaultList
+                          ? `${colors.primary}12`
+                          : colors.secondary,
+                        borderColor: isDefaultList
+                          ? `${colors.primary}45`
+                          : colors.border,
+                      },
+                    ]}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.userListItemTitle,
+                            { color: colors.foreground },
+                          ]}
+                        >
+                          {item.title}
+                        </Text>
+                        {isDefaultList && (
+                          <View
+                            style={{
+                              backgroundColor: `${colors.primary}22`,
+                              paddingHorizontal: 6,
+                              paddingVertical: 1,
+                              borderRadius: 6,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 9.5,
+                                fontWeight: '900',
+                                color: colors.primary,
+                              }}
+                            >
+                              Padrão
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text
+                        style={[
+                          styles.userListItemSub,
+                          { color: colors.mutedForeground },
+                        ]}
+                      >
+                        {item.count} {item.count === 1 ? 'álbum' : 'álbuns'} • {item.description}
+                      </Text>
+                    </View>
+                    <Plus
+                      size={16}
+                      color={
+                        isDefaultList
+                          ? colors.primary
+                          : colors.mutedForeground
+                      }
+                    />
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
           </View>
         </View>
@@ -1813,7 +2236,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textAlign: 'center',
   },
-  pitchforkScoreSection: {
+  musicpostrScoreSection: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
@@ -1825,7 +2248,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.12)',
   },
-  pitchforkCircle: {
+  musicpostrCircle: {
     width: 68,
     height: 68,
     borderRadius: 34,
@@ -1837,20 +2260,20 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
-  pitchforkScoreText: {
+  musicpostrScoreText: {
     fontSize: 26,
     fontWeight: '900',
     letterSpacing: -1,
   },
-  pitchforkMetaCol: {
+  musicpostrMetaCol: {
     justifyContent: 'center',
   },
-  pitchforkLabel: {
+  musicpostrLabel: {
     fontSize: 12,
     fontWeight: '900',
     letterSpacing: 1,
   },
-  pitchforkSubLabel: {
+  musicpostrSubLabel: {
     fontSize: 11,
     marginTop: 2,
     maxWidth: 190,
@@ -1870,10 +2293,218 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
   },
-  streamingBox: {
+  userReviewQuoteCard: {
+    width: '100%',
+    borderRadius: 18,
+    borderWidth: 1.5,
+    padding: 14,
+    gap: 10,
+    marginTop: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  userReviewQuoteHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  userReviewAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+  },
+  userReviewAuthorName: {
+    fontSize: 13.5,
+    fontWeight: '800',
+  },
+  myReviewBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  myReviewBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
+  userReviewHandle: {
+    fontSize: 11.5,
+  },
+  userReviewScoreBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  userReviewScoreText: {
+    fontSize: 12.5,
+    fontWeight: '900',
+  },
+  quoteBodyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: 4,
+  },
+  quoteBodyText: {
+    flex: 1,
+    fontSize: 13,
+    fontStyle: 'italic',
+    lineHeight: 19,
+  },
+  userReviewFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  userReviewDateText: {
+    fontSize: 11,
+  },
+  editReviewLink: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+  },
+  editReviewLinkText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  unratedCard: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
     borderRadius: 16,
     borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginTop: 6,
+  },
+  unratedTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+  },
+  unratedSub: {
+    fontSize: 11.5,
+    marginTop: 1,
+  },
+  rateNowBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  rateNowBtnText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  streamingBox: {
+    borderRadius: 18,
+    borderWidth: 1,
     padding: 14,
+    gap: 12,
+  },
+  streamingHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  streamingPlatformGrid: {
+    gap: 8,
+  },
+  streamingPlatformCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  streamingIconWrapper: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyAwardsBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    gap: 8,
+  },
+  awardCardItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  awardLogoWrapper: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  awardLogoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  awardNameText: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    flex: 1,
+  },
+  awardResultBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  awardResultBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  awardCategoryText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  awardDescText: {
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  revUserAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+  },
+  decStepBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  decChipBtn: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
   },
   streamingBtnsWrap: {
     flexDirection: 'row',

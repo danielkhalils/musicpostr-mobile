@@ -111,16 +111,38 @@ export default function ListsScreen() {
                 styles.listCard,
                 { backgroundColor: colors.card, borderColor: colors.border },
               ]}
-              onPress={() => router.push('/(tabs)/reviews')}
+              onPress={() => router.push(`/list/${list.id}` as any)}
               activeOpacity={0.85}
             >
               <View style={styles.cardTopRow}>
-                <Text
-                  style={[styles.listTitle, { color: colors.foreground }]}
-                  numberOfLines={1}
-                >
-                  {list.title}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                  <Text
+                    style={[styles.listTitle, { color: colors.foreground }]}
+                    numberOfLines={1}
+                  >
+                    {list.title}
+                  </Text>
+                  {(list.id === 'want-to-listen' || list.isDefault) && (
+                    <View
+                      style={{
+                        backgroundColor: `${colors.primary}20`,
+                        paddingHorizontal: 6,
+                        paddingVertical: 1,
+                        borderRadius: 6,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 9.5,
+                          fontWeight: '900',
+                          color: colors.primary,
+                        }}
+                      >
+                        Padrão
+                      </Text>
+                    </View>
+                  )}
+                </View>
                 <View
                   style={[
                     styles.countBadge,

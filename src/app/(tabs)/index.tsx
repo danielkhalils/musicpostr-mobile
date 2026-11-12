@@ -1,43 +1,42 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  TextInput,
-  TouchableOpacity,
-  Share,
-  StyleSheet,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
-} from 'react-native';
-import { router } from 'expo-router';
+import { CoverImage } from '@/components/CoverImage';
+import { MobileHeader } from '@/components/MobileHeader';
 import { useHeaderVisibility } from '@/context/HeaderVisibilityContext';
+import { useAppTheme } from '@/context/ThemeContext';
 import {
-  Star,
+  consumeTimelineIntroOnce,
+  type FeedPostItem,
+  getCommunityFeedPosts,
+  getUserProfile,
+  saveCommunityFeedPosts,
+  subscribeAlbumsUpdated,
+} from '@/services/musicBrainz.service';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import {
+  Award,
+  Clock,
+  Disc,
   Heart,
   MessageSquare,
   Send,
-  Disc,
-  Sparkles,
-  Award,
-  UserCheck,
   Share2,
-  Bookmark,
-  ChevronRight,
-  Clock,
+  Sparkles,
+  Star,
+  UserCheck,
   X,
 } from 'lucide-react-native';
-import { useAppTheme } from '@/context/ThemeContext';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  type FeedPostItem,
-  getCommunityFeedPosts,
-  saveCommunityFeedPosts,
-  getUserProfile,
-  subscribeAlbumsUpdated,
-  consumeTimelineIntroOnce,
-} from '@/services/musicBrainz.service';
-import { CoverImage } from '@/components/CoverImage';
-import { MobileHeader } from '@/components/MobileHeader';
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 export default function HomeScreen() {
   const { colors, isDark } = useAppTheme();
@@ -55,9 +54,6 @@ export default function HomeScreen() {
     {}
   );
   const [activeCommentSection, setActiveCommentSection] = useState<{
-    [key: string]: boolean;
-  }>({});
-  const [bookmarkedPosts, setBookmarkedPosts] = useState<{
     [key: string]: boolean;
   }>({});
 
@@ -121,10 +117,6 @@ export default function HomeScreen() {
       saveCommunityFeedPosts(next);
       return next;
     });
-  };
-
-  const handleToggleBookmark = (id: string) => {
-    setBookmarkedPosts((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const handleSharePost = async (item: FeedPostItem) => {
@@ -260,23 +252,12 @@ export default function HomeScreen() {
     );
   };
 
-  const renderStarRatingBar = (rating: number) => {
-    const filledStars = Math.round(rating / 2);
-    return (
-      <View style={styles.starsInlineRow}>
-        {[1, 2, 3, 4, 5].map((starIdx) => {
-          const isFilled = starIdx <= filledStars;
-          return (
-            <Star
-              key={starIdx}
-              size={11}
-              color={isFilled ? colors.amber : colors.mutedForeground}
-              fill={isFilled ? colors.amber : 'transparent'}
-            />
-          );
-        })}
-      </View>
-    );
+  const getScoreColor = (rating: number) => {
+    if (rating >= 8.5) return '#10b981';
+    if (rating >= 7.0) return '#84cc16';
+    if (rating >= 5.0) return '#eab308';
+    if (rating >= 3.0) return '#f97316';
+    return '#ef4444';
   };
 
   return (
@@ -358,7 +339,6 @@ export default function HomeScreen() {
           {feedItems.map((item) => {
             const isIdolActivity = item.activityType === 'follow_idol';
             const isFavoriteActivity = item.activityType === 'favorite';
-            const isBookmarked = Boolean(bookmarkedPosts[item.id]);
             const isCommentsOpen = Boolean(activeCommentSection[item.id]);
             const targetRoute = isIdolActivity
               ? `/artist/${item.artistId || ''}`
@@ -453,191 +433,145 @@ export default function HomeScreen() {
                   {renderActivityBadge(item)}
                 </View>
 
-                {/* 2. TEXTO / PUBLICAÇÃO DO USUÁRIO (Caption de Rede Social) */}
-                {Boolean(item.comment) && (
-                  <View style={styles.captionContainer}>
-                    <Text
-                      style={[
-                        styles.captionText,
-                        { color: colors.foreground },
-                      ]}
-                    >
-                      {item.comment}
-                    </Text>
-                  </View>
-                )}
-
-                {/* 3. CARD DE MÍDIA DESTACADO (Álbum Avaliado / Favoritado / Ídolo) */}
+                {/* 2. CARD DE MÍDIA DESTACADO (Hero da Postagem Estilo Instagram) */}
                 <TouchableOpacity
-                  style={[
-                    styles.mediaAttachmentCard,
-                    {
-                      backgroundColor: isDark
-                        ? 'rgba(39, 39, 42, 0.55)'
-                        : colors.secondary,
-                      borderColor: colors.border,
-                    },
-                  ]}
+                  style={styles.heroMediaContainer}
                   onPress={() => router.push(targetRoute as any)}
-                  activeOpacity={0.85}
+                  activeOpacity={0.92}
                 >
-                  <View style={styles.mediaCoverWrapper}>
-                    <CoverImage
-                      uri={item.albumCover}
+                  <CoverImage
+                    uri={item.albumCover}
+                    style={styles.heroMediaImage}
+                    fallbackType={isIdolActivity ? 'artist' : 'album'}
+                    quality="high"
+                  />
+
+                  {/* Círculo de Nota de Destaque Estilo Musicpostr / Tela de Álbuns */}
+                  {!isIdolActivity && item.rating > 0 ? (
+                    <View
                       style={[
-                        styles.mediaCover,
-                        isIdolActivity && { borderRadius: 999 },
-                      ]}
-                      fallbackType={isIdolActivity ? 'artist' : 'album'}
-                    />
-                  </View>
-
-                  <View style={styles.mediaDetailsCol}>
-                    <View style={styles.mediaTopMetaRow}>
-                      <View
-                        style={[
-                          styles.mediaTypeTag,
-                          {
-                            backgroundColor: isIdolActivity
-                              ? '#a855f720'
-                              : `${colors.primary}18`,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.mediaTypeTagText,
-                            {
-                              color: isIdolActivity
-                                ? '#a855f7'
-                                : colors.primary,
-                            },
-                          ]}
-                        >
-                          {isIdolActivity ? 'ARTISTA / ÍDOLO' : 'ÁLBUM MUSICAL'}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <Text
-                      style={[
-                        styles.mediaTitle,
-                        { color: colors.foreground },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {item.albumTitle}
-                    </Text>
-
-                    <Text
-                      style={[
-                        styles.mediaSubtitle,
-                        { color: colors.mutedForeground },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {item.artistName}
-                    </Text>
-
-                    {/* Rodapé do Card de Mídia: Nota + Estrelas ou Status + Link */}
-                    <View style={styles.mediaBottomRow}>
-                      {isIdolActivity ? (
-                        <View style={styles.mediaStatusPill}>
-                          <Award size={13} color="#a855f7" />
-                          <Text
-                            style={{
-                              fontSize: 11.5,
-                              fontWeight: '800',
-                              color: '#a855f7',
-                            }}
-                          >
-                            Seguindo na Comunidade
-                          </Text>
-                        </View>
-                      ) : isFavoriteActivity ? (
-                        <View style={styles.mediaStatusPill}>
-                          <Heart
-                            size={12}
-                            color={colors.rose}
-                            fill={colors.rose}
-                          />
-                          <Text
-                            style={{
-                              fontSize: 11.5,
-                              fontWeight: '800',
-                              color: colors.rose,
-                            }}
-                          >
-                            Salvo nos Favoritos • ★ {item.rating.toFixed(1)}
-                          </Text>
-                        </View>
-                      ) : (
-                        <View style={styles.ratingScoreContainer}>
-                          <View
-                            style={[
-                              styles.scoreHighlightBadge,
-                              { backgroundColor: colors.primary },
-                            ]}
-                          >
-                            <Text style={styles.scoreHighlightNumber}>
-                              {item.rating.toFixed(1)}
-                            </Text>
-                            <Text style={styles.scoreHighlightMax}>/10</Text>
-                          </View>
-                          {renderStarRatingBar(item.rating)}
-                        </View>
-                      )}
-
-                      <View style={styles.mediaActionHint}>
-                        <Text
-                          style={{
-                            fontSize: 11,
-                            fontWeight: '700',
-                            color: colors.mutedForeground,
-                          }}
-                        >
-                          Ver
-                        </Text>
-                        <ChevronRight size={13} color={colors.mutedForeground} />
-                      </View>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-
-                {/* 4. BARRA DE INTERAÇÃO DE REDE SOCIAL (Curtir, Comentar, Compartilhar, Salvar) */}
-                <View
-                  style={[
-                    styles.socialActionBar,
-                    { borderTopColor: colors.border },
-                  ]}
-                >
-                  <View style={styles.socialActionsLeft}>
-                    {/* Botão Curtir */}
-                    <TouchableOpacity
-                      style={[
-                        styles.socialActionPill,
+                        styles.musicpostrHeroBadge,
                         {
-                          backgroundColor: item.isLiked
-                            ? `${colors.rose}16`
-                            : colors.secondary,
-                          borderColor: item.isLiked
-                            ? `${colors.rose}40`
-                            : colors.border,
+                          backgroundColor: isDark
+                            ? 'rgba(18, 18, 20, 0.94)'
+                            : 'rgba(255, 255, 255, 0.96)',
+                          borderColor: getScoreColor(item.rating),
+                          shadowColor: getScoreColor(item.rating),
                         },
                       ]}
-                      onPress={() => handleToggleLike(item.id)}
-                      activeOpacity={0.8}
                     >
-                      <Heart
-                        size={15}
-                        color={
-                          item.isLiked ? colors.rose : colors.mutedForeground
-                        }
-                        fill={item.isLiked ? colors.rose : 'transparent'}
-                      />
                       <Text
                         style={[
-                          styles.socialActionText,
+                          styles.musicpostrScoreText,
+                          { color: colors.foreground },
+                        ]}
+                      >
+                        {item.rating.toFixed(1)}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.musicpostrScoreLabel,
+                          { color: getScoreColor(item.rating) },
+                        ]}
+                      >
+                        NOTA
+                      </Text>
+                    </View>
+                  ) : isIdolActivity ? (
+                    <View
+                      style={[
+                        styles.musicpostrHeroBadge,
+                        {
+                          backgroundColor: isDark
+                            ? 'rgba(18, 18, 20, 0.94)'
+                            : 'rgba(255, 255, 255, 0.96)',
+                          borderColor: '#a855f7',
+                          shadowColor: '#a855f7',
+                        },
+                      ]}
+                    >
+                      <Award size={22} color="#a855f7" />
+                      <Text
+                        style={[
+                          styles.musicpostrScoreLabel,
+                          { color: '#a855f7' },
+                        ]}
+                      >
+                        ÍDOLO
+                      </Text>
+                    </View>
+                  ) : isFavoriteActivity ? (
+                    <View
+                      style={[
+                        styles.musicpostrHeroBadge,
+                        {
+                          backgroundColor: isDark
+                            ? 'rgba(18, 18, 20, 0.94)'
+                            : 'rgba(255, 255, 255, 0.96)',
+                          borderColor: colors.rose,
+                          shadowColor: colors.rose,
+                        },
+                      ]}
+                    >
+                      <Heart size={20} color={colors.rose} fill={colors.rose} />
+                      <Text
+                        style={[
+                          styles.musicpostrScoreLabel,
+                          { color: colors.rose },
+                        ]}
+                      >
+                        FAVORITO
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {/* Gradiente Inferior com Título do Álbum e Artista */}
+                  <LinearGradient
+                    colors={[
+                      'transparent',
+                      'rgba(0, 0, 0, 0.35)',
+                      'rgba(0, 0, 0, 0.88)',
+                    ]}
+                    locations={[0, 0.45, 1]}
+                    style={styles.heroGradientOverlay}
+                  >
+                    <View style={styles.heroMediaInfo}>
+                      <View style={styles.heroMediaTypePill}>
+                        <Disc size={11} color="#ffffff" />
+                        <Text style={styles.heroMediaTypeText}>
+                          {isIdolActivity ? 'ARTISTA' : 'ÁLBUM'}
+                        </Text>
+                      </View>
+                      <Text style={styles.heroMediaTitle} numberOfLines={1}>
+                        {item.albumTitle}
+                      </Text>
+                      <Text style={styles.heroMediaArtist} numberOfLines={1}>
+                        {item.artistName}
+                      </Text>
+                    </View>
+                  </LinearGradient>
+                </TouchableOpacity>
+
+                {/* 3. BARRA DE INTERAÇÃO ESTILO INSTAGRAM (Curtir, Comentar, Compartilhar) */}
+                <View style={styles.instagramActionBar}>
+                  {/* Botão Curtir */}
+                  <TouchableOpacity
+                    style={styles.instagramActionBtn}
+                    onPress={() => handleToggleLike(item.id)}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Curtir publicação"
+                  >
+                    <Heart
+                      size={22}
+                      color={
+                        item.isLiked ? colors.rose : colors.foreground
+                      }
+                      fill={item.isLiked ? colors.rose : 'transparent'}
+                    />
+                    {item.likesCount > 0 && (
+                      <Text
+                        style={[
+                          styles.instagramActionCount,
                           {
                             color: item.isLiked
                               ? colors.rose
@@ -647,35 +581,28 @@ export default function HomeScreen() {
                       >
                         {item.likesCount}
                       </Text>
-                    </TouchableOpacity>
+                    )}
+                  </TouchableOpacity>
 
-                    {/* Botão Comentar */}
-                    <TouchableOpacity
-                      style={[
-                        styles.socialActionPill,
-                        {
-                          backgroundColor: isCommentsOpen
-                            ? `${colors.primary}16`
-                            : colors.secondary,
-                          borderColor: isCommentsOpen
-                            ? `${colors.primary}40`
-                            : colors.border,
-                        },
-                      ]}
-                      onPress={() => handleToggleCommentSection(item.id)}
-                      activeOpacity={0.8}
-                    >
-                      <MessageSquare
-                        size={15}
-                        color={
-                          isCommentsOpen
-                            ? colors.primary
-                            : colors.mutedForeground
-                        }
-                      />
+                  {/* Botão Comentar */}
+                  <TouchableOpacity
+                    style={styles.instagramActionBtn}
+                    onPress={() => handleToggleCommentSection(item.id)}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Comentários"
+                  >
+                    <MessageSquare
+                      size={21}
+                      color={
+                        isCommentsOpen
+                          ? colors.primary
+                          : colors.foreground
+                      }
+                    />
+                    {item.comments.length > 0 && (
                       <Text
                         style={[
-                          styles.socialActionText,
+                          styles.instagramActionCount,
                           {
                             color: isCommentsOpen
                               ? colors.primary
@@ -685,60 +612,44 @@ export default function HomeScreen() {
                       >
                         {item.comments.length}
                       </Text>
-                    </TouchableOpacity>
+                    )}
+                  </TouchableOpacity>
 
-                    {/* Botão Compartilhar */}
-                    <TouchableOpacity
-                      style={[
-                        styles.socialActionPill,
-                        {
-                          backgroundColor: colors.secondary,
-                          borderColor: colors.border,
-                        },
-                      ]}
-                      onPress={() => handleSharePost(item)}
-                      activeOpacity={0.8}
-                    >
-                      <Share2 size={14} color={colors.mutedForeground} />
-                      <Text
-                        style={[
-                          styles.socialActionText,
-                          { color: colors.mutedForeground },
-                        ]}
-                      >
-                        Compartilhar
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Botão Salvar / Bookmark */}
+                  {/* Botão Compartilhar */}
                   <TouchableOpacity
-                    style={[
-                      styles.bookmarkBtn,
-                      {
-                        backgroundColor: isBookmarked
-                          ? `${colors.amber}18`
-                          : colors.secondary,
-                        borderColor: isBookmarked
-                          ? `${colors.amber}45`
-                          : colors.border,
-                      },
-                    ]}
-                    onPress={() => handleToggleBookmark(item.id)}
-                    accessibilityLabel="Salvar publicação"
-                    activeOpacity={0.8}
+                    style={styles.instagramActionBtn}
+                    onPress={() => handleSharePost(item)}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Compartilhar publicação"
                   >
-                    <Bookmark
-                      size={15}
-                      color={
-                        isBookmarked ? colors.amber : colors.mutedForeground
-                      }
-                      fill={isBookmarked ? colors.amber : 'transparent'}
-                    />
+                    <Share2 size={21} color={colors.foreground} />
                   </TouchableOpacity>
                 </View>
 
-                {/* 5. PRÉVIA DO ÚLTIMO COMENTÁRIO (quando fechado) */}
+                {/* 4. CAPTION DO USUÁRIO ESTILO INSTAGRAM (username + comentário) */}
+                {Boolean(item.comment) && (
+                  <View style={styles.instagramCaptionContainer}>
+                    <Text
+                      style={[
+                        styles.instagramCaptionText,
+                        { color: colors.foreground },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.instagramCaptionUsername,
+                          { color: colors.foreground },
+                        ]}
+                        onPress={() => router.push(authorRoute as any)}
+                      >
+                        {item.friendUsername}{' '}
+                      </Text>
+                      {item.comment}
+                    </Text>
+                  </View>
+                )}
+
+                {/* 6. PRÉVIA DO ÚLTIMO COMENTÁRIO (quando fechado) */}
                 {!isCommentsOpen && item.comments.length > 0 && (
                   <TouchableOpacity
                     style={[
@@ -1027,137 +938,119 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     fontWeight: '800',
   },
-  captionContainer: {
-    paddingHorizontal: 2,
-  },
-  captionText: {
-    fontSize: 13.5,
-    lineHeight: 20,
-    fontWeight: '400',
-  },
-  mediaAttachmentCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 13,
-    padding: 11,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  mediaCoverWrapper: {
+  heroMediaContainer: {
+    width: '100%',
+    aspectRatio: 2,
+    borderRadius: 18,
+    overflow: 'hidden',
     position: 'relative',
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
   },
-  mediaCover: {
-    width: 84,
-    height: 84,
-    borderRadius: 12,
+  heroMediaImage: {
+    width: '100%',
+    height: '100%',
   },
-  mediaDetailsCol: {
-    flex: 1,
-    justifyContent: 'space-between',
-    gap: 3,
-  },
-  mediaTopMetaRow: {
-    flexDirection: 'row',
+  musicpostrHeroBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    borderWidth: 2.5,
     alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 10,
   },
-  mediaTypeTag: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  mediaTypeTagText: {
-    fontSize: 9,
+  musicpostrScoreText: {
+    fontSize: 20,
     fontWeight: '900',
-    letterSpacing: 0.5,
+    letterSpacing: -0.5,
+    lineHeight: 22,
   },
-  mediaTitle: {
-    fontSize: 15,
+  musicpostrScoreLabel: {
+    fontSize: 7.5,
     fontWeight: '900',
+    letterSpacing: 0.8,
     marginTop: 1,
   },
-  mediaSubtitle: {
+  heroGradientOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 75,
+    justifyContent: 'flex-end',
+    padding: 10,
+  },
+  heroMediaInfo: {
+    gap: 2,
+  },
+  heroMediaTypePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+    alignSelf: 'flex-start',
+    marginBottom: 1,
+  },
+  heroMediaTypeText: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  heroMediaTitle: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '900',
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  heroMediaArtist: {
+    color: 'rgba(255, 255, 255, 0.88)',
     fontSize: 12,
     fontWeight: '600',
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
-  mediaBottomRow: {
+  instagramActionBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 5,
-    gap: 8,
+    gap: 18,
+    paddingHorizontal: 2,
+    paddingVertical: 2,
   },
-  mediaStatusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  ratingScoreContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  scoreHighlightBadge: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  scoreHighlightNumber: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  scoreHighlightMax: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 9.5,
-    fontWeight: '700',
-    marginLeft: 1,
-  },
-  starsInlineRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  mediaActionHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  socialActionBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 11,
-    borderTopWidth: 1,
-    gap: 8,
-  },
-  socialActionsLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flex: 1,
-  },
-  socialActionPill: {
+  instagramActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 12,
-    height: 34,
-    borderRadius: 999,
-    borderWidth: 1,
+    paddingVertical: 4,
   },
-  socialActionText: {
-    fontSize: 12,
+  instagramActionCount: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  instagramCaptionContainer: {
+    paddingHorizontal: 2,
+  },
+  instagramCaptionText: {
+    fontSize: 13.5,
+    lineHeight: 19,
+    fontWeight: '400',
+  },
+  instagramCaptionUsername: {
+    fontSize: 13.5,
     fontWeight: '800',
-  },
-  bookmarkBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 999,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   commentPreviewBox: {
     flexDirection: 'row',

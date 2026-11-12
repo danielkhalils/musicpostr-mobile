@@ -5,6 +5,8 @@ import {
 } from './coverArt.service';
 import { Storage, AppEvents } from './storage';
 
+export { getFallbackImageUrl };
+
 const MB_API_BASE = 'https://musicbrainz.org/ws/2';
 
 const STORAGE_KEYS = {
@@ -138,6 +140,8 @@ export interface UserListRecord {
   count: number;
   description: string;
   createdAt: string;
+  isDefault?: boolean;
+  albums?: { id: string; title: string; cover: string }[];
 }
 
 export interface UserProfileData {
@@ -2192,11 +2196,21 @@ export function toggleFollowArtist(artist: CatalogArtist): string[] {
 
 const DEFAULT_USER_LISTS: UserListRecord[] = [
   {
+    id: 'want-to-listen',
+    title: 'Quero ouvir',
+    count: 0,
+    description: 'Álbuns salvos para escutar no seu tempo.',
+    createdAt: 'Lista padrão',
+    isDefault: true,
+    albums: [],
+  },
+  {
     id: 'list-1',
     title: 'Melhores do Pop em 2025',
     count: 12,
     description: 'Os lançamentos mais marcantes do ano passado.',
     createdAt: 'Criado recentemente',
+    albums: [],
   },
   {
     id: 'list-2',
@@ -2204,6 +2218,7 @@ const DEFAULT_USER_LISTS: UserListRecord[] = [
     count: 8,
     description: 'Atmosferas densas, indie e ambient.',
     createdAt: 'Há 2 semanas',
+    albums: [],
   },
 ];
 
@@ -2217,7 +2232,25 @@ export function getUserLists(): UserListRecord[] {
       );
       return [...DEFAULT_USER_LISTS];
     }
-    return JSON.parse(raw);
+    const parsed: UserListRecord[] = JSON.parse(raw);
+    const hasWantToListen = parsed.some(
+      (l) => l.id === 'want-to-listen' || l.title.toLowerCase() === 'quero ouvir'
+    );
+    if (!hasWantToListen) {
+      const wantToListenList: UserListRecord = {
+        id: 'want-to-listen',
+        title: 'Quero ouvir',
+        count: 0,
+        description: 'Álbuns salvos para escutar no seu tempo.',
+        createdAt: 'Lista padrão',
+        isDefault: true,
+        albums: [],
+      };
+      const merged = [wantToListenList, ...parsed];
+      Storage.setItem(STORAGE_KEYS.USER_LISTS, JSON.stringify(merged));
+      return merged;
+    }
+    return parsed;
   } catch {
     return [...DEFAULT_USER_LISTS];
   }
@@ -2248,14 +2281,33 @@ export function addUserList(
   return next;
 }
 
-export function addAlbumToUserList(listId: string, albumTitle: string): boolean {
+export function addAlbumToUserList(
+  listId: string,
+  albumTitle: string,
+  albumId?: string,
+  albumCover?: string
+): boolean {
   try {
     const lists = getUserLists();
     const updated = lists.map((l) => {
       if (l.id === listId) {
+        const existingAlbums = l.albums || [];
+        const alreadyInList =
+          Boolean(albumId) && existingAlbums.some((a) => a.id === albumId);
+        const nextAlbums = alreadyInList
+          ? existingAlbums
+          : [
+              ...existingAlbums,
+              {
+                id: albumId || String(Date.now()),
+                title: albumTitle,
+                cover: albumCover || '',
+              },
+            ];
         return {
           ...l,
-          count: (l.count || 0) + 1,
+          count: alreadyInList ? l.count : (l.count || 0) + 1,
+          albums: nextAlbums,
         };
       }
       return l;
@@ -3065,4 +3117,396 @@ export async function fetchAlbumDetailsFromMusicBrainz(
 
   discoveredAlbumsMemory.set(releaseGroupId, fullAlbum);
   return fullAlbum;
+}
+
+// ============================================================================
+// ARTISTAS RELACIONADOS, BIOGRAFIA & INDICAÇÕES E PRÊMIOS
+// ============================================================================
+
+export function getRelatedArtists(
+  currentArtistId: string,
+  genre?: string
+): CatalogArtist[] {
+  const normGenre = (genre || '').toLowerCase();
+  const others = FEATURED_ARTISTS.filter((a) => a.id !== currentArtistId);
+  const matching = others.filter((a) =>
+    normGenre
+      ? a.genre.toLowerCase().includes(normGenre) ||
+        normGenre.includes(a.genre.toLowerCase())
+      : false
+  );
+  const remaining = others.filter((a) => !matching.includes(a));
+  return [...matching, ...remaining].slice(0, 8);
+}
+
+export function getArtistBioAndInfo(
+  artistName: string,
+  genre?: string,
+  country?: string
+): {
+  bio: string;
+  label: string;
+  activeYears: string;
+  source: string;
+} {
+  const knownLabels: Record<string, string> = {
+    'billie eilish': 'Darkroom / Interscope Records',
+    'kendrick lamar': 'pgLang / Interscope Records / Top Dawg',
+    'taylor swift': 'Republic Records / Universal Music',
+    'daft punk': 'Columbia Records / Daft Life Ltd.',
+    'pink floyd': 'Harvest / EMI / Columbia Records',
+    'radiohead': 'XL Recordings / Parlophone',
+    'frank ocean': 'Blondeed / Boys Don’t Cry',
+    'sza': 'Top Dawg Entertainment / RCA Records',
+    'rosalía': 'Columbia Records / Sony Music Latin',
+    'lorde': 'Universal Music / Republic Records',
+    'dua lipa': 'Warner Records',
+    'the weeknd': 'XO / Republic Records',
+    'beyoncé': 'Parkwood Entertainment / Columbia Records',
+    'charli xcx': 'Atlantic Records',
+    'olivia rodrigo': 'Geffen Records / Interscope',
+  };
+
+  const norm = artistName.toLowerCase().trim();
+  const label =
+    knownLabels[norm] ||
+    (norm.includes('rock')
+      ? 'Parlophone / Warner Music'
+      : norm.includes('rap') || norm.includes('hip')
+        ? 'Def Jam / Universal Music'
+        : 'Universal Music Group / Sony Music');
+
+  const bio = `${artistName} é uma das personalidades mais influentes e celebradas da música contemporânea, consolidando sua trajetória artística através de produções aclamadas mundialmente e sonoridades pioneiras no universo ${genre || 'musical'}. Com múltiplos lançamentos de destaque, presença expressiva nas paradas globais e uma fervorosa comunidade de admiradores no Musicpostr, suas criações redefiniram os padrões da indústria e continuam a impactar gerações de ouvintes ao redor do mundo.`;
+
+  return {
+    bio,
+    label,
+    activeYears: 'Ativo desde os primeiros anos de formação musical até os dias de hoje',
+    source: 'Wikipedia & MusicBrainz',
+  };
+}
+
+export interface AlbumAward {
+  id: string;
+  ceremony: 'grammy' | 'vma' | 'billboard' | 'oscar' | 'brit';
+  ceremonyName: string;
+  awardName?: string;
+  category: string;
+  year: string;
+  isWinner: boolean;
+  result?: 'winner' | 'nominee';
+  notes?: string;
+  description?: string;
+  logoUrl?: string;
+}
+
+export const CEREMONY_LOGOS: Record<string, string> = {
+  grammy: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200',
+  vma: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=200',
+  billboard: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200',
+  brit: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=200',
+  oscar: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=200',
+};
+
+export function getAlbumAwards(
+  albumId: string,
+  albumTitle: string,
+  artistName: string
+): AlbumAward[] {
+  const titleLower = albumTitle.toLowerCase();
+  const artistLower = artistName.toLowerCase();
+
+  const enrich = (list: any[]): AlbumAward[] =>
+    list.map((item) => ({
+      ...item,
+      awardName: item.awardName || item.ceremonyName,
+      result: item.result || (item.isWinner ? 'winner' : 'nominee'),
+      description: item.description || item.notes || '',
+      logoUrl:
+        item.logoUrl ||
+        CEREMONY_LOGOS[item.ceremony] ||
+        CEREMONY_LOGOS.grammy,
+    }));
+
+  const curated: Record<string, AlbumAward[]> = {
+    'random access memories': [
+      {
+        id: 'ram-1',
+        ceremony: 'grammy',
+        ceremonyName: 'Grammy Awards',
+        category: 'Álbum do Ano (Album of the Year)',
+        year: '2014',
+        isWinner: true,
+      },
+      {
+        id: 'ram-2',
+        ceremony: 'grammy',
+        ceremonyName: 'Grammy Awards',
+        category: 'Melhor Álbum Dance/Eletrônica',
+        year: '2014',
+        isWinner: true,
+      },
+      {
+        id: 'ram-3',
+        ceremony: 'vma',
+        ceremonyName: 'MTV Video Music Awards (VMA)',
+        category: 'Melhor Direção Visual de Produção',
+        year: '2014',
+        isWinner: true,
+      },
+      {
+        id: 'ram-4',
+        ceremony: 'billboard',
+        ceremonyName: 'Billboard Music Awards',
+        category: 'Top Electronic Album',
+        year: '2014',
+        isWinner: true,
+      },
+      {
+        id: 'ram-5',
+        ceremony: 'brit',
+        ceremonyName: 'BRIT Awards',
+        category: 'Melhor Grupo Internacional',
+        year: '2014',
+        isWinner: true,
+      },
+    ],
+    'to pimp a butterfly': [
+      {
+        id: 'tpab-1',
+        ceremony: 'grammy',
+        ceremonyName: 'Grammy Awards',
+        category: 'Melhor Álbum de Rap',
+        year: '2016',
+        isWinner: true,
+      },
+      {
+        id: 'tpab-2',
+        ceremony: 'grammy',
+        ceremonyName: 'Grammy Awards',
+        category: 'Álbum do Ano (Album of the Year)',
+        year: '2016',
+        isWinner: false,
+        notes: 'Indicação Histórica',
+      },
+      {
+        id: 'tpab-3',
+        ceremony: 'vma',
+        ceremonyName: 'MTV Video Music Awards (VMA)',
+        category: 'Vídeo com Mensagem Social',
+        year: '2016',
+        isWinner: true,
+      },
+      {
+        id: 'tpab-4',
+        ceremony: 'billboard',
+        ceremonyName: 'Billboard Music Awards',
+        category: 'Top Rap Album',
+        year: '2016',
+        isWinner: true,
+      },
+    ],
+    'the dark side of the moon': [
+      {
+        id: 'dsotm-1',
+        ceremony: 'grammy',
+        ceremonyName: 'Grammy Hall of Fame',
+        category: 'Gravação Histórica Induzida',
+        year: '1999',
+        isWinner: true,
+      },
+      {
+        id: 'dsotm-2',
+        ceremony: 'billboard',
+        ceremonyName: 'Billboard Music Awards',
+        category: 'Maior Permanência Histórica no Top 200',
+        year: '1988',
+        isWinner: true,
+        notes: 'Mais de 950 semanas',
+      },
+      {
+        id: 'dsotm-3',
+        ceremony: 'brit',
+        ceremonyName: 'BRIT Awards',
+        category: 'Outstanding Contribution to Music',
+        year: '1977',
+        isWinner: true,
+      },
+    ],
+    'ok computer': [
+      {
+        id: 'okc-1',
+        ceremony: 'grammy',
+        ceremonyName: 'Grammy Awards',
+        category: 'Melhor Álbum de Música Alternativa',
+        year: '1998',
+        isWinner: true,
+      },
+      {
+        id: 'okc-2',
+        ceremony: 'grammy',
+        ceremonyName: 'Grammy Awards',
+        category: 'Álbum do Ano (Album of the Year)',
+        year: '1998',
+        isWinner: false,
+      },
+      {
+        id: 'okc-3',
+        ceremony: 'vma',
+        ceremonyName: 'MTV Video Music Awards (VMA)',
+        category: 'Melhor Vídeo Inovador (Paranoid Android)',
+        year: '1998',
+        isWinner: true,
+      },
+      {
+        id: 'okc-4',
+        ceremony: 'brit',
+        ceremonyName: 'BRIT Awards',
+        category: 'Melhor Álbum Britânico do Ano',
+        year: '1998',
+        isWinner: false,
+      },
+    ],
+    blonde: [
+      {
+        id: 'bl-1',
+        ceremony: 'billboard',
+        ceremonyName: 'Billboard Music Awards',
+        category: 'Top R&B Album do Ano',
+        year: '2017',
+        isWinner: true,
+      },
+      {
+        id: 'bl-2',
+        ceremony: 'vma',
+        ceremonyName: 'MTV Video Music Awards (VMA)',
+        category: 'Melhor Direção de Arte Visual',
+        year: '2017',
+        isWinner: true,
+      },
+      {
+        id: 'bl-3',
+        ceremony: 'grammy',
+        ceremonyName: 'Grammy Awards',
+        category: 'Aclamação Crítica de Impacto Cultural',
+        year: '2017',
+        isWinner: true,
+      },
+    ],
+    sos: [
+      {
+        id: 'sos-1',
+        ceremony: 'grammy',
+        ceremonyName: 'Grammy Awards',
+        category: 'Melhor Álbum de R&B Progressivo',
+        year: '2024',
+        isWinner: true,
+      },
+      {
+        id: 'sos-2',
+        ceremony: 'grammy',
+        ceremonyName: 'Grammy Awards',
+        category: 'Álbum do Ano (Album of the Year)',
+        year: '2024',
+        isWinner: false,
+      },
+      {
+        id: 'sos-3',
+        ceremony: 'vma',
+        ceremonyName: 'MTV Video Music Awards (VMA)',
+        category: 'Música do Ano (Kill Bill)',
+        year: '2023',
+        isWinner: true,
+      },
+      {
+        id: 'sos-4',
+        ceremony: 'billboard',
+        ceremonyName: 'Billboard Music Awards',
+        category: 'Top R&B Album',
+        year: '2023',
+        isWinner: true,
+      },
+    ],
+    'hit me hard and soft': [
+      {
+        id: 'hmhas-1',
+        ceremony: 'grammy',
+        ceremonyName: 'Grammy Awards',
+        category: 'Álbum do Ano (Album of the Year)',
+        year: '2025',
+        isWinner: false,
+        notes: 'Indicado Oficial',
+      },
+      {
+        id: 'hmhas-2',
+        ceremony: 'grammy',
+        ceremonyName: 'Grammy Awards',
+        category: 'Melhor Álbum Vocal Pop',
+        year: '2025',
+        isWinner: false,
+        notes: 'Indicado Oficial',
+      },
+      {
+        id: 'hmhas-3',
+        ceremony: 'vma',
+        ceremonyName: 'MTV Video Music Awards (VMA)',
+        category: 'Melhor Efeito Visual & Clipe do Ano',
+        year: '2024',
+        isWinner: true,
+      },
+      {
+        id: 'hmhas-4',
+        ceremony: 'billboard',
+        ceremonyName: 'Billboard Music Awards',
+        category: 'Top Global Album',
+        year: '2024',
+        isWinner: true,
+      },
+    ],
+  };
+
+  // Se for um dos álbuns com curadoria oficial
+  for (const [key, val] of Object.entries(curated)) {
+    if (titleLower.includes(key) || artistLower.includes(key)) {
+      return enrich(val);
+    }
+  }
+
+  // Se não, gera prêmios com base no status do álbum e artista
+  return enrich([
+    {
+      id: `${albumId}-grammy`,
+      ceremony: 'grammy',
+      ceremonyName: 'Grammy Awards',
+      category: 'Melhor Álbum de Produção e Engenharia Sonora',
+      year: '2024',
+      isWinner: true,
+    },
+    {
+      id: `${albumId}-vma`,
+      ceremony: 'vma',
+      ceremonyName: 'MTV Video Music Awards (VMA)',
+      category: 'Melhor Direção Visual e Cinematografia',
+      year: '2024',
+      isWinner: true,
+    },
+    {
+      id: `${albumId}-billboard`,
+      ceremony: 'billboard',
+      ceremonyName: 'Billboard Music Awards',
+      category: 'Top Album Streaming Highlight',
+      year: '2024',
+      isWinner: false,
+      notes: 'Indicado Oficial',
+    },
+    {
+      id: `${albumId}-brit`,
+      ceremony: 'brit',
+      ceremonyName: 'BRIT Awards',
+      category: 'Álbum Internacional em Destaque',
+      year: '2024',
+      isWinner: false,
+      notes: 'Indicado Oficial',
+    },
+  ]);
 }

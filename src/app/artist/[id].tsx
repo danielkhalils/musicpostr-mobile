@@ -7,13 +7,12 @@ import {
   ActivityIndicator,
   StyleSheet,
   Dimensions,
-  Platform,
+  Modal,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import {
   ArrowLeft,
   Disc,
@@ -21,18 +20,25 @@ import {
   ChevronDown,
   Award,
   Globe,
-  Sparkles,
   Check,
+  Info,
+  Users,
+  X,
+  Building2,
+  Calendar,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { CoverImage } from '@/components/CoverImage';
 import {
   type CatalogAlbum,
+  type CatalogArtist,
   getInstantArtistPreview,
   fetchArtistDetailsFromMusicBrainz,
   getFollowedArtistIds,
   toggleFollowArtist,
   subscribeAlbumsUpdated,
+  getRelatedArtists,
+  getArtistBioAndInfo,
 } from '@/services/musicBrainz.service';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -75,6 +81,16 @@ export default function ArtistDetailScreen() {
 
   const [visibleAlbumsCount, setVisibleAlbumsCount] = useState(10);
   const [visibleEpsCount, setVisibleEpsCount] = useState(10);
+  const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
+
+  const relatedArtists: CatalogArtist[] = id
+    ? getRelatedArtists(id, artistGenre)
+    : [];
+  const artistInfo = getArtistBioAndInfo(
+    artistName,
+    artistGenre,
+    artistCountry
+  );
 
   useEffect(() => {
     const unsubscribe = subscribeAlbumsUpdated(() => {
@@ -198,6 +214,15 @@ export default function ArtistDetailScreen() {
             <Text style={styles.syncPillText}>Sincronizando...</Text>
           </View>
         )}
+
+        <TouchableOpacity
+          style={styles.infoFloatingBtn}
+          onPress={() => setIsInfoModalOpen(true)}
+          activeOpacity={0.85}
+          accessibilityLabel="Informações do Artista"
+        >
+          <Info size={18} color="#fff" />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -230,23 +255,16 @@ export default function ArtistDetailScreen() {
             pointerEvents="none"
           />
 
-          {/* Efeito Blur e transição suave na parte debaixo da capa */}
+          {/* Transição suave em gradiente na parte debaixo da capa sem cortes/linhas */}
           <View style={styles.bottomBlurWrapper} pointerEvents="none">
-            {isDark && (Platform.OS === 'ios' || Platform.OS === 'android') ? (
-              <BlurView
-                intensity={55}
-                tint="dark"
-                style={StyleSheet.absoluteFill}
-              />
-            ) : null}
-
             <LinearGradient
               colors={
                 isDark
                   ? [
                       'transparent',
-                      'rgba(9, 9, 11, 0.35)',
-                      'rgba(9, 9, 11, 0.75)',
+                      'rgba(9, 9, 11, 0.15)',
+                      'rgba(9, 9, 11, 0.45)',
+                      'rgba(9, 9, 11, 0.82)',
                       colors.background,
                     ]
                   : [
@@ -259,7 +277,7 @@ export default function ArtistDetailScreen() {
               }
               locations={
                 isDark
-                  ? [0, 0.4, 0.75, 1]
+                  ? [0, 0.25, 0.55, 0.82, 1]
                   : [0, 0.25, 0.55, 0.82, 1]
               }
               style={StyleSheet.absoluteFill}
@@ -268,25 +286,28 @@ export default function ArtistDetailScreen() {
 
           {/* Título e Badges do Artista integrados na parte inferior da capa */}
           <View style={styles.heroArtistDetails}>
-            <Text
-              style={[
-                styles.artistHeroTitle,
-                {
-                  color: isDark ? '#ffffff' : colors.foreground,
-                  textShadowColor: isDark ? 'rgba(0, 0, 0, 0.65)' : 'transparent',
-                },
-              ]}
-              numberOfLines={2}
-            >
-              {artistName || 'Detalhes do Artista'}
-            </Text>
+            <View style={styles.artistTitleRow}>
+              <Text
+                style={[
+                  styles.artistHeroTitle,
+                  {
+                    color: isDark ? '#ffffff' : colors.foreground,
+                    textShadowColor: isDark ? 'rgba(0, 0, 0, 0.65)' : 'transparent',
+                  },
+                ]}
+                numberOfLines={2}
+              >
+                {artistName || 'Detalhes do Artista'}
+              </Text>
+              <View
+                style={styles.verifiedCheckBadge}
+                accessibilityLabel="Artista Verificado Oficial"
+              >
+                <Check size={11} color="#ffffff" strokeWidth={3.5} />
+              </View>
+            </View>
 
             <View style={styles.artistMetaRow}>
-              {/* Selo Artista Oficial */}
-              <View style={styles.verifiedBadge}>
-                <Sparkles size={11} color="#fff" />
-                <Text style={styles.verifiedBadgeText}>Artista Oficial</Text>
-              </View>
 
               {/* Estilo Musical */}
               <View
@@ -636,8 +657,272 @@ export default function ArtistDetailScreen() {
               )}
             </View>
           )}
+
+          {/* Seção de Artistas Relacionados */}
+          {relatedArtists.length > 0 && (
+            <View style={styles.sectionBlock}>
+              <View style={styles.sectionHeaderRow}>
+                <Users size={20} color={colors.primary} />
+                <Text
+                  style={[styles.sectionTitle, { color: colors.foreground }]}
+                >
+                  Artistas Relacionados
+                </Text>
+              </View>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.relatedScrollRow}
+              >
+                {relatedArtists.map((relArtist) => (
+                  <TouchableOpacity
+                    key={relArtist.id}
+                    style={[
+                      styles.relatedArtistCard,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                    onPress={() =>
+                      router.push(`/artist/${relArtist.id}` as any)
+                    }
+                    activeOpacity={0.8}
+                  >
+                    <CoverImage
+                      uri={relArtist.imageUrl}
+                      style={styles.relatedArtistAvatar}
+                      fallbackType="artist"
+                      quality="medium"
+                    />
+                    <Text
+                      style={[
+                        styles.relatedArtistName,
+                        { color: colors.foreground },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {relArtist.name}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.relatedArtistGenre,
+                        { color: colors.mutedForeground },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {relArtist.genre}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
         </View>
       </ScrollView>
+
+      {/* Modal de Informações Detalhadas do Artista */}
+      <Modal
+        visible={isInfoModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsInfoModalOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setIsInfoModalOpen(false)}
+          />
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                paddingBottom: Math.max(insets.bottom + 16, 24),
+              },
+            ]}
+          >
+            <View style={styles.modalDragIndicator} />
+
+            <View style={styles.modalHeader}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 10,
+                  flex: 1,
+                }}
+              >
+                <CoverImage
+                  uri={artistBanner}
+                  style={styles.modalArtistThumb}
+                  fallbackType="artist"
+                  quality="low"
+                />
+                <View style={{ flex: 1 }}>
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.modalArtistName,
+                        { color: colors.foreground },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {artistName}
+                    </Text>
+                    <View style={styles.verifiedCheckBadge}>
+                      <Check size={9} color="#fff" strokeWidth={3.5} />
+                    </View>
+                  </View>
+                  <Text
+                    style={{ fontSize: 11, color: colors.mutedForeground }}
+                  >
+                    Perfil Verificado • {artistGenre}
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setIsInfoModalOpen(false)}
+                style={[
+                  styles.modalCloseBtn,
+                  { backgroundColor: colors.secondary },
+                ]}
+              >
+                <X size={16} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Ficha Técnica Rápida */}
+            <View style={styles.quickFactsGrid}>
+              <View
+                style={[
+                  styles.factCard,
+                  {
+                    backgroundColor: colors.secondary,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <Building2 size={15} color={colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.factLabel}>Gravadora Oficial</Text>
+                  <Text
+                    style={[
+                      styles.factValue,
+                      { color: colors.foreground },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {artistInfo.label}
+                  </Text>
+                </View>
+              </View>
+
+              <View
+                style={[
+                  styles.factCard,
+                  {
+                    backgroundColor: colors.secondary,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <Globe size={15} color="#38bdf8" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.factLabel}>País / Origem</Text>
+                  <Text
+                    style={[
+                      styles.factValue,
+                      { color: colors.foreground },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {artistCountry || 'Internacional'}
+                  </Text>
+                </View>
+              </View>
+
+              <View
+                style={[
+                  styles.factCard,
+                  {
+                    backgroundColor: colors.secondary,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <Calendar size={15} color="#a855f7" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.factLabel}>Período de Atividade</Text>
+                  <Text
+                    style={[
+                      styles.factValue,
+                      { color: colors.foreground },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    Carreira Ativa
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Descrição / Biografia */}
+            <View style={{ gap: 6, marginTop: 4 }}>
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: '800',
+                  color: colors.foreground,
+                }}
+              >
+                Biografia e Trajetória
+              </Text>
+              <ScrollView
+                style={{ maxHeight: 150 }}
+                showsVerticalScrollIndicator={false}
+              >
+                <Text
+                  style={[
+                    styles.modalBioText,
+                    { color: colors.foreground },
+                  ]}
+                >
+                  {artistInfo.bio}
+                </Text>
+              </ScrollView>
+            </View>
+
+            {/* Rodapé com Fonte */}
+            <View
+              style={[
+                styles.modalFooterSource,
+                { borderTopColor: colors.border },
+              ]}
+            >
+              <Text
+                style={{
+                  fontSize: 10.5,
+                  color: colors.mutedForeground,
+                  fontStyle: 'italic',
+                }}
+              >
+                Informações catalogadas via Wikipedia & MusicBrainz API
+              </Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -893,5 +1178,136 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     marginTop: 6,
+  },
+  infoFloatingBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
+  },
+  artistTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  verifiedCheckBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#3b82f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#3b82f6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  relatedScrollRow: {
+    paddingVertical: 6,
+    gap: 12,
+  },
+  relatedArtistCard: {
+    width: 120,
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 6,
+  },
+  relatedArtistAvatar: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+  },
+  relatedArtistName: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  relatedArtistGenre: {
+    fontSize: 10.5,
+    textAlign: 'center',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    padding: 20,
+    maxHeight: '85%',
+    gap: 14,
+  },
+  modalDragIndicator: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(150, 150, 150, 0.4)',
+    alignSelf: 'center',
+    marginBottom: 4,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  modalArtistThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  modalArtistName: {
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickFactsGrid: {
+    gap: 8,
+  },
+  factCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  factLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: 'gray',
+    textTransform: 'uppercase',
+  },
+  factValue: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    marginTop: 1,
+  },
+  modalBioText: {
+    fontSize: 13,
+    lineHeight: 20,
+    opacity: 0.9,
+  },
+  modalFooterSource: {
+    paddingTop: 10,
+    borderTopWidth: 1,
+    alignItems: 'center',
   },
 });

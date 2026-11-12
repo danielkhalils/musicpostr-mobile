@@ -43,7 +43,7 @@ import {
 import { CoverImage } from '@/components/CoverImage';
 import { SocialIcon } from '@/components/SocialIcon';
 
-type ProfileHistoryTab = 'all' | 'reviews' | 'favorites' | 'idols' | 'lists';
+type ProfileHistoryTab = 'all' | 'reviews' | 'favorites' | 'idols';
 
 export function ProfileView({
   visitingUsername,
@@ -167,14 +167,14 @@ export function ProfileView({
         />
         <View style={styles.bannerOverlay} />
 
-        {/* Ações no topo da tela (Engrenagem de Configurações e Compartilhar) */}
+        {/* Ações no topo da tela (Voltar na esquerda, Compartilhar e Configurações na direita) */}
         <View
           style={[
             styles.topHeaderBar,
             { top: Math.max(insets.top + 8, 14) },
           ]}
         >
-          {isVisiting && (
+          {isVisiting ? (
             <TouchableOpacity
               onPress={() => safeGoBack('/(tabs)/reviews')}
               style={styles.topCircleBtn}
@@ -183,31 +183,35 @@ export function ProfileView({
             >
               <ArrowLeft size={18} color="#fff" />
             </TouchableOpacity>
+          ) : (
+            <View style={{ width: 36, height: 36 }} />
           )}
 
-          <TouchableOpacity
-            onPress={handleShareProfile}
-            style={styles.topCircleBtn}
-            accessibilityLabel="Compartilhar Perfil"
-            activeOpacity={0.85}
-          >
-            {copied ? (
-              <Check size={17} color={colors.emerald} />
-            ) : (
-              <Share2 size={17} color="#fff" />
-            )}
-          </TouchableOpacity>
-
-          {!isVisiting && (
+          <View style={styles.topRightActionsWrap}>
             <TouchableOpacity
-              onPress={() => router.push('/settings' as any)}
+              onPress={handleShareProfile}
               style={styles.topCircleBtn}
-              accessibilityLabel="Configurações"
+              accessibilityLabel="Compartilhar Perfil"
               activeOpacity={0.85}
             >
-              <Settings size={18} color="#fff" />
+              {copied ? (
+                <Check size={17} color={colors.emerald} />
+              ) : (
+                <Share2 size={17} color="#fff" />
+              )}
             </TouchableOpacity>
-          )}
+
+            {!isVisiting && (
+              <TouchableOpacity
+                onPress={() => router.push('/settings' as any)}
+                style={styles.topCircleBtn}
+                accessibilityLabel="Configurações"
+                activeOpacity={0.85}
+              >
+                <Settings size={18} color="#fff" />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       </View>
 
@@ -375,14 +379,15 @@ export function ProfileView({
 
             {/* Listas */}
             <TouchableOpacity
-              style={[
-                styles.unifiedStatItem,
-                historyTab === 'lists' && {
-                  backgroundColor: `${colors.emerald}18`,
-                  borderRadius: 10,
-                },
-              ]}
-              onPress={() => setHistoryTab('lists')}
+              style={styles.unifiedStatItem}
+              onPress={() =>
+                router.push({
+                  pathname: '/lists' as any,
+                  params: isVisiting
+                    ? { username: displayProfile.username }
+                    : {},
+                })
+              }
               activeOpacity={0.7}
             >
               <View style={styles.unifiedStatHeader}>
@@ -396,12 +401,7 @@ export function ProfileView({
               <Text
                 style={[
                   styles.unifiedStatLabel,
-                  {
-                    color:
-                      historyTab === 'lists'
-                        ? colors.emerald
-                        : colors.mutedForeground,
-                  },
+                  { color: colors.mutedForeground },
                 ]}
               >
                 Listas
@@ -536,7 +536,6 @@ export function ProfileView({
             { key: 'reviews', label: `Avaliados (${reviews.length})` },
             { key: 'favorites', label: `Favoritados (${favorites.length})` },
             { key: 'idols', label: `Artistas Seguidos (${idols.length})` },
-            { key: 'lists', label: `Listas (${lists.length})` },
           ] as const
         ).map((tab) => {
           const active = historyTab === tab.key;
@@ -779,79 +778,6 @@ export function ProfileView({
               </View>
             </TouchableOpacity>
           ))}
-
-        {/* 4. Listas Criadas */}
-        {(historyTab === 'all' || historyTab === 'lists') &&
-          lists.map((list) => (
-            <TouchableOpacity
-              key={`list-${list.id}`}
-              style={[
-                styles.activityItemCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
-              onPress={() =>
-                router.push({
-                  pathname: '/lists' as any,
-                  params: isVisiting
-                    ? { username: displayProfile.username }
-                    : {},
-                })
-              }
-              activeOpacity={0.85}
-            >
-              <View style={styles.activityRowMain}>
-                <View
-                  style={[
-                    styles.listIconBox,
-                    { backgroundColor: `${colors.emerald}18` },
-                  ]}
-                >
-                  <ListMusic size={20} color={colors.emerald} />
-                </View>
-                <View style={{ flex: 1, gap: 2 }}>
-                  <View style={styles.activityHeaderLine}>
-                    <View
-                      style={[
-                        styles.typeTag,
-                        { backgroundColor: `${colors.emerald}18` },
-                      ]}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 10,
-                          fontWeight: '800',
-                          color: colors.emerald,
-                        }}
-                      >
-                        Lista Musical • {list.count} álbuns
-                      </Text>
-                    </View>
-                    <Text
-                      style={{ fontSize: 10, color: colors.mutedForeground }}
-                    >
-                      {list.createdAt}
-                    </Text>
-                  </View>
-
-                  <Text
-                    style={[
-                      styles.activityTitle,
-                      { color: colors.foreground },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {list.title}
-                  </Text>
-                  <Text
-                    style={{ fontSize: 11, color: colors.mutedForeground }}
-                    numberOfLines={1}
-                  >
-                    {list.description}
-                  </Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          ))}
       </View>
     </ScrollView>
   );
@@ -886,7 +812,14 @@ const styles = StyleSheet.create({
   topHeaderBar: {
     position: 'absolute',
     top: 12,
-    right: 12,
+    left: 14,
+    right: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 25,
+  },
+  topRightActionsWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
