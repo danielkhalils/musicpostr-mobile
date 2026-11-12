@@ -232,21 +232,36 @@ export default function ArtistDetailScreen() {
 
           {/* Efeito Blur e transição suave na parte debaixo da capa */}
           <View style={styles.bottomBlurWrapper} pointerEvents="none">
-            {Platform.OS === 'ios' || Platform.OS === 'android' ? (
+            {isDark && (Platform.OS === 'ios' || Platform.OS === 'android') ? (
               <BlurView
-                intensity={isDark ? 55 : 40}
-                tint={isDark ? 'dark' : 'light'}
+                intensity={55}
+                tint="dark"
                 style={StyleSheet.absoluteFill}
               />
             ) : null}
 
             <LinearGradient
-              colors={[
-                'transparent',
-                isDark ? 'rgba(9, 9, 11, 0.55)' : 'rgba(255, 255, 255, 0.65)',
-                colors.background,
-              ]}
-              locations={[0, 0.45, 1]}
+              colors={
+                isDark
+                  ? [
+                      'transparent',
+                      'rgba(9, 9, 11, 0.35)',
+                      'rgba(9, 9, 11, 0.75)',
+                      colors.background,
+                    ]
+                  : [
+                      'transparent',
+                      'rgba(255, 255, 255, 0.08)',
+                      'rgba(255, 255, 255, 0.38)',
+                      'rgba(255, 255, 255, 0.78)',
+                      colors.background,
+                    ]
+              }
+              locations={
+                isDark
+                  ? [0, 0.4, 0.75, 1]
+                  : [0, 0.25, 0.55, 0.82, 1]
+              }
               style={StyleSheet.absoluteFill}
             />
           </View>
@@ -256,7 +271,10 @@ export default function ArtistDetailScreen() {
             <Text
               style={[
                 styles.artistHeroTitle,
-                { color: isDark ? '#ffffff' : colors.foreground },
+                {
+                  color: isDark ? '#ffffff' : colors.foreground,
+                  textShadowColor: isDark ? 'rgba(0, 0, 0, 0.65)' : 'transparent',
+                },
               ]}
               numberOfLines={2}
             >
@@ -275,8 +293,12 @@ export default function ArtistDetailScreen() {
                 style={[
                   styles.genreBadge,
                   {
-                    backgroundColor: 'rgba(139, 92, 246, 0.28)',
-                    borderColor: 'rgba(139, 92, 246, 0.55)',
+                    backgroundColor: isDark
+                      ? 'rgba(139, 92, 246, 0.28)'
+                      : 'rgba(139, 92, 246, 0.15)',
+                    borderColor: isDark
+                      ? 'rgba(139, 92, 246, 0.55)'
+                      : 'rgba(139, 92, 246, 0.35)',
                   },
                 ]}
               >
@@ -284,7 +306,7 @@ export default function ArtistDetailScreen() {
                   style={{
                     fontSize: 11,
                     fontWeight: '800',
-                    color: '#c4b5fd',
+                    color: isDark ? '#c4b5fd' : '#7c3aed',
                   }}
                 >
                   {artistGenre}
@@ -302,8 +324,12 @@ export default function ArtistDetailScreen() {
                         borderColor: colors.primary,
                       }
                     : {
-                        backgroundColor: 'rgba(0, 0, 0, 0.55)',
-                        borderColor: 'rgba(255, 255, 255, 0.35)',
+                        backgroundColor: isDark
+                          ? 'rgba(0, 0, 0, 0.55)'
+                          : 'rgba(0, 0, 0, 0.06)',
+                        borderColor: isDark
+                          ? 'rgba(255, 255, 255, 0.35)'
+                          : 'rgba(0, 0, 0, 0.12)',
                       },
                 ]}
                 activeOpacity={0.85}
@@ -311,21 +337,40 @@ export default function ArtistDetailScreen() {
                 {isFollowing ? (
                   <Check size={12} color="#fff" strokeWidth={3} />
                 ) : (
-                  <Award size={12} color="#fff" />
+                  <Award
+                    size={12}
+                    color={isDark ? '#fff' : colors.foreground}
+                  />
                 )}
-                <Text style={styles.heroFollowBtnText}>
+                <Text
+                  style={[
+                    styles.heroFollowBtnText,
+                    !isFollowing && !isDark && { color: colors.foreground },
+                  ]}
+                >
                   {isFollowing ? 'Seguindo' : 'Seguir'}
                 </Text>
               </TouchableOpacity>
 
               {Boolean(artistCountry) && (
-                <View style={styles.countryBadge}>
-                  <Globe size={11} color="rgba(255, 255, 255, 0.85)" />
+                <View
+                  style={[
+                    styles.countryBadge,
+                    !isDark && {
+                      backgroundColor: 'rgba(0, 0, 0, 0.06)',
+                      borderColor: 'rgba(0, 0, 0, 0.12)',
+                    },
+                  ]}
+                >
+                  <Globe
+                    size={11}
+                    color={isDark ? 'rgba(255, 255, 255, 0.85)' : colors.mutedForeground}
+                  />
                   <Text
                     style={{
                       fontSize: 11,
                       fontWeight: '700',
-                      color: 'rgba(255, 255, 255, 0.9)',
+                      color: isDark ? 'rgba(255, 255, 255, 0.9)' : colors.foreground,
                     }}
                   >
                     {artistCountry}
@@ -679,7 +724,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 170,
+    height: 220,
     overflow: 'hidden',
     zIndex: 6,
   },
