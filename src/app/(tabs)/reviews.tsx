@@ -16,7 +16,6 @@ import {
   Flame,
   Heart,
   MessageSquare,
-  Plus,
   Search,
   Share2,
   Sparkles,
@@ -27,7 +26,6 @@ import {
 import React, { useEffect, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  Modal,
   ScrollView,
   Share,
   StyleSheet,
@@ -74,10 +72,6 @@ export default function CommunityReviewsScreen() {
     }
   }, [params.albumId, params.search]);
   const [visibleCount, setVisibleCount] = useState(10);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [newCommunityAlbum, setNewCommunityAlbum] = useState('');
-  const [newCommunityTopic, setNewCommunityTopic] = useState('');
-  const [createSuccessMsg, setCreateSuccessMsg] = useState(false);
 
   const [feedPosts, setFeedPosts] = useState<FeedPostItem[]>(() =>
     getCommunityFeedPosts()
@@ -191,17 +185,6 @@ export default function CommunityReviewsScreen() {
     }
   };
 
-  const handleCreateCommunity = () => {
-    if (!newCommunityAlbum.trim()) return;
-    setCreateSuccessMsg(true);
-    setTimeout(() => {
-      setCreateSuccessMsg(false);
-      setIsCreateModalOpen(false);
-      setNewCommunityAlbum('');
-      setNewCommunityTopic('');
-    }, 1500);
-  };
-
   // Filtragem de Reviews
   const filteredReviews = allReviews.filter((item) => {
     // Filtro por álbum específico selecionado
@@ -271,7 +254,7 @@ export default function CommunityReviewsScreen() {
           Comunidades
         </Text>
       </View>
-      {/* 1. Barra de Busca de Reviews e Álbuns + Botão de Criar Comunidade */}
+      {/* 1. Barra de Busca de Reviews e Álbuns */}
       <View style={styles.topSearchContainer}>
         <View
           style={[
@@ -297,17 +280,6 @@ export default function CommunityReviewsScreen() {
           )}
         </View>
 
-        <TouchableOpacity
-          onPress={() => setIsCreateModalOpen(true)}
-          style={[
-            styles.createCommunityBtn,
-            { backgroundColor: colors.primary },
-          ]}
-          activeOpacity={0.85}
-          accessibilityLabel="Criar uma comunidade"
-        >
-          <Plus size={20} color="#fff" />
-        </TouchableOpacity>
       </View>
 
       {/* 2. Filtros da Comunidade */}
@@ -580,7 +552,9 @@ export default function CommunityReviewsScreen() {
           >
             <MessageSquare size={38} color={colors.mutedForeground} />
             <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
-              Nenhuma review encontrada com os filtros selecionados.
+              {selectedAlbumId
+                ? 'Esta comunidade ainda está vazia. Ela será criada assim que alguém publicar o primeiro comentário sobre este álbum.'
+                : 'Nenhuma review encontrada com os filtros selecionados.'}
             </Text>
           </View>
         ) : (
@@ -756,13 +730,11 @@ export default function CommunityReviewsScreen() {
 
                   <TouchableOpacity
                     onPress={() => handleShareReview(review)}
-                    style={styles.actionBtn}
+                    style={[styles.actionBtn, { marginLeft: 'auto' }]}
+                    accessibilityLabel="Compartilhar avaliação"
                     activeOpacity={0.7}
                   >
-                    <Share2 size={16} color={colors.mutedForeground} />
-                    <Text style={[styles.actionBtnText, { color: colors.mutedForeground }]}>
-                      Compartilhar
-                    </Text>
+                    <Share2 size={18} color={colors.mutedForeground} />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -797,103 +769,6 @@ export default function CommunityReviewsScreen() {
         )}
       </View>
 
-      {/* Modal para Criar uma Comunidade */}
-      <Modal
-        visible={isCreateModalOpen}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setIsCreateModalOpen(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View
-            style={[
-              styles.modalCard,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
-          >
-            <View style={styles.modalHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Users size={20} color={colors.primary} />
-                <Text
-                  style={{
-                    fontSize: 17,
-                    fontWeight: '800',
-                    color: colors.foreground,
-                  }}
-                >
-                  Criar uma comunidade
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setIsCreateModalOpen(false)}>
-                <X size={20} color={colors.mutedForeground} />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 18 }}>
-              Crie um espaço de debate dedicado aos fãs de um álbum específico para conversas, curiosidades e análises de faixas.
-            </Text>
-
-            {createSuccessMsg ? (
-              <View style={styles.successBox}>
-                <Text style={styles.successText}>
-                  🎉 Comunidade criada com sucesso!
-                </Text>
-              </View>
-            ) : (
-              <>
-                <TextInput
-                  placeholder="Nome do álbum (ex: HIT ME HARD AND SOFT)"
-                  placeholderTextColor={colors.mutedForeground}
-                  value={newCommunityAlbum}
-                  onChangeText={setNewCommunityAlbum}
-                  style={[
-                    styles.modalInput,
-                    {
-                      backgroundColor: colors.background,
-                      borderColor: colors.border,
-                      color: colors.foreground,
-                    },
-                  ]}
-                />
-
-                <TextInput
-                  multiline
-                  placeholder="Tópico de discussão inicial ou descrição da comunidade..."
-                  placeholderTextColor={colors.mutedForeground}
-                  value={newCommunityTopic}
-                  onChangeText={setNewCommunityTopic}
-                  style={[
-                    styles.modalTextarea,
-                    {
-                      backgroundColor: colors.background,
-                      borderColor: colors.border,
-                      color: colors.foreground,
-                    },
-                  ]}
-                />
-
-                <TouchableOpacity
-                  onPress={handleCreateCommunity}
-                  style={[
-                    styles.createSubmitBtn,
-                    {
-                      backgroundColor: newCommunityAlbum.trim()
-                        ? colors.primary
-                        : colors.muted,
-                    },
-                  ]}
-                  disabled={!newCommunityAlbum.trim()}
-                  activeOpacity={0.85}
-                >
-                  <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>
-                    Criar Comunidade do Álbum
-                  </Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
-        </View>
-      </Modal>
     </ScrollView>
   );
 }
@@ -932,18 +807,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     paddingVertical: 0,
-  },
-  createCommunityBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
   },
   filtersScrollRow: {
     gap: 8,
@@ -1113,56 +976,5 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     marginTop: 6,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  modalCard: {
-    borderRadius: 20,
-    borderWidth: 1,
-    padding: 20,
-    gap: 14,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  modalInput: {
-    height: 46,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    fontSize: 13,
-  },
-  modalTextarea: {
-    height: 90,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    textAlignVertical: 'top',
-    fontSize: 13,
-  },
-  createSubmitBtn: {
-    height: 44,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 4,
-  },
-  successBox: {
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    alignItems: 'center',
-  },
-  successText: {
-    color: '#10b981',
-    fontWeight: '800',
-    fontSize: 13,
   },
 });

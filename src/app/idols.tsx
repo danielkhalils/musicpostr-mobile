@@ -103,6 +103,7 @@ export default function IdolsScreen() {
               >
                 <CoverImage
                   uri={artist.imageUrl}
+                  artistName={artist.name}
                   style={styles.avatar}
                   fallbackType="artist"
                 />

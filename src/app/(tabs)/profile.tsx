@@ -730,6 +730,7 @@ export function ProfileView({
               <View style={styles.activityRowMain}>
                 <CoverImage
                   uri={artist.imageUrl}
+                  artistName={artist.name}
                   style={[styles.activityThumb, { borderRadius: 999 }]}
                   fallbackType="artist"
                 />

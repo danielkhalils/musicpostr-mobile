@@ -204,6 +204,7 @@ export default function ListsScreen() {
         visible={isModalOpen}
         animationType="fade"
         transparent
+        statusBarTranslucent
         onRequestClose={() => setIsModalOpen(false)}
       >
         <View style={styles.modalBackdrop}>

@@ -3,6 +3,7 @@ import { LogBox } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
+import * as SystemUI from 'expo-system-ui';
 import { AppThemeProvider, useAppTheme } from '@/context/ThemeContext';
 import { HeaderVisibilityProvider } from '@/context/HeaderVisibilityContext';
 
@@ -11,7 +12,7 @@ LogBox.ignoreLogs([
 ]);
 
 export const unstable_settings = {
-  anchor: '(tabs)',
+  initialRouteName: '(tabs)',
 };
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -22,6 +23,10 @@ function RootNavigator() {
   useEffect(() => {
     SplashScreen.hideAsync().catch(() => {});
   }, []);
+
+  useEffect(() => {
+    SystemUI.setBackgroundColorAsync(colors.background).catch(() => {});
+  }, [colors.background]);
 
   return (
     <>

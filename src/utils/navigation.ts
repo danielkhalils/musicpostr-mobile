@@ -10,12 +10,19 @@ export function safeGoBack(fallbackRoute: string = '/(tabs)/index') {
   try {
     if (router.canGoBack()) {
       router.back();
-    } else if (typeof (router as any).dismissTo === 'function') {
-      (router as any).dismissTo(fallbackRoute);
-    } else {
-      router.replace(fallbackRoute as any);
+      return;
     }
   } catch {
+    // ignore
+  }
+
+  try {
     router.replace(fallbackRoute as any);
+  } catch {
+    try {
+      router.replace('/(tabs)/index' as any);
+    } catch {
+      // ignore
+    }
   }
 }

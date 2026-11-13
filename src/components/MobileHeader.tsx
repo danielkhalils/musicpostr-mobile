@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Image } from 'expo-image';
@@ -10,16 +10,35 @@ export function MobileHeader() {
   const insets = useSafeAreaInsets();
   const { colors } = useAppTheme();
   const { isHeaderVisible } = useHeaderVisibility();
+  const anim = useRef(new Animated.Value(1)).current;
 
-  if (!isHeaderVisible) {
-    return null;
-  }
+  const headerHeight = Math.max(insets.top, 10) + 40;
+
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: isHeaderVisible ? 1 : 0,
+      duration: 180,
+      useNativeDriver: false,
+    }).start();
+  }, [isHeaderVisible, anim]);
+
+  const height = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, headerHeight],
+  });
+
+  const opacity = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
 
   return (
-    <View
+    <Animated.View
       style={[
         styles.headerContainer,
         {
+          height,
+          opacity,
           paddingTop: Math.max(insets.top, 10),
           backgroundColor: colors.background,
         },
@@ -41,7 +60,7 @@ export function MobileHeader() {
           </Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -49,6 +68,7 @@ const styles = StyleSheet.create({
   headerContainer: {
     paddingBottom: 6,
     paddingHorizontal: 14,
+    overflow: 'hidden',
   },
   headerRow: {
     flexDirection: 'row',

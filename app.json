@@ -5,6 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
+    "backgroundColor": "#09090b",
     "scheme": "musicpostr",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -14,6 +15,7 @@
     },
     "android": {
       "package": "com.musicpostr.mobile",
+      "backgroundColor": "#09090b",
       "adaptiveIcon": {
         "backgroundColor": "#170529",
         "foregroundImage": "./assets/adaptive-icon.png",

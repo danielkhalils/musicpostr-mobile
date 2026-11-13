@@ -114,6 +114,8 @@ export interface FeedPostItem {
   timeAgo: string;
   likesCount: number;
   isLiked: boolean;
+  /** true quando o autor editou a avaliação após publicá-la */
+  isEdited?: boolean;
   comments: {
     id: string;
     author: string;
@@ -1605,6 +1607,119 @@ export function submitInternalAlbumReview(
 
   const cleanRating = Math.max(1, Math.min(10, rating || 8));
   const cleanComment = comment.trim() || 'Avaliação sem comentário escrito.';
+
+  // ---- Edição de avaliação existente: atualiza registros sem criar novos ----
+  const myName = activeName.toLowerCase();
+  const myUsername = (profile.username || '').toLowerCase();
+  const existingReviewsList = base.reviews || [];
+  const existingIdx = existingReviewsList.findIndex(
+    (r) =>
+      (r.username && r.username.toLowerCase() === myUsername) ||
+      (r.user && r.user.toLowerCase() === myName)
+  );
+  const myReviewsList = getMyReviews();
+  const myRecordIdx = myReviewsList.findIndex(
+    (r) =>
+      r.albumId === album.id ||
+      (r.albumTitle && r.albumTitle.toLowerCase() === album.title.toLowerCase())
+  );
+
+  if (existingIdx >= 0 || myRecordIdx >= 0) {
+    const prevRating =
+      existingIdx >= 0
+        ? existingReviewsList[existingIdx].rating
+        : myReviewsList[myRecordIdx].rating;
+    const total = Math.max(existingReviewsList.length, base.totalReviews, 1);
+    const editedAverage = Number(
+      ((base.communityRating * total - prevRating + cleanRating) / total).toFixed(1)
+    );
+    const nextReviews = [...existingReviewsList];
+    if (existingIdx >= 0) {
+      nextReviews[existingIdx] = {
+        ...nextReviews[existingIdx],
+        rating: cleanRating,
+        comment: cleanComment,
+      };
+    }
+    const edited: CatalogAlbum = {
+      ...base,
+      ...album,
+      communityRating: Math.max(0, Math.min(10, editedAverage)),
+      totalReviews: total,
+      listenedByMe: true,
+      reviews: nextReviews,
+    };
+    if (idx >= 0) store[idx] = edited;
+    else store.unshift(edited);
+    discoveredAlbumsMemory.set(edited.id, edited);
+    saveInternalAlbumsStore(store);
+
+    if (myRecordIdx >= 0) {
+      myReviewsList[myRecordIdx] = {
+        ...myReviewsList[myRecordIdx],
+        rating: cleanRating,
+        comment: cleanComment,
+      };
+    } else {
+      myReviewsList.unshift({
+        id: `my-rev-${Date.now()}`,
+        albumId: album.id,
+        albumTitle: album.title,
+        artistName: album.artist?.name || 'Artista',
+        coverUrl: album.cover_medium || album.cover_big,
+        rating: cleanRating,
+        comment: cleanComment,
+        date: new Date().toLocaleDateString('pt-BR', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        }),
+      });
+    }
+    try {
+      Storage.setItem(STORAGE_KEYS.MY_REVIEWS, JSON.stringify(myReviewsList));
+    } catch {
+      // ignore
+    }
+
+    const feed = getCommunityFeedPosts();
+    let touched = false;
+    const nextFeed = feed.map((post) => {
+      const isMine =
+        (!post.activityType || post.activityType === 'review') &&
+        (String(post.albumId) === String(album.id) ||
+          post.albumTitle?.toLowerCase() === album.title.toLowerCase()) &&
+        ((post.friendUsername || '').toLowerCase() === myUsername ||
+          (post.friendName || '').toLowerCase() === myName ||
+          myUsername === 'anabeat');
+      if (!isMine) return post;
+      touched = true;
+      return { ...post, rating: cleanRating, comment: cleanComment, isEdited: true };
+    });
+    if (touched) {
+      saveCommunityFeedPosts(nextFeed);
+    } else {
+      addCommunityFeedPost({
+        id: `feed-${Date.now()}`,
+        activityType: 'review',
+        friendName: activeName,
+        friendUsername: profile.username,
+        friendAvatar: profile.avatarUrl,
+        albumTitle: edited.title,
+        artistName: edited.artist?.name || 'Artista',
+        albumCover: edited.cover_medium || edited.cover_big,
+        albumId: edited.id,
+        rating: cleanRating,
+        comment: cleanComment,
+        timeAgo: 'Editado agora',
+        likesCount: 1,
+        isLiked: true,
+        comments: [],
+      });
+    }
+
+    return edited;
+  }
 
   const newReview: AlbumUserReview = {
     id: Date.now(),
@@ -3201,11 +3316,13 @@ export interface AlbumAward {
 }
 
 export const CEREMONY_LOGOS: Record<string, string> = {
-  grammy: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200',
-  vma: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=200',
-  billboard: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200',
-  brit: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=200',
-  oscar: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=200',
+  grammy: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/Grammy_Award_icon.svg/240px-Grammy_Award_icon.svg.png',
+  vma: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/MTV_Video_Music_Awards_Logo.svg/300px-MTV_Video_Music_Awards_Logo.svg.png',
+  billboard: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Billboard_Music_Awards_Logo.svg/320px-Billboard_Music_Awards_Logo.svg.png',
+  brit: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Brit_Awards_trophy_symbol.png/240px-Brit_Awards_trophy_symbol.png',
+  oscar: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7f/Academy_Award_trophy.svg/200px-Academy_Award_trophy.svg.png',
+  ama: 'https://upload.wikimedia.org/wikipedia/en/thumb/8/80/American_Music_Awards_logo.svg/320px-American_Music_Awards_logo.svg.png',
+  latin_grammy: 'https://upload.wikimedia.org/wikipedia/en/thumb/1/15/Latin_Grammy_Awards_logo.svg/280px-Latin_Grammy_Awards_logo.svg.png',
 };
 
 export function getAlbumAwards(

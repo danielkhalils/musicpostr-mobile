@@ -240,6 +240,7 @@ export default function ArtistDetailScreen() {
           {/* Capa de fundo preenchendo toda a largura do banner na frente com alta resolução */}
           <CoverImage
             uri={artistBanner}
+            artistName={artistName || undefined}
             style={styles.heroBackgroundImage}
             fallbackType="artist"
             quality="high"
@@ -692,6 +693,7 @@ export default function ArtistDetailScreen() {
                   >
                     <CoverImage
                       uri={relArtist.imageUrl}
+                      artistName={relArtist.name}
                       style={styles.relatedArtistAvatar}
                       fallbackType="artist"
                       quality="medium"
@@ -727,6 +729,7 @@ export default function ArtistDetailScreen() {
         visible={isInfoModalOpen}
         animationType="slide"
         transparent
+        statusBarTranslucent
         onRequestClose={() => setIsInfoModalOpen(false)}
       >
         <View style={styles.modalBackdrop}>
@@ -741,7 +744,7 @@ export default function ArtistDetailScreen() {
               {
                 backgroundColor: colors.card,
                 borderColor: colors.border,
-                paddingBottom: Math.max(insets.bottom + 16, 24),
+                paddingBottom: insets.bottom > 0 ? insets.bottom + 12 : 20,
               },
             ]}
           >
@@ -758,6 +761,7 @@ export default function ArtistDetailScreen() {
               >
                 <CoverImage
                   uri={artistBanner}
+                  artistName={artistName || undefined}
                   style={styles.modalArtistThumb}
                   fallbackType="artist"
                   quality="low"
@@ -1242,7 +1246,13 @@ const styles = StyleSheet.create({
   modalContent: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    borderWidth: 1,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 0,
+    marginBottom: 0,
     padding: 20,
     maxHeight: '85%',
     gap: 14,

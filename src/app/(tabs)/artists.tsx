@@ -420,6 +420,7 @@ export default function GlobalSearchScreen() {
                         >
                           <CoverImage
                             uri={artist.imageUrl}
+                            artistName={artist.name}
                             style={[styles.thumb, { borderRadius: 999 }]}
                             fallbackType="artist"
                             quality="low"

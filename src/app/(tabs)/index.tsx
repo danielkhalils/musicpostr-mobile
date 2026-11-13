@@ -25,10 +25,11 @@ import {
   UserCheck,
   X,
 } from 'lucide-react-native';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   NativeScrollEvent,
   NativeSyntheticEvent,
+  RefreshControl,
   ScrollView,
   Share,
   StyleSheet,
@@ -38,10 +39,75 @@ import {
   View,
 } from 'react-native';
 
+interface FeedCommentInputProps {
+  postId: string;
+  avatarUrl?: string;
+  colors: any;
+  onAddComment: (postId: string, text: string) => void;
+  onFocusChange?: (focused: boolean) => void;
+}
+
+function FeedCommentInput({
+  postId,
+  avatarUrl,
+  colors,
+  onAddComment,
+  onFocusChange,
+}: FeedCommentInputProps) {
+  const [text, setText] = useState('');
+
+  const handleSend = () => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    onAddComment(postId, trimmed);
+    setText('');
+  };
+
+  return (
+    <View style={styles.commentInputRow}>
+      <CoverImage
+        uri={avatarUrl}
+        style={styles.commentInputUserAvatar}
+        fallbackType="artist"
+      />
+      <TextInput
+        placeholder="Escreva um comentário..."
+        placeholderTextColor={colors.mutedForeground}
+        value={text}
+        onChangeText={setText}
+        onFocus={() => onFocusChange?.(true)}
+        onBlur={() => onFocusChange?.(false)}
+        returnKeyType="send"
+        onSubmitEditing={handleSend}
+        style={[
+          styles.commentInput,
+          {
+            backgroundColor: colors.background,
+            borderColor: colors.border,
+            color: colors.foreground,
+          },
+        ]}
+      />
+      <TouchableOpacity
+        style={[
+          styles.sendBtn,
+          { backgroundColor: text.trim() ? colors.primary : `${colors.primary}66` },
+        ]}
+        onPress={handleSend}
+        activeOpacity={0.85}
+        disabled={!text.trim()}
+      >
+        <Send size={15} color="#fff" />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 export default function HomeScreen() {
   const { colors, isDark } = useAppTheme();
   const { setIsHeaderVisible } = useHeaderVisibility();
   const lastScrollY = useRef(0);
+  const isTypingRef = useRef(false);
 
   const [feedItems, setFeedItems] = useState<FeedPostItem[]>(() =>
     getCommunityFeedPosts()
@@ -50,12 +116,24 @@ export default function HomeScreen() {
   const [showTimelineIntro, setShowTimelineIntro] = useState<boolean>(() =>
     consumeTimelineIntroOnce()
   );
-  const [commentInputs, setCommentInputs] = useState<{ [key: string]: string }>(
-    {}
-  );
+  const [refreshing, setRefreshing] = useState(false);
   const [activeCommentSection, setActiveCommentSection] = useState<{
     [key: string]: boolean;
   }>({});
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const posts = getCommunityFeedPosts();
+      const profile = getUserProfile();
+      setFeedItems(posts);
+      setUserProfile(profile);
+    } catch {
+      // ignore
+    } finally {
+      setTimeout(() => setRefreshing(false), 500);
+    }
+  }, []);
 
   useEffect(() => {
     const unsubscribe = subscribeAlbumsUpdated(() => {
@@ -83,14 +161,17 @@ export default function HomeScreen() {
   }, [setIsHeaderVisible]);
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (isTypingRef.current) {
+      return;
+    }
     const currentScrollY = event.nativeEvent.contentOffset.y;
     const diff = currentScrollY - lastScrollY.current;
 
     // Se estiver no topo da tela, sempre mostra o header
-    if (currentScrollY <= 20) {
+    if (currentScrollY <= 25) {
       setIsHeaderVisible(true);
-    } else if (diff > 12) {
-      // Rolando para baixo: oculta o header
+    } else if (diff > 20 && currentScrollY > 70) {
+      // Rolando para baixo firmemente: oculta o header de forma suave
       setIsHeaderVisible(false);
     } else if (diff < -15) {
       // Rolando para cima: mostra o header novamente
@@ -141,8 +222,8 @@ export default function HomeScreen() {
     setActiveCommentSection((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleAddComment = (id: string) => {
-    const text = commentInputs[id]?.trim();
+  const handleAddComment = (id: string, commentText: string) => {
+    const text = commentText.trim();
     if (!text) return;
 
     const profile = getUserProfile();
@@ -168,7 +249,6 @@ export default function HomeScreen() {
       return next;
     });
 
-    setCommentInputs((prev) => ({ ...prev, [id]: '' }));
     setActiveCommentSection((prev) => ({ ...prev, [id]: true }));
   };
 
@@ -176,7 +256,7 @@ export default function HomeScreen() {
     const type = item.activityType || 'review';
     if (type === 'favorite') return 'favoritou um álbum';
     if (type === 'follow_idol') return 'seguiu um novo ídolo';
-    return 'publicou uma avaliação';
+    return item.isEdited ? 'editou uma avaliação' : 'publicou uma avaliação';
   };
 
   const renderActivityBadge = (item: FeedPostItem) => {
@@ -268,7 +348,18 @@ export default function HomeScreen() {
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
-        scrollEventThrottle={16}
+        scrollEventThrottle={32}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+            progressBackgroundColor={colors.card}
+          />
+        }
       >
       {/* Sessão "Timeline de Atividades" - exibida apenas uma vez quando o usuário se cadastra e depois some */}
       {showTimelineIntro && (
@@ -617,7 +708,7 @@ export default function HomeScreen() {
 
                   {/* Botão Compartilhar */}
                   <TouchableOpacity
-                    style={styles.instagramActionBtn}
+                    style={[styles.instagramActionBtn, { marginLeft: 'auto' }]}
                     onPress={() => handleSharePost(item)}
                     activeOpacity={0.7}
                     accessibilityLabel="Compartilhar publicação"
@@ -761,43 +852,17 @@ export default function HomeScreen() {
                       ))
                     )}
 
-                    {/* Input de Comentário com Avatar do Usuário Logado */}
-                    <View style={styles.commentInputRow}>
-                      <CoverImage
-                        uri={userProfile.avatarUrl}
-                        style={styles.commentInputUserAvatar}
-                        fallbackType="artist"
-                      />
-                      <TextInput
-                        placeholder="Escreva um comentário..."
-                        placeholderTextColor={colors.mutedForeground}
-                        value={commentInputs[item.id] || ''}
-                        onChangeText={(val) =>
-                          setCommentInputs((prev) => ({
-                            ...prev,
-                            [item.id]: val,
-                          }))
-                        }
-                        style={[
-                          styles.commentInput,
-                          {
-                            backgroundColor: colors.background,
-                            borderColor: colors.border,
-                            color: colors.foreground,
-                          },
-                        ]}
-                      />
-                      <TouchableOpacity
-                        style={[
-                          styles.sendBtn,
-                          { backgroundColor: colors.primary },
-                        ]}
-                        onPress={() => handleAddComment(item.id)}
-                        activeOpacity={0.85}
-                      >
-                        <Send size={15} color="#fff" />
-                      </TouchableOpacity>
-                    </View>
+                    {/* Input de Comentário isolado com Avatar do Usuário Logado */}
+                    <FeedCommentInput
+                      postId={item.id}
+                      avatarUrl={userProfile.avatarUrl}
+                      colors={colors}
+                      onAddComment={handleAddComment}
+                      onFocusChange={(focused) => {
+                        isTypingRef.current = focused;
+                        if (focused) setIsHeaderVisible(true);
+                      }}
+                    />
                   </View>
                 )}
               </View>

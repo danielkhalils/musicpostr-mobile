@@ -20,10 +20,14 @@ import {
   getMyReviews,
   getAlbumAwards,
   getFallbackImageUrl,
+  getFollowedArtistIds,
+  toggleFollowArtist,
   type AlbumUserReview,
   type CatalogAlbum,
+  type CatalogArtist,
   type UserListRecord,
 } from '@/services/musicBrainz.service';
+import { SocialIcon } from '@/components/SocialIcon';
 import { safeGoBack } from '@/utils/navigation';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -32,7 +36,6 @@ import {
   ArrowLeft,
   Calendar,
   Clock,
-  Disc,
   Headphones,
   Heart,
   Layers,
@@ -49,6 +52,10 @@ import {
   Quote,
   ExternalLink,
   Award,
+  MoreVertical,
+  Share2,
+  UserPlus,
+  UserCheck,
 } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -60,6 +67,7 @@ import {
   NativeSyntheticEvent,
   Platform,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -106,13 +114,19 @@ export default function AlbumDetailScreen() {
 
   const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
   const [isListModalOpen, setIsListModalOpen] = useState<boolean>(false);
+  const [isOptionsMenuOpen, setIsOptionsMenuOpen] = useState<boolean>(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState<boolean>(false);
+  const [followedArtistIds, setFollowedArtistIds] = useState<string[]>(() =>
+    getFollowedArtistIds()
+  );
   const [userLists, setUserLists] = useState<UserListRecord[]>(() => getUserLists());
   const [listSuccessMessage, setListSuccessMessage] = useState<string | null>(null);
   const [newCustomListTitle, setNewCustomListTitle] = useState<string>('');
 
-  const [heroSlideIndex, setHeroSlideIndex] = useState<number>(0);
-  const heroSliderRef = useRef<any>(null);
+  const [scoreSlideIndex, setScoreSlideIndex] = useState<number>(0);
+  const scoreSliderRef = useRef<any>(null);
   const screenWidth = Dimensions.get('window').width;
+  const scorePagerWidth = screenWidth - 40;
 
   const [submittedReviews, setSubmittedReviews] = useState<AlbumUserReview[]>(
     () => (id ? getInstantAlbumPreview(id)?.reviews || [] : [])
@@ -163,10 +177,13 @@ export default function AlbumDetailScreen() {
     if (!album) return;
     if (!reviewText.trim() && rating === 0) return;
 
+    const chosenRating = rating || 8;
+    const chosenReview = reviewText || 'Avaliação sem comentário escrito.';
+
     const updatedAlbum = submitInternalAlbumReview(
       album,
-      rating || 8,
-      reviewText || 'Avaliação sem comentário escrito.'
+      chosenRating,
+      chosenReview
     );
 
     setAlbum({
@@ -174,13 +191,79 @@ export default function AlbumDetailScreen() {
       tracks: album.tracks,
     });
     setSubmittedReviews(updatedAlbum.reviews || []);
-    setReviewText('');
-    setRating(0);
-    setPostSuccess(true);
-    setTimeout(() => {
-      setPostSuccess(false);
-      setIsReviewModalOpen(false);
-    }, 1500);
+    setRating(chosenRating);
+    setReviewText(chosenReview);
+    setPostSuccess(false);
+    setIsReviewModalOpen(false);
+  };
+
+  const isFollowingArtist = useMemo(() => {
+    const aId = album?.artist?.id;
+    if (!aId) return false;
+    return followedArtistIds.includes(String(aId));
+  }, [album?.artist?.id, followedArtistIds]);
+
+  const handleToggleFollowArtist = () => {
+    if (!album?.artist) return;
+    const nextIds = toggleFollowArtist({
+      id: String(album.artist.id),
+      name: album.artist.name,
+      genre: album.genre,
+      imageUrl: album.artist.picture_medium || album.artist.picture,
+    } as any);
+    setFollowedArtistIds(nextIds);
+  };
+
+  const handleShareAlbum = async () => {
+    if (!album) return;
+    setIsOptionsMenuOpen(false);
+    try {
+      await Share.share({
+        title: `${album.title} - ${album.artist?.name || 'Artista'}`,
+        message: `Confira o álbum "${album.title}" de ${album.artist?.name || 'Artista'} no Musicpostr! Avaliação da comunidade: ${album.communityRating.toFixed(1)}/10 ⭐`,
+      });
+    } catch {}
+  };
+
+  const handleShareReviewGeneral = async () => {
+    if (!album || !currentUserReview) return;
+    setIsShareModalOpen(false);
+    try {
+      await Share.share({
+        title: `Minha avaliação de ${album.title} no Musicpostr`,
+        message: `Minha avaliação para "${album.title}" de ${album.artist?.name || 'Artista'} no Musicpostr: ⭐️ ${Number(currentUserReview.rating).toFixed(1)}/10!\n"${currentUserReview.comment}"\n\nConfira no Musicpostr!`,
+      });
+    } catch {}
+  };
+
+  const handleShareReviewInstagramStories = async () => {
+    if (!album || !currentUserReview) return;
+    setIsShareModalOpen(false);
+    const storyText = `Minha nota para "${album.title}" de ${album.artist?.name || 'Artista'} no Musicpostr: ⭐️ ${Number(currentUserReview.rating).toFixed(1)}/10!\n"${currentUserReview.comment}"`;
+
+    const igStoryUrl = 'instagram://story-camera';
+    try {
+      const canOpen = await Linking.canOpenURL(igStoryUrl);
+      if (canOpen) {
+        await Linking.openURL(igStoryUrl);
+        return;
+      }
+    } catch {}
+
+    try {
+      const igAppUrl = 'instagram://app';
+      if (await Linking.canOpenURL(igAppUrl)) {
+        await Linking.openURL(igAppUrl);
+        return;
+      }
+    } catch {}
+
+    try {
+      await Share.share({
+        title: `Minha avaliação de ${album.title}`,
+        message: `${storyText}\n\nCompartilhado via Musicpostr`,
+      });
+    } catch {}
   };
 
   const handleOpenListModal = () => {
@@ -244,7 +327,7 @@ export default function AlbumDetailScreen() {
     const myRevs = getMyReviews();
     const foundInMy = myRevs.find(
       (r) =>
-        r.albumId === album.id ||
+        String(r.albumId) === String(album.id) ||
         (r.albumTitle && r.albumTitle.toLowerCase() === album.title.toLowerCase())
     );
     if (foundInMy) return foundInMy;
@@ -268,6 +351,13 @@ export default function AlbumDetailScreen() {
     }
     return null;
   }, [album, submittedReviews, userProfile]);
+
+  useEffect(() => {
+    if (currentUserReview && rating === 0) {
+      setRating(Number(currentUserReview.rating));
+      setReviewText(currentUserReview.comment || '');
+    }
+  }, [currentUserReview]);
 
   const awards = useMemo(() => {
     if (!album) return [];
@@ -407,7 +497,7 @@ export default function AlbumDetailScreen() {
             Álbum não encontrado.
           </Text>
           <TouchableOpacity
-            onPress={() => safeGoBack(artistId ? `/artist/${artistId}` : '/(tabs)/artists')}
+            onPress={() => safeGoBack('/(tabs)/index')}
             style={[
               styles.backPillBtn,
               { backgroundColor: colors.card, borderColor: colors.border },
@@ -427,7 +517,13 @@ export default function AlbumDetailScreen() {
   const artistId = album.artist?.id || '';
   const artistName = album.artist?.name || 'Artista';
   const averageRating = album.communityRating.toFixed(1);
-  const currentGenZ = GEN_Z_PHRASES[rating] || GEN_Z_PHRASES[0];
+  const currentGenZ = GEN_Z_PHRASES[Math.floor(rating)] || GEN_Z_PHRASES[0];
+
+  const friendsRated = friendReviews.filter((r) => r.isFriend && r.rating > 0);
+  const friendsAverage =
+    friendsRated.length > 0
+      ? friendsRated.reduce((acc, r) => acc + Number(r.rating), 0) / friendsRated.length
+      : null;
 
   // Exibir as 5 mais relevantes dos amigos
   const displayedReviews = friendReviews.slice(0, 5);
@@ -482,7 +578,7 @@ export default function AlbumDetailScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      {/* Botão Voltar Fixo no Topo Flutuando */}
+      {/* Botões Voltar e 3 Pontinhos Fixos no Topo Flutuando */}
       <View
         style={[
           styles.floatingHeaderBar,
@@ -492,10 +588,20 @@ export default function AlbumDetailScreen() {
       >
         <TouchableOpacity
           style={styles.backCircleBtn}
-          onPress={() => safeGoBack(artistId ? `/artist/${artistId}` : '/(tabs)/artists')}
+          onPress={() => safeGoBack('/(tabs)/index')}
           activeOpacity={0.85}
+          accessibilityLabel="Voltar"
         >
           <ArrowLeft size={18} color="#fff" />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.backCircleBtn}
+          onPress={() => setIsOptionsMenuOpen(true)}
+          activeOpacity={0.85}
+          accessibilityLabel="Mais opções"
+        >
+          <MoreVertical size={18} color="#fff" />
         </TouchableOpacity>
       </View>
 
@@ -535,138 +641,23 @@ export default function AlbumDetailScreen() {
           />
         </View>
 
-          {/* Slider Horizontal Deslizante com Capa e Informações do Álbum */}
-          <View style={{ paddingTop: Math.max(insets.top + 48, 60) }}>
-            <ScrollView
-              ref={heroSliderRef}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              onMomentumScrollEnd={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
-                const offsetX = e.nativeEvent.contentOffset.x;
-                const page = Math.round(offsetX / screenWidth);
-                setHeroSlideIndex(page);
-              }}
-              style={{ width: screenWidth }}
+          {/* Capa do Álbum */}
+          <View style={[styles.heroSlidePage, { paddingTop: Math.max(insets.top + 48, 60) }]}>
+            <TouchableOpacity
+              onPress={handleOpenCoverModal}
+              style={styles.heroCoverTouch}
+              activeOpacity={0.88}
             >
-              {/* SLIDE 1: Capa do Álbum */}
-              <View style={[styles.heroSlidePage, { width: screenWidth }]}>
-                <TouchableOpacity
-                  onPress={handleOpenCoverModal}
-                  style={styles.heroCoverTouch}
-                  activeOpacity={0.88}
-                >
-                  <CoverImage
-                    uri={coverImage}
-                    style={styles.heroCoverImage}
-                    quality="high"
-                  />
-                  <View style={styles.hdBadgeOverlay}>
-                    <Maximize2 size={11} color="#fff" />
-                    <Text style={styles.hdBadgeText}>HD</Text>
-                  </View>
-                </TouchableOpacity>
-              </View>
-
-              {/* SLIDE 2: Informações do Álbum (com fundo translúcido sobre a mesma arte em blur) */}
-              <View style={[styles.heroSlidePage, { width: screenWidth }]}>
-                <View style={styles.heroInfoSlideCard}>
-                  <View style={styles.heroInfoSlideHeader}>
-                    <View style={styles.heroInfoSlideIconWrap}>
-                      <Disc size={18} color="#fff" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.heroInfoSlideTitle}>
-                        Informações do Álbum
-                      </Text>
-                      <Text style={styles.heroInfoSlideSubtitle} numberOfLines={1}>
-                        Metadados e detalhes técnicos
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.heroInfoGrid}>
-                    <View style={styles.heroInfoGridItem}>
-                      <View style={styles.heroInfoItemHeader}>
-                        <Layers size={13} color="rgba(255,255,255,0.7)" />
-                        <Text style={styles.heroInfoItemLabel}>Formato</Text>
-                      </View>
-                      <Text style={styles.heroInfoItemValue} numberOfLines={1}>
-                        {recordTypeLabel}
-                      </Text>
-                    </View>
-
-                    <View style={styles.heroInfoGridItem}>
-                      <View style={styles.heroInfoItemHeader}>
-                        <Calendar size={13} color="rgba(255,255,255,0.7)" />
-                        <Text style={styles.heroInfoItemLabel}>Lançamento</Text>
-                      </View>
-                      <Text style={styles.heroInfoItemValue} numberOfLines={1}>
-                        {album.release_date?.substring(0, 4) || '—'}
-                      </Text>
-                    </View>
-
-                    <View style={styles.heroInfoGridItem}>
-                      <View style={styles.heroInfoItemHeader}>
-                        <Music size={13} color="rgba(255,255,255,0.7)" />
-                        <Text style={styles.heroInfoItemLabel}>Gênero</Text>
-                      </View>
-                      <Text style={styles.heroInfoItemValue} numberOfLines={1}>
-                        {album.genreName || 'Música'}
-                      </Text>
-                    </View>
-
-                    <View style={styles.heroInfoGridItem}>
-                      <View style={styles.heroInfoItemHeader}>
-                        <Users size={13} color="rgba(255,255,255,0.7)" />
-                        <Text style={styles.heroInfoItemLabel}>Ouvintes</Text>
-                      </View>
-                      <Text style={styles.heroInfoItemValue} numberOfLines={1}>
-                        {album.listenersCount.toLocaleString('pt-BR')}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Botão de retorno para a Capa */}
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      heroSliderRef.current?.scrollTo({ x: 0, animated: true });
-                      setHeroSlideIndex(0);
-                    }}
-                    style={styles.swipeBackBadge}
-                  >
-                    <Text style={styles.swipeHintText}>← Voltar para a capa</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </ScrollView>
-
-            {/* Indicador de Paginação / Dots */}
-            <View style={styles.heroPaginationDots}>
-              <TouchableOpacity
-                onPress={() => {
-                  heroSliderRef.current?.scrollTo({ x: 0, animated: true });
-                  setHeroSlideIndex(0);
-                }}
-                style={[
-                  styles.heroDot,
-                  heroSlideIndex === 0 ? styles.heroDotActive : styles.heroDotInactive,
-                  { backgroundColor: heroSlideIndex === 0 ? colors.primary : 'rgba(255,255,255,0.35)' },
-                ]}
+              <CoverImage
+                uri={coverImage}
+                style={styles.heroCoverImage}
+                quality="high"
               />
-              <TouchableOpacity
-                onPress={() => {
-                  heroSliderRef.current?.scrollTo({ x: screenWidth, animated: true });
-                  setHeroSlideIndex(1);
-                }}
-                style={[
-                  styles.heroDot,
-                  heroSlideIndex === 1 ? styles.heroDotActive : styles.heroDotInactive,
-                  { backgroundColor: heroSlideIndex === 1 ? colors.primary : 'rgba(255,255,255,0.35)' },
-                ]}
-              />
-            </View>
+              <View style={styles.hdBadgeOverlay}>
+                <Maximize2 size={11} color="#fff" />
+                <Text style={styles.hdBadgeText}>HD</Text>
+              </View>
+            </TouchableOpacity>
           </View>
 
           {/* Conteúdo Central do Hero: Título, Artista e Nota Pitchfork Style */}
@@ -695,29 +686,111 @@ export default function AlbumDetailScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Círculo de Nota de Destaque Estilo Musicpostr */}
-            <View style={styles.musicpostrScoreSection}>
-              <View
-                style={[
-                  styles.musicpostrCircle,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor: colors.primary,
-                    shadowColor: colors.primary,
-                  },
-                ]}
+            {/* Informações do Álbum */}
+            <View style={styles.albumInfoRow}>
+              {[
+                { icon: Layers, label: 'Formato', value: recordTypeLabel },
+                { icon: Calendar, label: 'Lançamento', value: album.release_date?.substring(0, 4) || '—' },
+                { icon: Music, label: 'Gênero', value: album.genreName || 'Música' },
+                { icon: Users, label: 'Ouvintes', value: album.listenersCount.toLocaleString('pt-BR') },
+              ].map(({ icon: Icon, label, value }) => (
+                <View
+                  key={label}
+                  style={[
+                    styles.albumInfoChip,
+                    { backgroundColor: colors.card, borderColor: colors.border },
+                  ]}
+                >
+                  <View style={styles.heroInfoItemHeader}>
+                    <Icon size={12} color={colors.mutedForeground} />
+                    <Text style={[styles.albumInfoLabel, { color: colors.mutedForeground }]}>
+                      {label}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[styles.albumInfoValue, { color: colors.foreground }]}
+                    numberOfLines={1}
+                  >
+                    {value}
+                  </Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Notas em swipe: 1) Amigos  2) Comunidade */}
+            <View style={{ width: scorePagerWidth, alignSelf: 'center' }}>
+              <ScrollView
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+                  setScoreSlideIndex(
+                    Math.round(e.nativeEvent.contentOffset.x / scorePagerWidth)
+                  );
+                }}
+                ref={scoreSliderRef}
               >
-                <Text style={[styles.musicpostrScoreText, { color: colors.foreground }]}>
-                  {averageRating}
-                </Text>
-              </View>
-              <View style={styles.musicpostrMetaCol}>
-                <Text style={[styles.musicpostrLabel, { color: colors.foreground }]}>
-                  NOTA MUSICPOSTR
-                </Text>
-                <Text style={[styles.musicpostrSubLabel, { color: colors.mutedForeground }]}>
-                  Baseada em {album.totalReviews} avaliações da comunidade
-                </Text>
+                {[
+                  {
+                    key: 'friends',
+                    score: friendsAverage !== null ? friendsAverage.toFixed(1) : '—',
+                    label: 'NOTA DOS AMIGOS',
+                    sub:
+                      friendsAverage !== null
+                        ? `Baseada em ${friendsRated.length} ${friendsRated.length === 1 ? 'avaliação' : 'avaliações'} de amigos`
+                        : 'Nenhum amigo avaliou este álbum ainda',
+                  },
+                  {
+                    key: 'community',
+                    score: averageRating,
+                    label: 'NOTA DA COMUNIDADE',
+                    sub: `Baseada em ${album.totalReviews} avaliações da comunidade`,
+                  },
+                ].map((slide) => (
+                  <View
+                    key={slide.key}
+                    style={[styles.musicpostrScoreSection, { width: scorePagerWidth }]}
+                  >
+                    <View
+                      style={[
+                        styles.musicpostrCircle,
+                        {
+                          backgroundColor: colors.card,
+                          borderColor: colors.primary,
+                          shadowColor: colors.primary,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.musicpostrScoreText, { color: colors.foreground }]}>
+                        {slide.score}
+                      </Text>
+                    </View>
+                    <View style={styles.musicpostrMetaCol}>
+                      <Text style={[styles.musicpostrLabel, { color: colors.foreground }]}>
+                        {slide.label}
+                      </Text>
+                      <Text style={[styles.musicpostrSubLabel, { color: colors.mutedForeground }]}>
+                        {slide.sub}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+              <View style={styles.heroPaginationDots}>
+                {[0, 1].map((i) => (
+                  <TouchableOpacity
+                    key={i}
+                    onPress={() => {
+                      scoreSliderRef.current?.scrollTo({ x: i * scorePagerWidth, animated: true });
+                      setScoreSlideIndex(i);
+                    }}
+                    style={[
+                      styles.heroDot,
+                      scoreSlideIndex === i ? styles.heroDotActive : styles.heroDotInactive,
+                      { backgroundColor: scoreSlideIndex === i ? colors.primary : colors.border },
+                    ]}
+                  />
+                ))}
               </View>
             </View>
 
@@ -784,19 +857,36 @@ export default function AlbumDetailScreen() {
                   <Text style={[styles.userReviewDateText, { color: colors.mutedForeground }]}>
                     {currentUserReview.date || 'Recente'}
                   </Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setRating(Number(currentUserReview.rating) || 8);
-                      setReviewText(currentUserReview.comment || '');
-                      setIsReviewModalOpen(true);
-                    }}
-                    style={styles.editReviewLink}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[styles.editReviewLinkText, { color: colors.primary }]}>
-                      Editar nota
-                    </Text>
-                  </TouchableOpacity>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <TouchableOpacity
+                      onPress={() => setIsShareModalOpen(true)}
+                      style={[
+                        styles.shareReviewNoteBtn,
+                        { backgroundColor: `${colors.primary}18`, borderColor: `${colors.primary}35` },
+                      ]}
+                      activeOpacity={0.75}
+                      accessibilityLabel="Compartilhar nota"
+                    >
+                      <Share2 size={12} color={colors.primary} />
+                      <Text style={[styles.shareReviewNoteBtnText, { color: colors.primary }]}>
+                        Compartilhar nota
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => {
+                        setRating(Number(currentUserReview.rating) || 8);
+                        setReviewText(currentUserReview.comment || '');
+                        setIsReviewModalOpen(true);
+                      }}
+                      style={styles.editReviewLink}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.editReviewLinkText, { color: colors.mutedForeground }]}>
+                        Editar
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
             ) : (
@@ -1026,7 +1116,8 @@ export default function AlbumDetailScreen() {
                       <CoverImage
                         uri={aw.logoUrl}
                         style={styles.awardLogoImage}
-                        quality="low"
+                        contentFit="contain"
+                        quality="high"
                       />
                     </View>
                     <View style={{ flex: 1, gap: 2 }}>
@@ -1316,6 +1407,7 @@ export default function AlbumDetailScreen() {
         visible={isCoverViewerOpen}
         animationType="fade"
         transparent
+        statusBarTranslucent
         onRequestClose={() => setIsCoverViewerOpen(false)}
       >
         <View style={styles.modalBackdrop}>
@@ -1436,33 +1528,40 @@ export default function AlbumDetailScreen() {
       >
         {/* Opção Avaliar */}
         <TouchableOpacity
-          onPress={() => setIsReviewModalOpen(true)}
+          onPress={() => {
+            if (currentUserReview) {
+              setRating(Number(currentUserReview.rating) || 8);
+              setReviewText(currentUserReview.comment || '');
+            }
+            setIsReviewModalOpen(true);
+          }}
           style={styles.floatingBarItem}
           activeOpacity={0.7}
+          accessibilityLabel={currentUserReview ? 'Álbum Avaliado' : 'Avaliar Álbum'}
         >
           <View
             style={[
               styles.floatingBarIconWrap,
-              rating > 0 && {
-                backgroundColor: `${colors.amber}22`,
+              Boolean(currentUserReview) && {
+                backgroundColor: `${colors.amber}25`,
                 borderRadius: 999,
               },
             ]}
           >
             <Star
               size={18}
-              color={rating > 0 ? colors.amber : colors.primary}
-              fill={rating > 0 ? colors.amber : 'transparent'}
+              color={currentUserReview ? colors.amber : colors.primary}
+              fill={currentUserReview ? colors.amber : 'transparent'}
             />
           </View>
           <Text
             style={[
               styles.floatingBarLabel,
-              { color: rating > 0 ? colors.amber : colors.mutedForeground },
+              { color: currentUserReview ? colors.amber : colors.mutedForeground },
             ]}
             numberOfLines={1}
           >
-            {rating > 0 ? `${rating}/10` : 'Avaliar'}
+            {currentUserReview ? 'Avaliado' : 'Avaliar'}
           </Text>
         </TouchableOpacity>
 
@@ -1552,6 +1651,7 @@ export default function AlbumDetailScreen() {
         visible={isReviewModalOpen}
         animationType="slide"
         transparent
+        statusBarTranslucent
         onRequestClose={() => setIsReviewModalOpen(false)}
       >
         <View style={styles.sheetModalOverlay}>
@@ -1566,7 +1666,7 @@ export default function AlbumDetailScreen() {
               {
                 backgroundColor: colors.card,
                 borderColor: colors.border,
-                paddingBottom: Math.max(insets.bottom + 16, 24),
+                paddingBottom: insets.bottom > 0 ? insets.bottom + 12 : 20,
               },
             ]}
           >
@@ -1817,6 +1917,7 @@ export default function AlbumDetailScreen() {
         visible={isListModalOpen}
         animationType="slide"
         transparent
+        statusBarTranslucent
         onRequestClose={() => setIsListModalOpen(false)}
       >
         <View style={styles.sheetModalOverlay}>
@@ -1831,7 +1932,7 @@ export default function AlbumDetailScreen() {
               {
                 backgroundColor: colors.card,
                 borderColor: colors.border,
-                paddingBottom: Math.max(insets.bottom + 16, 24),
+                paddingBottom: insets.bottom > 0 ? insets.bottom + 12 : 20,
               },
             ]}
           >
@@ -2001,6 +2102,329 @@ export default function AlbumDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* MODAL 3: Opções do Álbum (3 pontinhos) */}
+      <Modal
+        visible={isOptionsMenuOpen}
+        animationType="slide"
+        transparent
+        statusBarTranslucent
+        onRequestClose={() => setIsOptionsMenuOpen(false)}
+      >
+        <View style={styles.sheetModalOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setIsOptionsMenuOpen(false)}
+          />
+          <View
+            style={[
+              styles.sheetModalContent,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                paddingBottom: insets.bottom > 0 ? insets.bottom + 12 : 20,
+              },
+            ]}
+          >
+            <View style={styles.sheetModalDragIndicator} />
+
+            <View style={styles.sheetModalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.sheetModalTitle, { color: colors.foreground }]}>
+                  Opções do Álbum
+                </Text>
+                <Text
+                  style={{ fontSize: 12, color: colors.mutedForeground, marginTop: 2 }}
+                  numberOfLines={1}
+                >
+                  {album.title} • {artistName}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setIsOptionsMenuOpen(false)}
+                style={styles.sheetCloseBtn}
+                accessibilityLabel="Fechar"
+              >
+                <X size={18} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ gap: 8, marginTop: 4 }}>
+              {/* Compartilhar Álbum */}
+              <TouchableOpacity
+                style={[styles.menuOptionRow, { backgroundColor: colors.secondary }]}
+                onPress={handleShareAlbum}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.menuOptionIconWrap, { backgroundColor: `${colors.primary}22` }]}>
+                  <Share2 size={18} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuOptionTitle, { color: colors.foreground }]}>
+                    Compartilhar Álbum
+                  </Text>
+                  <Text style={[styles.menuOptionSubtitle, { color: colors.mutedForeground }]}>
+                    Envie para amigos ou outras redes sociais
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Seguir / Deixar de Seguir Artista */}
+              <TouchableOpacity
+                style={[styles.menuOptionRow, { backgroundColor: colors.secondary }]}
+                onPress={handleToggleFollowArtist}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={[
+                    styles.menuOptionIconWrap,
+                    {
+                      backgroundColor: isFollowingArtist
+                        ? `${colors.emerald}22`
+                        : `${colors.primary}22`,
+                    },
+                  ]}
+                >
+                  {isFollowingArtist ? (
+                    <UserCheck size={18} color={colors.emerald} />
+                  ) : (
+                    <UserPlus size={18} color={colors.primary} />
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuOptionTitle, { color: colors.foreground }]}>
+                    {isFollowingArtist ? `Seguindo ${artistName}` : `Seguir ${artistName}`}
+                  </Text>
+                  <Text style={[styles.menuOptionSubtitle, { color: colors.mutedForeground }]}>
+                    {isFollowingArtist ? 'Você já segue este artista como ídolo' : 'Acompanhe lançamentos e novidades'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Ir para o Artista */}
+              {Boolean(artistId) && (
+                <TouchableOpacity
+                  style={[styles.menuOptionRow, { backgroundColor: colors.secondary }]}
+                  onPress={() => {
+                    setIsOptionsMenuOpen(false);
+                    router.push(`/artist/${artistId}` as any);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.menuOptionIconWrap, { backgroundColor: `${colors.primary}22` }]}>
+                    <ExternalLink size={18} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.menuOptionTitle, { color: colors.foreground }]}>
+                      Ir para o Artista
+                    </Text>
+                    <Text style={[styles.menuOptionSubtitle, { color: colors.mutedForeground }]}>
+                      Ver discografia completa de {artistName}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+
+              {/* Adicionar a uma Lista */}
+              <TouchableOpacity
+                style={[styles.menuOptionRow, { backgroundColor: colors.secondary }]}
+                onPress={() => {
+                  setIsOptionsMenuOpen(false);
+                  handleOpenListModal();
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.menuOptionIconWrap, { backgroundColor: `${colors.primary}22` }]}>
+                  <ListPlus size={18} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuOptionTitle, { color: colors.foreground }]}>
+                    Adicionar a uma Lista
+                  </Text>
+                  <Text style={[styles.menuOptionSubtitle, { color: colors.mutedForeground }]}>
+                    Organize em suas playlists e listas públicas
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Favoritar */}
+              <TouchableOpacity
+                style={[styles.menuOptionRow, { backgroundColor: colors.secondary }]}
+                onPress={() => {
+                  handleToggleFavorite();
+                  setIsOptionsMenuOpen(false);
+                }}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={[
+                    styles.menuOptionIconWrap,
+                    {
+                      backgroundColor: album.isFavorite
+                        ? `${colors.rose}22`
+                        : `${colors.primary}22`,
+                    },
+                  ]}
+                >
+                  <Heart
+                    size={18}
+                    color={album.isFavorite ? colors.rose : colors.primary}
+                    fill={album.isFavorite ? colors.rose : 'transparent'}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuOptionTitle, { color: colors.foreground }]}>
+                    {album.isFavorite ? 'Remover dos Favoritos' : 'Favoritar Álbum'}
+                  </Text>
+                  <Text style={[styles.menuOptionSubtitle, { color: colors.mutedForeground }]}>
+                    {album.isFavorite ? 'Está salvo no seu perfil' : 'Destaque este álbum na sua coleção'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL 4: Compartilhar Nota / Stories do Instagram */}
+      <Modal
+        visible={isShareModalOpen}
+        animationType="slide"
+        transparent
+        statusBarTranslucent
+        onRequestClose={() => setIsShareModalOpen(false)}
+      >
+        <View style={styles.sheetModalOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setIsShareModalOpen(false)}
+          />
+          <View
+            style={[
+              styles.sheetModalContent,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                paddingBottom: insets.bottom > 0 ? insets.bottom + 12 : 20,
+              },
+            ]}
+          >
+            <View style={styles.sheetModalDragIndicator} />
+
+            <View style={styles.sheetModalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.sheetModalTitle, { color: colors.foreground }]}>
+                  Compartilhar Nota
+                </Text>
+                <Text
+                  style={{ fontSize: 12, color: colors.mutedForeground, marginTop: 2 }}
+                  numberOfLines={1}
+                >
+                  {album.title} • {artistName}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setIsShareModalOpen(false)}
+                style={styles.sheetCloseBtn}
+                accessibilityLabel="Fechar"
+              >
+                <X size={18} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Preview do Card para Compartilhamento */}
+            {Boolean(currentUserReview) && (
+              <View
+                style={[
+                  styles.sharePreviewCard,
+                  { backgroundColor: colors.secondary, borderColor: `${colors.primary}40` },
+                ]}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <CoverImage
+                    uri={activeCoverUrl}
+                    style={{ width: 56, height: 56, borderRadius: 10 }}
+                    quality="medium"
+                  />
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '800', color: colors.foreground }} numberOfLines={1}>
+                      {album.title}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: colors.mutedForeground }} numberOfLines={1}>
+                      {artistName}
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                      <Star size={13} color={colors.amber} fill={colors.amber} />
+                      <Text style={{ fontSize: 13, fontWeight: '900', color: colors.amber }}>
+                        {Number(currentUserReview?.rating).toFixed(1)}/10
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+                {Boolean(currentUserReview?.comment) && (
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: colors.foreground,
+                      fontStyle: 'italic',
+                      opacity: 0.9,
+                      marginTop: 8,
+                      lineHeight: 16,
+                    }}
+                    numberOfLines={2}
+                  >
+                    "{currentUserReview?.comment}"
+                  </Text>
+                )}
+              </View>
+            )}
+
+            <View style={{ gap: 10, marginTop: 4 }}>
+              {/* Botão Compartilhar nos Stories do Instagram */}
+              <TouchableOpacity
+                style={styles.instagramStoryBtn}
+                onPress={handleShareReviewInstagramStories}
+                activeOpacity={0.85}
+              >
+                <LinearGradient
+                  colors={['#833ab4', '#fd1d1d', '#fcb045']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.instagramStoryGradient}
+                >
+                  <SocialIcon name="instagram" size={20} color="#fff" />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Text style={styles.instagramStoryTitle}>
+                      Compartilhar nos Stories
+                    </Text>
+                    <Text style={styles.instagramStorySubtitle}>
+                      Instagram Stories
+                    </Text>
+                  </View>
+                  <ArrowRight size={16} color="#fff" />
+                </LinearGradient>
+              </TouchableOpacity>
+
+              {/* Botão Compartilhar em Outros Aplicativos */}
+              <TouchableOpacity
+                style={[
+                  styles.generalShareBtn,
+                  { backgroundColor: colors.secondary, borderColor: colors.border },
+                ]}
+                onPress={handleShareReviewGeneral}
+                activeOpacity={0.8}
+              >
+                <Share2 size={18} color={colors.foreground} />
+                <Text style={[styles.generalShareBtnText, { color: colors.foreground }]}>
+                  Outras opções de compartilhamento
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -2147,6 +2571,30 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  albumInfoRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    alignSelf: 'stretch',
+  },
+  albumInfoChip: {
+    flexBasis: '47%',
+    flexGrow: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 3,
+  },
+  albumInfoLabel: {
+    fontSize: 10.5,
+    fontWeight: '600',
+  },
+  albumInfoValue: {
+    fontSize: 12.5,
+    fontWeight: '800',
   },
   heroInfoItemHeader: {
     flexDirection: 'row',
@@ -2457,7 +2905,10 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor: 'rgba(0,0,0,0.25)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 4,
   },
   awardLogoImage: {
     width: '100%',
@@ -2645,8 +3096,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   revScorePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 3,
     borderRadius: 999,
   },
   revFooterRow: {
@@ -2754,9 +3208,13 @@ const styles = StyleSheet.create({
   sheetModalContent: {
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     borderTopWidth: 1,
     borderLeftWidth: 1,
     borderRightWidth: 1,
+    borderBottomWidth: 0,
+    marginBottom: 0,
     paddingHorizontal: 20,
     paddingTop: 12,
     gap: 14,
@@ -2835,5 +3293,80 @@ const styles = StyleSheet.create({
   userListItemSub: {
     fontSize: 11,
     marginTop: 2,
+  },
+  shareReviewNoteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4.5,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  shareReviewNoteBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  menuOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: 16,
+  },
+  menuOptionIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuOptionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  menuOptionSubtitle: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  sharePreviewCard: {
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 8,
+  },
+  instagramStoryBtn: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  instagramStoryGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  instagramStoryTitle: {
+    color: '#ffffff',
+    fontSize: 14.5,
+    fontWeight: '800',
+  },
+  instagramStorySubtitle: {
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontSize: 11,
+    marginTop: 1,
+  },
+  generalShareBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  generalShareBtnText: {
+    fontSize: 13.5,
+    fontWeight: '700',
   },
 });
