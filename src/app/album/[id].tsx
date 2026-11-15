@@ -24,7 +24,6 @@ import {
   toggleFollowArtist,
   type AlbumUserReview,
   type CatalogAlbum,
-  type CatalogArtist,
   type UserListRecord,
 } from '@/services/musicBrainz.service';
 import { SocialIcon } from '@/components/SocialIcon';
@@ -205,12 +204,15 @@ export default function AlbumDetailScreen() {
 
   const handleToggleFollowArtist = () => {
     if (!album?.artist) return;
+    const artistObj = album.artist as any;
+    const albumObj = album as any;
     const nextIds = toggleFollowArtist({
       id: String(album.artist.id),
       name: album.artist.name,
-      genre: album.genre,
-      imageUrl: album.artist.picture_medium || album.artist.picture,
-    } as any);
+      genre: albumObj.genre || albumObj.genreName || '',
+      imageUrl: artistObj.picture_medium || artistObj.picture || '',
+      nbFans: 0,
+    });
     setFollowedArtistIds(nextIds);
   };
 
@@ -357,7 +359,7 @@ export default function AlbumDetailScreen() {
       setRating(Number(currentUserReview.rating));
       setReviewText(currentUserReview.comment || '');
     }
-  }, [currentUserReview]);
+  }, [currentUserReview, rating]);
 
   const awards = useMemo(() => {
     if (!album) return [];
@@ -2375,7 +2377,7 @@ export default function AlbumDetailScreen() {
                     }}
                     numberOfLines={2}
                   >
-                    "{currentUserReview?.comment}"
+                    &ldquo;{currentUserReview?.comment}&rdquo;
                   </Text>
                 )}
               </View>

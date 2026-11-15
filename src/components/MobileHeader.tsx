@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -10,7 +10,7 @@ export function MobileHeader() {
   const insets = useSafeAreaInsets();
   const { colors } = useAppTheme();
   const { isHeaderVisible } = useHeaderVisibility();
-  const anim = useRef(new Animated.Value(1)).current;
+  const [anim] = useState(() => new Animated.Value(1));
 
   const headerHeight = Math.max(insets.top, 10) + 40;
 
