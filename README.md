@@ -97,12 +97,14 @@ musicpostr-mobile/
 │   │   ├── friends.tsx             # Lista de amigos da comunidade
 │   │   ├── idols.tsx               # Artistas seguidos pelo usuário
 │   │   ├── lists.tsx               # Gerenciador de listas temáticas
-│   │   ├── login.tsx               # Modal de login e cadastro
+│   │   ├── login.tsx               # Modal de login (E-mail, Google e Apple)
+│   │   ├── register.tsx            # Modal de cadastro (E-mail, Google e Apple)
 │   │   ├── my-reviews.tsx          # Histórico de reviews do usuário logado
 │   │   ├── settings.tsx            # Configurações de perfil, conta e alternância de tema
 │   │   └── top-albuns.tsx          # Ranking estendido dos melhores álbuns
 │   ├── components/                 # Componentes reutilizáveis
 │   │   ├── ui/                     # Componentes atômicos de interface (Collapsible, etc.)
+│   │   ├── AuthScreenContent.tsx   # Interface unificada de Login e Cadastro (E-mail, Google e Apple)
 │   │   ├── CoverImage.tsx          # Capa otimizada com resolução dinâmica e fallback inteligente
 │   │   ├── MobileHeader.tsx        # Cabeçalho global animado com controle de visibilidade
 │   │   ├── SocialIcon.tsx          # Ícones vetoriais de redes sociais (Instagram, X, Bluesky, etc.)

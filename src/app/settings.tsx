@@ -9,6 +9,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { safeGoBack } from '@/utils/navigation';
+import { router } from 'expo-router';
 import {
   Settings,
   User,
@@ -20,10 +21,12 @@ import {
   ArrowLeft,
   Moon,
   Sun,
+  LogOut,
+  UserPlus,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { MobileHeader } from '@/components/MobileHeader';
-import { getUserProfile, saveUserProfile } from '@/services/musicBrainz.service';
+import { getUserProfile, saveUserProfile, logout } from '@/services/musicBrainz.service';
 
 export default function SettingsScreen() {
   const { colors, isDark, toggleTheme } = useAppTheme();
@@ -47,6 +50,7 @@ export default function SettingsScreen() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [isLinkedGoogle, setIsLinkedGoogle] = useState(initial.isLinkedGoogle);
+  const [isLinkedApple, setIsLinkedApple] = useState(initial.isLinkedApple ?? false);
 
   const [profileVisibility, setProfileVisibility] = useState<
     'public' | 'private'
@@ -66,6 +70,7 @@ export default function SettingsScreen() {
       email,
       phone,
       isLinkedGoogle,
+      isLinkedApple,
       profileVisibility,
       emailNotif,
       communityNotif,
@@ -424,6 +429,143 @@ export default function SettingsScreen() {
                 }}
               >
                 {isLinkedGoogle ? 'Desvincular' : 'Vincular Google'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={[styles.googleRow, { borderTopColor: colors.border }]}>
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: '700',
+                  color: colors.foreground,
+                }}
+              >
+                Conta Apple Vinculada
+              </Text>
+              <Text
+                style={{ fontSize: 11, color: colors.mutedForeground }}
+              >
+                Sua conta Apple ID está conectada para autenticação rápida.
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setIsLinkedApple(!isLinkedApple)}
+              style={[
+                styles.outlineBtn,
+                {
+                  backgroundColor: colors.secondary,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: '700',
+                  color: colors.foreground,
+                }}
+              >
+                {isLinkedApple ? 'Desvincular' : 'Vincular Apple'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Sessão e Autenticação */}
+        <View
+          style={[
+            styles.sectionCard,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.sectionTitleRow}>
+            <User size={16} color={colors.primary} />
+            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+              Sessão e Autenticação
+            </Text>
+          </View>
+          <Text style={{ fontSize: 12, color: colors.mutedForeground }}>
+            Alterne entre contas ou cadastre um novo perfil comunitário no Musicpostr.
+          </Text>
+
+          <View style={{ gap: 8, marginTop: 4 }}>
+            <TouchableOpacity
+              onPress={() => router.push('/login' as any)}
+              style={[
+                styles.outlineBtn,
+                {
+                  backgroundColor: colors.secondary,
+                  borderColor: colors.border,
+                  height: 40,
+                  flexDirection: 'row',
+                  gap: 8,
+                },
+              ]}
+            >
+              <User size={15} color={colors.primary} />
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: '700',
+                  color: colors.foreground,
+                }}
+              >
+                Trocar de Conta / Fazer Login
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => router.push('/register' as any)}
+              style={[
+                styles.outlineBtn,
+                {
+                  backgroundColor: colors.secondary,
+                  borderColor: colors.border,
+                  height: 40,
+                  flexDirection: 'row',
+                  gap: 8,
+                },
+              ]}
+            >
+              <UserPlus size={15} color={colors.emerald} />
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: '700',
+                  color: colors.foreground,
+                }}
+              >
+                Cadastrar Nova Conta
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                logout();
+                router.replace('/login' as any);
+              }}
+              style={[
+                styles.outlineBtn,
+                {
+                  backgroundColor: `${colors.destructive}15`,
+                  borderColor: `${colors.destructive}40`,
+                  height: 40,
+                  flexDirection: 'row',
+                  gap: 8,
+                },
+              ]}
+            >
+              <LogOut size={15} color={colors.destructive} />
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: '700',
+                  color: colors.destructive,
+                }}
+              >
+                Desconectar da Conta
               </Text>
             </TouchableOpacity>
           </View>

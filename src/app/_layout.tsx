@@ -53,6 +53,10 @@ function RootNavigator() {
           name="login"
           options={{ headerShown: false, presentation: 'modal' }}
         />
+        <Stack.Screen
+          name="register"
+          options={{ headerShown: false, presentation: 'modal' }}
+        />
       </Stack>
     </>
   );

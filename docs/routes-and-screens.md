@@ -34,7 +34,8 @@ flowchart TD
         MyReviews["my-reviews.tsx (Minhas Reviews)"]
         Settings["settings.tsx (Configurações)"]
         TopAlbuns["top-albuns.tsx (Top Álbuns)"]
-        Login["login.tsx (Modal Login/Cadastro)"]
+        Login["login.tsx (Modal Login)"]
+        Register["register.tsx (Modal Cadastro)"]
     end
 
     Root --> Tabs
@@ -107,4 +108,5 @@ A barra de navegação flutuante (`FloatingTabsBar`) fornece acesso rápido às 
 - **`my-reviews.tsx`**: Histórico completo de todas as reviews que o usuário já escreveu no aplicativo.
 - **`settings.tsx`**: Edição de perfil (nome, username, bio, links sociais), preferências de notificação e **alternador de tema (Modo Escuro / Modo Claro)**.
 - **`top-albuns.tsx`**: Lista detalhada e paginada dos 100 álbuns com as melhores avaliações históricas.
-- **`login.tsx`**: Apresentação modal com formulários para autenticação ou cadastro de novas contas.
+- **`login.tsx`**: Apresentação modal com formulário de login por e-mail e botões de autenticação social com **Google** e **Apple**, além de recuperação de senha e alternância instantânea para cadastro.
+- **`register.tsx`**: Apresentação modal com formulário completo de cadastro (Nome, Username `@`, E-mail, Senha, Confirmação e Termos), além de cadastro rápido em um clique com **Google** e **Apple**.

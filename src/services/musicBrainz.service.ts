@@ -21,6 +21,7 @@ const STORAGE_KEYS = {
   USER_PROFILE: 'musicpostr_user_profile_v2',
   USER_LISTS: 'musicpostr_user_lists_v1',
   TIMELINE_INTRO_PENDING: 'musicpostr_timeline_intro_pending_v1',
+  AUTH_SESSION: 'musicpostr_auth_session',
 };
 
 const API_CACHE_TTL = 1000 * 60 * 60 * 12; // 12 horas
@@ -159,6 +160,8 @@ export interface UserProfileData {
   communityNotif: boolean;
   releasesNotif: boolean;
   isLinkedGoogle: boolean;
+  isLinkedApple?: boolean;
+  authProvider?: 'email' | 'google' | 'apple';
   socials: {
     instagram?: string;
     tiktok?: string;
@@ -2210,6 +2213,50 @@ export function saveUserProfile(profile: Partial<UserProfileData>): UserProfileD
     // ignore
   }
   return updated;
+}
+
+export interface AuthUserSession {
+  isLoggedIn: boolean;
+  provider: 'email' | 'google' | 'apple';
+  token: string;
+  loginAt: string;
+}
+
+export function getAuthSession(): AuthUserSession {
+  try {
+    const raw = Storage.getItem(STORAGE_KEYS.AUTH_SESSION);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return {
+    isLoggedIn: true,
+    provider: 'google',
+    token: 'mp-token-default',
+    loginAt: new Date().toISOString(),
+  };
+}
+
+export function setAuthSession(session: AuthUserSession): void {
+  try {
+    Storage.setItem(STORAGE_KEYS.AUTH_SESSION, JSON.stringify(session));
+    AppEvents.emit('musicpostr:auth-changed');
+    AppEvents.emit('musicpostr:albums-updated');
+  } catch {}
+}
+
+export function logout(): void {
+  try {
+    Storage.setItem(
+      STORAGE_KEYS.AUTH_SESSION,
+      JSON.stringify({
+        isLoggedIn: false,
+        provider: 'email',
+        token: '',
+        loginAt: '',
+      })
+    );
+    AppEvents.emit('musicpostr:auth-changed');
+    AppEvents.emit('musicpostr:albums-updated');
+  } catch {}
 }
 
 const DEFAULT_IDOLS_IDS = [
