@@ -1,11 +1,12 @@
-import React, { useEffect } from 'react';
-import { LogBox } from 'react-native';
-import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import * as SplashScreen from 'expo-splash-screen';
-import * as SystemUI from 'expo-system-ui';
-import { AppThemeProvider, useAppTheme } from '@/context/ThemeContext';
+import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { HeaderVisibilityProvider } from '@/context/HeaderVisibilityContext';
+import { AppThemeProvider, useAppTheme } from '@/context/ThemeContext';
+import { Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import { StatusBar } from 'expo-status-bar';
+import * as SystemUI from 'expo-system-ui';
+import { useEffect } from 'react';
+import { ActivityIndicator, LogBox, View } from 'react-native';
 
 LogBox.ignoreLogs([
   'ImageBackground is deprecated and will be removed in a future release.',
@@ -15,17 +16,37 @@ export const unstable_settings = {
   initialRouteName: '(tabs)',
 };
 
-SplashScreen.preventAutoHideAsync().catch(() => {});
+SplashScreen.preventAutoHideAsync().catch(() => { });
 
 function RootNavigator() {
   const { colors, isDark } = useAppTheme();
+  const { session, isLoading } = useAuth();
 
   useEffect(() => {
-    SplashScreen.hideAsync().catch(() => {});
+    if (!isLoading) {
+      SplashScreen.hideAsync().catch(() => { });
+    }
+  }, [isLoading]);
+
+  useEffect(() => {
+    SystemUI.setBackgroundColorAsync(colors.background).catch(() => { });
+  }, [colors.background]);
+
+  // Enquanto o Supabase verifica se há um usuário salvo no celular, mostra o loading
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
+  useEffect(() => {
+    SplashScreen.hideAsync().catch(() => { });
   }, []);
 
   useEffect(() => {
-    SystemUI.setBackgroundColorAsync(colors.background).catch(() => {});
+    SystemUI.setBackgroundColorAsync(colors.background).catch(() => { });
   }, [colors.background]);
 
   return (
@@ -66,7 +87,9 @@ export default function RootLayout() {
   return (
     <AppThemeProvider>
       <HeaderVisibilityProvider>
-        <RootNavigator />
+        <AuthProvider>
+          <RootNavigator />
+        </AuthProvider>
       </HeaderVisibilityProvider>
     </AppThemeProvider>
   );
