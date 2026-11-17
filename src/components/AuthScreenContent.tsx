@@ -27,6 +27,7 @@ import {
 import { useAppTheme } from '@/context/ThemeContext';
 import { SocialIcon } from '@/components/SocialIcon';
 import { safeGoBack } from '@/utils/navigation';
+import { signIn, signUp } from '@/services/auth.service';
 import {
   saveUserProfile,
   triggerTimelineIntroOnSignup,
@@ -116,42 +117,106 @@ export function AuthScreenContent({
     return true;
   };
 
+  const handleLoginSubmit = async (loginEmail: string, loginPassword: string) => {
+    try {
+      const authData = await signIn({
+        email: loginEmail,
+        password: loginPassword,
+      });
+
+      saveUserProfile({
+        email: loginEmail,
+        authProvider: 'email',
+      });
+
+      setAuthSession({
+        isLoggedIn: true,
+        provider: 'email',
+        token: authData.session?.access_token || `supabase-token-${Date.now()}`,
+        loginAt: new Date().toISOString(),
+      });
+
+      setSuccessBanner('Login realizado com sucesso! Bem-vindo(a) de volta.');
+
+      // Se o login der certo, redireciona para a home das abas
+      const target = onSuccessRedirect || '/(tabs)';
+      router.replace(target as any);
+    } catch (error: any) {
+      const msg = error?.message || 'Não foi possível realizar o login.';
+      setErrorMessage('Erro ao entrar: ' + msg);
+      if (typeof alert === 'function') {
+        alert('Erro ao entrar: ' + msg);
+      } else {
+        Alert.alert('Erro ao entrar', msg);
+      }
+    }
+  };
+
+  const handleSignUpSubmit = async (
+    registerEmail: string,
+    registerPassword: string,
+    registerUsername: string,
+    registerFullName: string
+  ) => {
+    try {
+      const authData = await signUp({
+        email: registerEmail,
+        password: registerPassword,
+        username: registerUsername,
+        fullName: registerFullName,
+      });
+
+      saveUserProfile({
+        name: registerFullName || 'Melômano',
+        username: registerUsername,
+        email: registerEmail,
+        authProvider: 'email',
+      });
+
+      triggerTimelineIntroOnSignup();
+
+      setAuthSession({
+        isLoggedIn: true,
+        provider: 'email',
+        token: authData.session?.access_token || `supabase-token-${Date.now()}`,
+        loginAt: new Date().toISOString(),
+      });
+
+      setSuccessBanner('Conta criada com sucesso! Seja bem-vindo(a) ao Musicpostr.');
+
+      const target = onSuccessRedirect || '/(tabs)';
+      router.replace(target as any);
+    } catch (error: any) {
+      const msg = error?.message || 'Não foi possível criar a sua conta.';
+      setErrorMessage('Erro ao cadastrar: ' + msg);
+      if (typeof alert === 'function') {
+        alert('Erro ao cadastrar: ' + msg);
+      } else {
+        Alert.alert('Erro ao cadastrar', msg);
+      }
+    }
+  };
+
   const handleEmailAuth = async () => {
     if (!validateForm()) return;
 
     setIsLoading(true);
     setErrorMessage(null);
 
-    // Simula comunicação de rede assíncrona
-    setTimeout(() => {
-      setIsLoading(false);
+    const trimmedEmail = email.trim().toLowerCase();
 
-      if (!isLogin) {
-        const cleanUsername = username.trim().replace(/^@/, '') || 'anabeat';
-        saveUserProfile({
-          name: name.trim() || 'Ana Beatriz',
-          username: cleanUsername,
-          email: email.trim().toLowerCase(),
-          authProvider: 'email',
-        });
-        triggerTimelineIntroOnSignup();
-        setSuccessBanner('Conta criada com sucesso! Seja bem-vindo(a) ao Musicpostr.');
+    try {
+      if (isLogin) {
+        await handleLoginSubmit(trimmedEmail, password);
       } else {
-        setSuccessBanner('Login realizado com sucesso! Bem-vindo(a) de volta.');
+        const cleanUsername =
+          username.trim().replace(/^@/, '') || trimmedEmail.split('@')[0];
+        const cleanName = name.trim();
+        await handleSignUpSubmit(trimmedEmail, password, cleanUsername, cleanName);
       }
-
-      setAuthSession({
-        isLoggedIn: true,
-        provider: 'email',
-        token: `mock-email-token-${Date.now()}`,
-        loginAt: new Date().toISOString(),
-      });
-
-      setTimeout(() => {
-        const target = onSuccessRedirect || (!isLogin ? '/(tabs)/index' : '/(tabs)/profile');
-        router.replace(target as any);
-      }, 850);
-    }, 700);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSocialAuth = (provider: 'google' | 'apple') => {
