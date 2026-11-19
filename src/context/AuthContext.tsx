@@ -1,13 +1,9 @@
 import { supabase } from '@/services/supabase';
+import { UserProfileData, updateProfile as updateProfileInDb } from '@/services/profile.service';
 import { Session, User } from '@supabase/supabase-js';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
-interface UserProfile {
-  id: string;
-  username: string;
-  full_name: string | null;
-  avatar_url: string | null;
-}
+export type UserProfile = UserProfileData;
 
 interface AuthContextData {
   session: Session | null;
@@ -16,6 +12,7 @@ interface AuthContextData {
   isLoading: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  updateProfileData: (updates: Partial<UserProfileData>) => Promise<{ success: boolean; error?: any }>;
 }
 
 const AuthContext = createContext<AuthContextData>({
@@ -25,6 +22,7 @@ const AuthContext = createContext<AuthContextData>({
   isLoading: true,
   signOut: async () => {},
   refreshProfile: async () => {},
+  updateProfileData: async () => ({ success: false }),
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -94,6 +92,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateProfileData = async (updates: Partial<UserProfileData>) => {
+    if (!session?.user) return { success: false, error: 'Usuário não autenticado' };
+    const res = await updateProfileInDb(session.user.id, updates);
+    if (res.success && res.data) {
+      setProfile(res.data);
+    }
+    return res;
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -103,6 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         signOut: handleSignOut,
         refreshProfile,
+        updateProfileData,
       }}
     >
       {children}

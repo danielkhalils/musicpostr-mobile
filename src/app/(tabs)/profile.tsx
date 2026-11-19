@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Share,
   Linking,
+  RefreshControl,
   StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,8 +25,10 @@ import {
   Settings,
   Trash2,
   ArrowLeft,
+  LogIn,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import {
   type MyReviewRecord,
   type FavoriteAlbumRecord,
@@ -40,6 +43,18 @@ import {
   getUserLists,
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
+import {
+  getProfileByUsername,
+  getProfileById,
+  getProfileStats,
+  getUserReviews,
+  getUserFavoriteAlbums,
+  getUserFollowedArtists,
+  getUserListsFromSupabase,
+  deleteReviewFromSupabase,
+  mapSupabaseProfileToView,
+  type UnifiedProfileViewData,
+} from '@/services/profile.service';
 import { CoverImage } from '@/components/CoverImage';
 import { SocialIcon } from '@/components/SocialIcon';
 
@@ -52,88 +67,151 @@ export function ProfileView({
 }) {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
+  const { user, profile: authProfile, refreshProfile } = useAuth();
+
+  // Verifica se o usuário atual está visitando outro perfil
   const isVisiting = Boolean(
-    visitingUsername && visitingUsername !== 'anabeat'
+    visitingUsername && visitingUsername !== authProfile?.username
   );
 
   const [copied, setCopied] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [historyTab, setHistoryTab] = useState<ProfileHistoryTab>('all');
 
-  const [profile, setProfile] = useState(() => getUserProfile());
-  const [reviews, setReviews] = useState<MyReviewRecord[]>(() =>
-    getMyReviews()
-  );
-  const [favorites, setFavorites] = useState<FavoriteAlbumRecord[]>(() =>
-    getFavoriteAlbums()
-  );
-  const [idols, setIdols] = useState<CatalogArtist[]>(() =>
-    getFollowedArtists()
-  );
-  const [idolsCount, setIdolsCount] = useState(
-    () => getFollowedArtistIds().length
-  );
+  const [localProfile, setLocalProfile] = useState(() => getUserProfile());
+  const [reviews, setReviews] = useState<MyReviewRecord[]>(() => getMyReviews());
+  const [favorites, setFavorites] = useState<FavoriteAlbumRecord[]>(() => getFavoriteAlbums());
+  const [idols, setIdols] = useState<CatalogArtist[]>(() => getFollowedArtists());
+  const [idolsCount, setIdolsCount] = useState(() => getFollowedArtistIds().length);
   const [lists, setLists] = useState<UserListRecord[]>(() => getUserLists());
 
+  // Dados consolidados do perfil carregado
+  const [customProfile, setCustomProfile] = useState<UnifiedProfileViewData | null>(null);
+
+  // Carrega os dados reais do Supabase
+  const loadProfileData = useCallback(async () => {
+    try {
+      if (isVisiting && visitingUsername) {
+        // Carrega dados do perfil visitado no Supabase
+        const dbProfile = await getProfileByUsername(visitingUsername);
+        const stats = await getProfileStats({ username: visitingUsername });
+        const userRevs = await getUserReviews({ username: visitingUsername });
+        const userFavs = await getUserFavoriteAlbums({ username: visitingUsername });
+
+        if (dbProfile) {
+          setCustomProfile(mapSupabaseProfileToView(dbProfile, stats));
+        }
+        if (userRevs) setReviews(userRevs);
+        if (userFavs) setFavorites(userFavs);
+      } else if (user) {
+        // Carrega dados do usuário autenticado no Supabase
+        const stats = await getProfileStats({ userId: user.id });
+        const userRevs = await getUserReviews({ userId: user.id });
+        const userFavs = await getUserFavoriteAlbums({ userId: user.id });
+        const userIdols = await getUserFollowedArtists({ userId: user.id });
+        const userLists = await getUserListsFromSupabase({ userId: user.id });
+
+        if (authProfile) {
+          setCustomProfile(mapSupabaseProfileToView(authProfile, stats));
+        } else {
+          const fresh = await getProfileById(user.id);
+          if (fresh) {
+            setCustomProfile(mapSupabaseProfileToView(fresh, stats));
+          }
+        }
+
+        if (userRevs) setReviews(userRevs);
+        if (userFavs) setFavorites(userFavs);
+        if (userIdols) {
+          setIdols(userIdols);
+          setIdolsCount(userIdols.length);
+        }
+        if (userLists) setLists(userLists);
+      }
+    } catch (err) {
+      console.warn('[ProfileView] Erro ao carregar perfil do Supabase:', err);
+    }
+  }, [isVisiting, visitingUsername, user, authProfile]);
+
+  useEffect(() => {
+    loadProfileData();
+  }, [loadProfileData]);
+
+  // Listener para atualizações reativas do cache local
   useEffect(() => {
     const unsubscribe = subscribeAlbumsUpdated(() => {
-      setProfile(getUserProfile());
-      setReviews(getMyReviews());
-      setFavorites(getFavoriteAlbums());
-      setIdols(getFollowedArtists());
-      setIdolsCount(getFollowedArtistIds().length);
-      setLists(getUserLists());
+      setLocalProfile(getUserProfile());
+      if (!user) {
+        setReviews(getMyReviews());
+        setFavorites(getFavoriteAlbums());
+        setIdols(getFollowedArtists());
+        setIdolsCount(getFollowedArtistIds().length);
+        setLists(getUserLists());
+      }
     });
     return unsubscribe;
-  }, []);
+  }, [user]);
 
-  const handleDeleteReview = (id: string) => {
-    if (isVisiting) return;
-    const updated = deleteMyReview(id);
-    setReviews(updated);
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([refreshProfile(), loadProfileData()]);
+    setRefreshing(false);
   };
 
-  const displayProfile = isVisiting
+  const handleDeleteReview = async (id: string) => {
+    if (isVisiting) return;
+    deleteMyReview(id);
+    if (user) {
+      await deleteReviewFromSupabase(id, user.id);
+    }
+    setReviews((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const avgCalculated =
+    reviews.length > 0
+      ? Number(
+          (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1)
+        )
+      : (customProfile?.stats.avgRating || 0.0);
+
+  const displayProfile: UnifiedProfileViewData = customProfile
     ? {
-        name:
-          visitingUsername === 'lucas_snd'
+        ...customProfile,
+        stats: {
+          ...customProfile.stats,
+          reviews: customProfile.stats.reviews || reviews.length,
+          favorites: customProfile.stats.favorites || favorites.length,
+          idols: customProfile.stats.idols || idolsCount,
+          lists: customProfile.stats.lists || lists.length,
+          avgRating: customProfile.stats.avgRating || avgCalculated,
+        },
+      }
+    : {
+        name: isVisiting
+          ? visitingUsername === 'lucas_snd'
             ? 'Lucas Sound'
             : visitingUsername === 'beatcritic'
               ? 'Beat Critic'
-              : `Usuário @${visitingUsername}`,
-        username: visitingUsername || 'user',
-        email: `${visitingUsername}@musicpostr.com`,
-        bio: 'Entusiasta de álbuns conceituais, vinil e descobertas musicais na comunidade Musicpostr.',
-        avatarUrl:
-          visitingUsername === 'lucas_snd'
-            ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=65&w=150'
-            : 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?q=65&w=150',
-        bannerUrl:
-          'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=65&w=500&auto=format&fit=crop',
-        stats: {
-          reviews: visitingUsername === 'lucas_snd' ? 34 : 51,
-          favorites: 14,
-          avgRating: 9.1,
-          friends: 38,
-          idols: 12,
-          lists: 4,
-        },
-        socials: profile.socials,
-      }
-    : {
-        ...profile,
+              : `Usuário @${visitingUsername}`
+          : localProfile.name,
+        username: isVisiting ? (visitingUsername || 'user') : localProfile.username,
+        email: isVisiting ? `${visitingUsername}@musicpostr.com` : localProfile.email,
+        phone: localProfile.phone,
+        bio: localProfile.bio,
+        avatarUrl: localProfile.avatarUrl,
+        bannerUrl: localProfile.bannerUrl,
+        profileVisibility: localProfile.profileVisibility,
+        emailNotif: localProfile.emailNotif,
+        communityNotif: localProfile.communityNotif,
+        releasesNotif: localProfile.releasesNotif,
+        isLinkedGoogle: Boolean(localProfile.isLinkedGoogle),
+        isLinkedApple: Boolean(localProfile.isLinkedApple),
+        socials: localProfile.socials,
         stats: {
           reviews: reviews.length,
           favorites: favorites.length,
-          avgRating:
-            reviews.length > 0
-              ? Number(
-                  (
-                    reviews.reduce((acc, r) => acc + r.rating, 0) /
-                    reviews.length
-                  ).toFixed(1)
-                )
-              : 9.2,
-          friends: 42,
+          avgRating: avgCalculated || 9.2,
+          friends: isVisiting ? 38 : 42,
           idols: idolsCount,
           lists: lists.length,
         },
@@ -157,7 +235,60 @@ export function ProfileView({
       style={{ flex: 1, backgroundColor: colors.background }}
       contentContainerStyle={styles.container}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={colors.primary}
+          colors={[colors.primary]}
+        />
+      }
     >
+      {/* Banner de Usuário Visitante (Deslogado) */}
+      {!user && !isVisiting && (
+        <View
+          style={{
+            marginHorizontal: 14,
+            marginTop: Math.max(insets.top + 8, 14),
+            marginBottom: 10,
+            padding: 14,
+            borderRadius: 16,
+            backgroundColor: `${colors.primary}18`,
+            borderWidth: 1,
+            borderColor: `${colors.primary}40`,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 13, fontWeight: '800', color: colors.foreground }}>
+              Navegando como visitante
+            </Text>
+            <Text style={{ fontSize: 11, color: colors.mutedForeground, marginTop: 2 }}>
+              Faça login para salvar suas avaliações no Supabase.
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => router.push('/login' as any)}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderRadius: 10,
+              backgroundColor: colors.primary,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <LogIn size={13} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>
+              Entrar
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
       {/* Foto de Capa com Botão de Configurações no Topo */}
       <View style={styles.bannerBox}>
         <CoverImage

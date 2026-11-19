@@ -13,14 +13,14 @@ LogBox.ignoreLogs([
 ]);
 
 export const unstable_settings = {
-  initialRouteName: '(tabs)',
+  anchor: '(tabs)',
 };
 
 SplashScreen.preventAutoHideAsync().catch(() => { });
 
 function RootNavigator() {
   const { colors, isDark } = useAppTheme();
-  const { session, isLoading } = useAuth();
+  const { isLoading } = useAuth();
 
   useEffect(() => {
     if (!isLoading) {
@@ -40,14 +40,6 @@ function RootNavigator() {
       </View>
     );
   }
-
-  useEffect(() => {
-    SplashScreen.hideAsync().catch(() => { });
-  }, []);
-
-  useEffect(() => {
-    SystemUI.setBackgroundColorAsync(colors.background).catch(() => { });
-  }, [colors.background]);
 
   return (
     <>

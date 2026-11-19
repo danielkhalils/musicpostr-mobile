@@ -6,6 +6,7 @@ import {
   TextInput,
   TouchableOpacity,
   Switch,
+  ActivityIndicator,
   StyleSheet,
 } from 'react-native';
 import { safeGoBack } from '@/utils/navigation';
@@ -25,43 +26,65 @@ import {
   UserPlus,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/services/supabase';
 import { MobileHeader } from '@/components/MobileHeader';
-import { getUserProfile, saveUserProfile, logout } from '@/services/musicBrainz.service';
+import { getUserProfile, saveUserProfile } from '@/services/musicBrainz.service';
 
 export default function SettingsScreen() {
   const { colors, isDark, toggleTheme } = useAppTheme();
+  const { user, profile: authProfile, updateProfileData, signOut } = useAuth();
   const initial = getUserProfile();
 
-  const [name, setName] = useState(initial.name);
-  const [username, setUsername] = useState(initial.username);
-  const [bio, setBio] = useState(initial.bio);
-  const [bannerUrl, setBannerUrl] = useState(initial.bannerUrl);
+  const [name, setName] = useState(authProfile?.full_name || initial.name);
+  const [username, setUsername] = useState(authProfile?.username || initial.username);
+  const [bio, setBio] = useState(authProfile?.bio || initial.bio);
+  const [bannerUrl, setBannerUrl] = useState(authProfile?.banner_url || initial.bannerUrl);
 
-  const [instagram, setInstagram] = useState(initial.socials.instagram || '');
-  const [tiktok, setTiktok] = useState(initial.socials.tiktok || '');
-  const [twitter, setTwitter] = useState(initial.socials.twitter || '');
-  const [lastfm, setLastfm] = useState(initial.socials.lastfm || '');
-  const [youtube, setYoutube] = useState(initial.socials.youtube || '');
-  const [threads, setThreads] = useState(initial.socials.threads || '');
-  const [website, setWebsite] = useState(initial.socials.website || '');
+  const socials = (authProfile?.socials || initial.socials) as Record<string, string>;
+  const [instagram, setInstagram] = useState(socials.instagram || '');
+  const [tiktok, setTiktok] = useState(socials.tiktok || '');
+  const [twitter, setTwitter] = useState(socials.twitter || '');
+  const [lastfm, setLastfm] = useState(socials.lastfm || '');
+  const [youtube, setYoutube] = useState(socials.youtube || '');
+  const [threads, setThreads] = useState(socials.threads || '');
+  const [website, setWebsite] = useState(socials.website || '');
 
-  const [email, setEmail] = useState(initial.email);
-  const [phone, setPhone] = useState(initial.phone);
+  const [email, setEmail] = useState(authProfile?.email || user?.email || initial.email);
+  const [phone, setPhone] = useState(authProfile?.phone || initial.phone);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [isLinkedGoogle, setIsLinkedGoogle] = useState(initial.isLinkedGoogle);
-  const [isLinkedApple, setIsLinkedApple] = useState(initial.isLinkedApple ?? false);
+  const [isLinkedGoogle, setIsLinkedGoogle] = useState(authProfile?.is_linked_google ?? initial.isLinkedGoogle);
+  const [isLinkedApple, setIsLinkedApple] = useState(authProfile?.is_linked_apple ?? initial.isLinkedApple ?? false);
 
-  const [profileVisibility, setProfileVisibility] = useState<
-    'public' | 'private'
-  >(initial.profileVisibility);
-  const [emailNotif, setEmailNotif] = useState(initial.emailNotif);
-  const [communityNotif, setCommunityNotif] = useState(initial.communityNotif);
-  const [releasesNotif, setReleasesNotif] = useState(initial.releasesNotif);
+  const [profileVisibility, setProfileVisibility] = useState<'public' | 'private'>(
+    authProfile?.profile_visibility || initial.profileVisibility
+  );
+  const [emailNotif, setEmailNotif] = useState(authProfile?.email_notif ?? initial.emailNotif);
+  const [communityNotif, setCommunityNotif] = useState(authProfile?.community_notif ?? initial.communityNotif);
+  const [releasesNotif, setReleasesNotif] = useState(authProfile?.releases_notif ?? initial.releasesNotif);
 
+  const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleSaveAll = () => {
+  const handleSaveAll = async () => {
+    setIsSaving(true);
+    setErrorMessage(null);
+
+    const mergedSocials = {
+      ...initial.socials,
+      ...authProfile?.socials,
+      instagram,
+      tiktok,
+      twitter,
+      lastfm,
+      youtube,
+      threads,
+      website,
+    };
+
+    // 1. Salva localmente (compatibilidade com serviços locais)
     saveUserProfile({
       name,
       username,
@@ -75,19 +98,46 @@ export default function SettingsScreen() {
       emailNotif,
       communityNotif,
       releasesNotif,
-      socials: {
-        ...initial.socials,
-        instagram,
-        tiktok,
-        twitter,
-        lastfm,
-        youtube,
-        threads,
-        website,
-      },
+      socials: mergedSocials,
     });
+
+    // 2. Se o usuário estiver autenticado no Supabase, sincroniza com a nuvem
+    if (user) {
+      const result = await updateProfileData({
+        full_name: name,
+        username,
+        bio,
+        banner_url: bannerUrl,
+        email,
+        phone,
+        profile_visibility: profileVisibility,
+        email_notif: emailNotif,
+        community_notif: communityNotif,
+        releases_notif: releasesNotif,
+        socials: mergedSocials,
+      });
+
+      if (!result.success) {
+        setErrorMessage('As alterações foram salvas localmente, mas houve um erro ao sincronizar com o Supabase.');
+      }
+
+      // Se informou nova senha, atualiza no Supabase Auth
+      if (newPassword.trim().length >= 6) {
+        const { error: passError } = await supabase.auth.updateUser({
+          password: newPassword.trim(),
+        });
+        if (passError) {
+          setErrorMessage('Perfil salvo, mas ocorreu um erro ao atualizar a senha: ' + passError.message);
+        } else {
+          setNewPassword('');
+          setCurrentPassword('');
+        }
+      }
+    }
+
+    setIsSaving(false);
     setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3200);
+    setTimeout(() => setSavedSuccess(false), 3500);
   };
 
   return (
@@ -152,6 +202,28 @@ export default function SettingsScreen() {
               }}
             >
               ✨ Todas as alterações e redes sociais foram salvas com sucesso!
+            </Text>
+          </View>
+        )}
+
+        {errorMessage && (
+          <View
+            style={[
+              styles.successBanner,
+              {
+                backgroundColor: `${colors.destructive}20`,
+                borderColor: `${colors.destructive}45`,
+              },
+            ]}
+          >
+            <Text
+              style={{
+                fontSize: 12,
+                fontWeight: '700',
+                color: colors.destructive,
+              }}
+            >
+              ⚠️ {errorMessage}
             </Text>
           </View>
         )}
@@ -542,8 +614,8 @@ export default function SettingsScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => {
-                logout();
+              onPress={async () => {
+                await signOut();
                 router.replace('/login' as any);
               }}
               style={[
@@ -808,15 +880,20 @@ export default function SettingsScreen() {
 
         <TouchableOpacity
           onPress={handleSaveAll}
+          disabled={isSaving}
           style={[
             styles.saveBtn,
-            { backgroundColor: colors.primary },
+            { backgroundColor: isSaving ? colors.muted : colors.primary },
           ]}
           activeOpacity={0.85}
         >
-          <Save size={16} color="#fff" />
+          {isSaving ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Save size={16} color="#fff" />
+          )}
           <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>
-            Salvar Todas as Alterações
+            {isSaving ? 'Salvando...' : 'Salvar Todas as Alterações'}
           </Text>
         </TouchableOpacity>
       </ScrollView>
