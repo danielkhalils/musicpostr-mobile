@@ -4,11 +4,15 @@ import {
   type FavoriteAlbumRecord,
   type CatalogArtist,
   type UserListRecord,
-  getMyReviews,
-  getFavoriteAlbums,
-  getFollowedArtists,
-  getUserLists,
 } from './musicBrainz.service';
+
+export interface FriendProfileRecord {
+  id: string;
+  name: string;
+  username: string;
+  avatar: string;
+  reviewsCount: number;
+}
 
 export interface SocialLinks {
   instagram?: string;
@@ -264,8 +268,7 @@ export async function getUserReviews(identifier: { userId?: string; username?: s
     console.warn('[ProfileService] Erro ao buscar reviews do Supabase:', error);
   }
 
-  // Fallback para dados locais se for o usuário seed anabeat ou visitante mock
-  return getMyReviews();
+  return [];
 }
 
 /**
@@ -273,7 +276,14 @@ export async function getUserReviews(identifier: { userId?: string; username?: s
  */
 export async function getUserFavoriteAlbums(identifier: { userId?: string; username?: string }): Promise<FavoriteAlbumRecord[]> {
   try {
-    let query = supabase
+    let targetUserId = identifier.userId;
+    if (!targetUserId && identifier.username) {
+      const profile = await getProfileByUsername(identifier.username);
+      targetUserId = profile?.id;
+    }
+    if (!targetUserId) return [];
+
+    const { data, error } = await supabase
       .from('user_favorite_albums')
       .select(`
         id,
@@ -289,13 +299,9 @@ export async function getUserFavoriteAlbums(identifier: { userId?: string; usern
           community_rating
         )
       `)
+      .eq('user_id', targetUserId)
       .order('created_at', { ascending: false });
 
-    if (identifier.userId) {
-      query = query.eq('user_id', identifier.userId);
-    }
-
-    const { data, error } = await query;
     if (error) throw error;
 
     if (data && data.length > 0) {
@@ -311,83 +317,140 @@ export async function getUserFavoriteAlbums(identifier: { userId?: string; usern
     console.warn('[ProfileService] Erro ao buscar favoritos do Supabase:', error);
   }
 
-  // Fallback
-  return getFavoriteAlbums();
+  return [];
 }
 
 /**
  * Busca os artistas seguidos (Ídolos) pelo usuário
  */
-export async function getUserFollowedArtists(identifier: { userId?: string }): Promise<CatalogArtist[]> {
+export async function getUserFollowedArtists(identifier: { userId?: string; username?: string }): Promise<CatalogArtist[]> {
   try {
-    if (identifier.userId) {
-      const { data, error } = await supabase
-        .from('user_followed_artists')
-        .select(`
+    let targetUserId = identifier.userId;
+    if (!targetUserId && identifier.username) {
+      const profile = await getProfileByUsername(identifier.username);
+      targetUserId = profile?.id;
+    }
+    if (!targetUserId) return [];
+
+    const { data, error } = await supabase
+      .from('user_followed_artists')
+      .select(`
+        id,
+        artist_id,
+        created_at,
+        artist:artists(
           id,
-          artist_id,
-          created_at,
-          artist:artists(
-            id,
-            name,
-            image_url,
-            genre,
-            country,
-            nb_fans
-          )
-        `)
-        .eq('user_id', identifier.userId);
+          name,
+          image_url,
+          genre,
+          country,
+          nb_fans
+        )
+      `)
+      .eq('user_id', targetUserId);
 
-      if (error) throw error;
+    if (error) throw error;
 
-      if (data && data.length > 0) {
-        return data.map((item: any) => ({
-          id: item.artist?.id || item.artist_id,
-          name: item.artist?.name || 'Artista',
-          imageUrl: item.artist?.image_url || '',
-          genre: item.artist?.genre || 'Artista Oficial',
-          country: item.artist?.country || '',
-          nbFans: item.artist?.nb_fans || 0,
-        }));
-      }
+    if (data && data.length > 0) {
+      return data.map((item: any) => ({
+        id: item.artist?.id || item.artist_id,
+        name: item.artist?.name || 'Artista',
+        imageUrl: item.artist?.image_url || '',
+        genre: item.artist?.genre || 'Artista Oficial',
+        country: item.artist?.country || '',
+        nbFans: item.artist?.nb_fans || 0,
+      }));
     }
   } catch (error) {
     console.warn('[ProfileService] Erro ao buscar ídolos do Supabase:', error);
   }
 
-  return getFollowedArtists();
+  return [];
 }
 
 /**
  * Busca as listas criadas pelo usuário
  */
-export async function getUserListsFromSupabase(identifier: { userId?: string }): Promise<UserListRecord[]> {
+export async function getUserListsFromSupabase(identifier: { userId?: string; username?: string }): Promise<UserListRecord[]> {
   try {
-    if (identifier.userId) {
-      const { data, error } = await supabase
-        .from('user_lists')
-        .select('*')
-        .eq('user_id', identifier.userId)
-        .order('created_at', { ascending: false });
+    let targetUserId = identifier.userId;
+    if (!targetUserId && identifier.username) {
+      const profile = await getProfileByUsername(identifier.username);
+      targetUserId = profile?.id;
+    }
+    if (!targetUserId) return [];
 
-      if (error) throw error;
+    const { data, error } = await supabase
+      .from('user_lists')
+      .select('*')
+      .eq('user_id', targetUserId)
+      .order('created_at', { ascending: false });
 
-      if (data && data.length > 0) {
-        return data.map((item: any) => ({
-          id: item.id,
-          title: item.name,
-          count: item.items_count || 0,
-          description: item.description || '',
-          createdAt: item.created_at,
-          isDefault: item.is_default || false,
-        }));
-      }
+    if (error) throw error;
+
+    if (data && data.length > 0) {
+      return data.map((item: any) => ({
+        id: item.id,
+        title: item.title || item.name || 'Lista',
+        count: item.items_count || 0,
+        description: item.description || '',
+        createdAt: item.created_label || item.created_at,
+        isDefault: item.is_default || false,
+      }));
     }
   } catch (error) {
     console.warn('[ProfileService] Erro ao buscar listas do Supabase:', error);
   }
 
-  return getUserLists();
+  return [];
+}
+
+/**
+ * Busca a rede de amigos aceitos do usuário no Supabase
+ */
+export async function getUserFriends(identifier: { userId?: string; username?: string }): Promise<FriendProfileRecord[]> {
+  try {
+    let targetUserId = identifier.userId;
+    if (!targetUserId && identifier.username) {
+      const profile = await getProfileByUsername(identifier.username);
+      targetUserId = profile?.id;
+    }
+    if (!targetUserId) return [];
+
+    const { data, error } = await supabase
+      .from('friendships')
+      .select(`
+        friend_id,
+        friend:profiles!friendships_friend_id_fkey(
+          id,
+          username,
+          full_name,
+          avatar_url
+        )
+      `)
+      .eq('user_id', targetUserId)
+      .eq('status', 'accepted');
+
+    if (error) throw error;
+
+    if (data && data.length > 0) {
+      return data
+        .filter((row: any) => row.friend)
+        .map((row: any) => ({
+          id: row.friend.id,
+          name: row.friend.full_name || row.friend.username || 'Usuário',
+          username: row.friend.username || 'user',
+          avatar:
+            row.friend.avatar_url ||
+            'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500',
+          reviewsCount: 0,
+        }));
+    }
+  } catch (error) {
+    console.warn('[ProfileService] Erro ao buscar amigos do Supabase:', error);
+  }
+
+  return [];
 }
 
 /**

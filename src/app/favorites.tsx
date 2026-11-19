@@ -11,13 +11,11 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
 import { Heart, Disc, ArrowLeft } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import { MobileHeader } from '@/components/MobileHeader';
 import { CoverImage } from '@/components/CoverImage';
-import {
-  type FavoriteAlbumRecord,
-  getFavoriteAlbums,
-  subscribeAlbumsUpdated,
-} from '@/services/musicBrainz.service';
+import { type FavoriteAlbumRecord } from '@/services/musicBrainz.service';
+import { getUserFavoriteAlbums } from '@/services/profile.service';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 42) / 2;
@@ -26,17 +24,28 @@ export default function FavoritesScreen() {
   const { username } = useLocalSearchParams<{ username?: string }>();
   const isVisiting = Boolean(username);
   const { colors } = useAppTheme();
+  const { user } = useAuth();
 
-  const [favorites, setFavorites] = useState<FavoriteAlbumRecord[]>(() =>
-    getFavoriteAlbums()
-  );
+  const [favorites, setFavorites] = useState<FavoriteAlbumRecord[]>([]);
 
   useEffect(() => {
-    const unsubscribe = subscribeAlbumsUpdated(() => {
-      setFavorites(getFavoriteAlbums());
-    });
-    return unsubscribe;
-  }, []);
+    let active = true;
+    const load = async () => {
+      if (isVisiting && username) {
+        const data = await getUserFavoriteAlbums({ username });
+        if (active) setFavorites(data);
+      } else if (user) {
+        const data = await getUserFavoriteAlbums({ userId: user.id });
+        if (active) setFavorites(data);
+      } else {
+        setFavorites([]);
+      }
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, [isVisiting, username, user]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>

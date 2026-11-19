@@ -18,28 +18,73 @@ import {
 import { useAppTheme } from '@/context/ThemeContext';
 import { MobileHeader } from '@/components/MobileHeader';
 import { CoverImage } from '@/components/CoverImage';
-import {
-  type UserListRecord,
-  getUserLists,
-  subscribeAlbumsUpdated,
-} from '@/services/musicBrainz.service';
+import { type UserListRecord } from '@/services/musicBrainz.service';
+import { supabase } from '@/services/supabase';
 
 export default function ListDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useAppTheme();
 
-  const [list, setList] = useState<UserListRecord | null>(() => {
-    const all = getUserLists();
-    return all.find((l) => l.id === id) || all[0] || null;
-  });
+  const [list, setList] = useState<UserListRecord | null>(null);
 
   useEffect(() => {
-    const unsubscribe = subscribeAlbumsUpdated(() => {
-      const all = getUserLists();
-      const found = all.find((l) => l.id === id);
-      if (found) setList(found);
-    });
-    return unsubscribe;
+    let active = true;
+    const loadList = async () => {
+      if (!id) return;
+      const { data: listData, error } = await supabase
+        .from('user_lists')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (error || !listData) {
+        if (active) setList(null);
+        return;
+      }
+
+      const { data: itemsData } = await supabase
+        .from('user_list_items')
+        .select(`
+          album_id,
+          position,
+          album:albums(
+            id,
+            title,
+            artist_name,
+            cover_medium,
+            release_date,
+            community_rating
+          )
+        `)
+        .eq('list_id', id)
+        .order('position', { ascending: true });
+
+      if (!active) return;
+
+      const albums = (itemsData || []).map((item: any) => ({
+        id: item.album?.id || item.album_id,
+        title: item.album?.title || 'Álbum',
+        artist: item.album?.artist_name || 'Artista',
+        cover: item.album?.cover_medium || '',
+        year: item.album?.release_date ? String(item.album.release_date).slice(0, 4) : '',
+        rating: Number(item.album?.community_rating || 0),
+      }));
+
+      setList({
+        id: listData.id,
+        title: listData.title || 'Lista',
+        count: listData.items_count ?? albums.length,
+        description: listData.description || '',
+        createdAt: listData.created_label || listData.created_at,
+        isDefault: Boolean(listData.is_default),
+        albums,
+      });
+    };
+
+    loadList();
+    return () => {
+      active = false;
+    };
   }, [id]);
 
   const isDefaultList = list?.id === 'want-to-listen' || list?.isDefault;

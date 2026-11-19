@@ -12,35 +12,70 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
 import { ListMusic, ArrowLeft, Plus, X } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import { MobileHeader } from '@/components/MobileHeader';
-import {
-  type UserListRecord,
-  getUserLists,
-  addUserList,
-  subscribeAlbumsUpdated,
-} from '@/services/musicBrainz.service';
+import { type UserListRecord } from '@/services/musicBrainz.service';
+import { getUserListsFromSupabase } from '@/services/profile.service';
+import { supabase } from '@/services/supabase';
 
 export default function ListsScreen() {
   const { username } = useLocalSearchParams<{ username?: string }>();
   const isVisiting = Boolean(username);
   const { colors } = useAppTheme();
+  const { user } = useAuth();
 
-  const [lists, setLists] = useState<UserListRecord[]>(() => getUserLists());
+  const [lists, setLists] = useState<UserListRecord[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
 
   useEffect(() => {
-    const unsubscribe = subscribeAlbumsUpdated(() => {
-      setLists(getUserLists());
-    });
-    return unsubscribe;
-  }, []);
+    let active = true;
+    const load = async () => {
+      if (isVisiting && username) {
+        const data = await getUserListsFromSupabase({ username });
+        if (active) setLists(data);
+      } else if (user) {
+        const data = await getUserListsFromSupabase({ userId: user.id });
+        if (active) setLists(data);
+      } else {
+        setLists([]);
+      }
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, [isVisiting, username, user]);
 
-  const handleCreateList = () => {
-    if (!newTitle.trim()) return;
-    const updated = addUserList(newTitle, newDesc);
-    setLists(updated);
+  const handleCreateList = async () => {
+    if (!newTitle.trim() || !user) return;
+    const { data, error } = await supabase
+      .from('user_lists')
+      .insert({
+        user_id: user.id,
+        title: newTitle.trim(),
+        description: newDesc.trim() || 'Nova coleção musical.',
+        items_count: 0,
+        is_default: false,
+        created_label: 'Agora mesmo',
+      })
+      .select('*')
+      .single();
+
+    if (!error && data) {
+      setLists((prev) => [
+        {
+          id: data.id,
+          title: data.title,
+          count: data.items_count || 0,
+          description: data.description || '',
+          createdAt: data.created_label || data.created_at,
+          isDefault: Boolean(data.is_default),
+        },
+        ...prev,
+      ]);
+    }
     setNewTitle('');
     setNewDesc('');
     setIsModalOpen(false);

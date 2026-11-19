@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -29,51 +29,77 @@ import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/services/supabase';
 import { MobileHeader } from '@/components/MobileHeader';
-import { getUserProfile, saveUserProfile } from '@/services/musicBrainz.service';
 
 export default function SettingsScreen() {
   const { colors, isDark, toggleTheme } = useAppTheme();
   const { user, profile: authProfile, updateProfileData, signOut } = useAuth();
-  const initial = getUserProfile();
 
-  const [name, setName] = useState(authProfile?.full_name || initial.name);
-  const [username, setUsername] = useState(authProfile?.username || initial.username);
-  const [bio, setBio] = useState(authProfile?.bio || initial.bio);
-  const [bannerUrl, setBannerUrl] = useState(authProfile?.banner_url || initial.bannerUrl);
+  const [name, setName] = useState(authProfile?.full_name || '');
+  const [username, setUsername] = useState(authProfile?.username || '');
+  const [bio, setBio] = useState(authProfile?.bio || '');
+  const [bannerUrl, setBannerUrl] = useState(authProfile?.banner_url || '');
 
-  const socials = (authProfile?.socials || initial.socials) as Record<string, string>;
-  const [instagram, setInstagram] = useState(socials.instagram || '');
-  const [tiktok, setTiktok] = useState(socials.tiktok || '');
-  const [twitter, setTwitter] = useState(socials.twitter || '');
-  const [lastfm, setLastfm] = useState(socials.lastfm || '');
-  const [youtube, setYoutube] = useState(socials.youtube || '');
-  const [threads, setThreads] = useState(socials.threads || '');
-  const [website, setWebsite] = useState(socials.website || '');
+  const initialSocials = (authProfile?.socials || {}) as Record<string, string>;
+  const [instagram, setInstagram] = useState(initialSocials.instagram || '');
+  const [tiktok, setTiktok] = useState(initialSocials.tiktok || '');
+  const [twitter, setTwitter] = useState(initialSocials.twitter || '');
+  const [lastfm, setLastfm] = useState(initialSocials.lastfm || '');
+  const [youtube, setYoutube] = useState(initialSocials.youtube || '');
+  const [threads, setThreads] = useState(initialSocials.threads || '');
+  const [website, setWebsite] = useState(initialSocials.website || '');
 
-  const [email, setEmail] = useState(authProfile?.email || user?.email || initial.email);
-  const [phone, setPhone] = useState(authProfile?.phone || initial.phone);
+  const [email, setEmail] = useState(authProfile?.email || user?.email || '');
+  const [phone, setPhone] = useState(authProfile?.phone || '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [isLinkedGoogle, setIsLinkedGoogle] = useState(authProfile?.is_linked_google ?? initial.isLinkedGoogle);
-  const [isLinkedApple, setIsLinkedApple] = useState(authProfile?.is_linked_apple ?? initial.isLinkedApple ?? false);
+  const [isLinkedGoogle, setIsLinkedGoogle] = useState(authProfile?.is_linked_google ?? false);
+  const [isLinkedApple, setIsLinkedApple] = useState(authProfile?.is_linked_apple ?? false);
 
   const [profileVisibility, setProfileVisibility] = useState<'public' | 'private'>(
-    authProfile?.profile_visibility || initial.profileVisibility
+    authProfile?.profile_visibility || 'public'
   );
-  const [emailNotif, setEmailNotif] = useState(authProfile?.email_notif ?? initial.emailNotif);
-  const [communityNotif, setCommunityNotif] = useState(authProfile?.community_notif ?? initial.communityNotif);
-  const [releasesNotif, setReleasesNotif] = useState(authProfile?.releases_notif ?? initial.releasesNotif);
+  const [emailNotif, setEmailNotif] = useState(authProfile?.email_notif ?? true);
+  const [communityNotif, setCommunityNotif] = useState(authProfile?.community_notif ?? true);
+  const [releasesNotif, setReleasesNotif] = useState(authProfile?.releases_notif ?? false);
 
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!authProfile && !user) return;
+    const socials = (authProfile?.socials || {}) as Record<string, string>;
+    setName(authProfile?.full_name || '');
+    setUsername(authProfile?.username || '');
+    setBio(authProfile?.bio || '');
+    setBannerUrl(authProfile?.banner_url || '');
+    setInstagram(socials.instagram || '');
+    setTiktok(socials.tiktok || '');
+    setTwitter(socials.twitter || '');
+    setLastfm(socials.lastfm || '');
+    setYoutube(socials.youtube || '');
+    setThreads(socials.threads || '');
+    setWebsite(socials.website || '');
+    setEmail(authProfile?.email || user?.email || '');
+    setPhone(authProfile?.phone || '');
+    setIsLinkedGoogle(authProfile?.is_linked_google ?? false);
+    setIsLinkedApple(authProfile?.is_linked_apple ?? false);
+    setProfileVisibility(authProfile?.profile_visibility || 'public');
+    setEmailNotif(authProfile?.email_notif ?? true);
+    setCommunityNotif(authProfile?.community_notif ?? true);
+    setReleasesNotif(authProfile?.releases_notif ?? false);
+  }, [authProfile, user]);
+
   const handleSaveAll = async () => {
+    if (!user) {
+      setErrorMessage('Faça login para salvar suas configurações.');
+      return;
+    }
+
     setIsSaving(true);
     setErrorMessage(null);
 
     const mergedSocials = {
-      ...initial.socials,
       ...authProfile?.socials,
       instagram,
       tiktok,
@@ -84,54 +110,36 @@ export default function SettingsScreen() {
       website,
     };
 
-    // 1. Salva localmente (compatibilidade com serviços locais)
-    saveUserProfile({
-      name,
+    const result = await updateProfileData({
+      full_name: name,
       username,
       bio,
-      bannerUrl,
+      banner_url: bannerUrl,
       email,
       phone,
-      isLinkedGoogle,
-      isLinkedApple,
-      profileVisibility,
-      emailNotif,
-      communityNotif,
-      releasesNotif,
+      profile_visibility: profileVisibility,
+      email_notif: emailNotif,
+      community_notif: communityNotif,
+      releases_notif: releasesNotif,
       socials: mergedSocials,
     });
 
-    // 2. Se o usuário estiver autenticado no Supabase, sincroniza com a nuvem
-    if (user) {
-      const result = await updateProfileData({
-        full_name: name,
-        username,
-        bio,
-        banner_url: bannerUrl,
-        email,
-        phone,
-        profile_visibility: profileVisibility,
-        email_notif: emailNotif,
-        community_notif: communityNotif,
-        releases_notif: releasesNotif,
-        socials: mergedSocials,
+    if (!result.success) {
+      setErrorMessage('Houve um erro ao salvar suas alterações no Supabase.');
+      setIsSaving(false);
+      return;
+    }
+
+    // Se informou nova senha, atualiza no Supabase Auth
+    if (newPassword.trim().length >= 6) {
+      const { error: passError } = await supabase.auth.updateUser({
+        password: newPassword.trim(),
       });
-
-      if (!result.success) {
-        setErrorMessage('As alterações foram salvas localmente, mas houve um erro ao sincronizar com o Supabase.');
-      }
-
-      // Se informou nova senha, atualiza no Supabase Auth
-      if (newPassword.trim().length >= 6) {
-        const { error: passError } = await supabase.auth.updateUser({
-          password: newPassword.trim(),
-        });
-        if (passError) {
-          setErrorMessage('Perfil salvo, mas ocorreu um erro ao atualizar a senha: ' + passError.message);
-        } else {
-          setNewPassword('');
-          setCurrentPassword('');
-        }
+      if (passError) {
+        setErrorMessage('Perfil salvo, mas ocorreu um erro ao atualizar a senha: ' + passError.message);
+      } else {
+        setNewPassword('');
+        setCurrentPassword('');
       }
     }
 

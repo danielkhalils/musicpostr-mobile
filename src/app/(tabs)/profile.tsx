@@ -34,14 +34,7 @@ import {
   type FavoriteAlbumRecord,
   type CatalogArtist,
   type UserListRecord,
-  getUserProfile,
-  getMyReviews,
   deleteMyReview,
-  getFavoriteAlbums,
-  getFollowedArtists,
-  getFollowedArtistIds,
-  getUserLists,
-  subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
 import {
   getProfileByUsername,
@@ -78,12 +71,11 @@ export function ProfileView({
   const [refreshing, setRefreshing] = useState(false);
   const [historyTab, setHistoryTab] = useState<ProfileHistoryTab>('all');
 
-  const [localProfile, setLocalProfile] = useState(() => getUserProfile());
-  const [reviews, setReviews] = useState<MyReviewRecord[]>(() => getMyReviews());
-  const [favorites, setFavorites] = useState<FavoriteAlbumRecord[]>(() => getFavoriteAlbums());
-  const [idols, setIdols] = useState<CatalogArtist[]>(() => getFollowedArtists());
-  const [idolsCount, setIdolsCount] = useState(() => getFollowedArtistIds().length);
-  const [lists, setLists] = useState<UserListRecord[]>(() => getUserLists());
+  const [reviews, setReviews] = useState<MyReviewRecord[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteAlbumRecord[]>([]);
+  const [idols, setIdols] = useState<CatalogArtist[]>([]);
+  const [idolsCount, setIdolsCount] = useState(0);
+  const [lists, setLists] = useState<UserListRecord[]>([]);
 
   // Dados consolidados do perfil carregado
   const [customProfile, setCustomProfile] = useState<UnifiedProfileViewData | null>(null);
@@ -93,23 +85,34 @@ export function ProfileView({
     try {
       if (isVisiting && visitingUsername) {
         // Carrega dados do perfil visitado no Supabase
-        const dbProfile = await getProfileByUsername(visitingUsername);
-        const stats = await getProfileStats({ username: visitingUsername });
-        const userRevs = await getUserReviews({ username: visitingUsername });
-        const userFavs = await getUserFavoriteAlbums({ username: visitingUsername });
+        const [dbProfile, stats, userRevs, userFavs, userIdols, userLists] = await Promise.all([
+          getProfileByUsername(visitingUsername),
+          getProfileStats({ username: visitingUsername }),
+          getUserReviews({ username: visitingUsername }),
+          getUserFavoriteAlbums({ username: visitingUsername }),
+          getUserFollowedArtists({ username: visitingUsername }),
+          getUserListsFromSupabase({ username: visitingUsername }),
+        ]);
 
         if (dbProfile) {
           setCustomProfile(mapSupabaseProfileToView(dbProfile, stats));
+        } else {
+          setCustomProfile(null);
         }
-        if (userRevs) setReviews(userRevs);
-        if (userFavs) setFavorites(userFavs);
+        setReviews(userRevs);
+        setFavorites(userFavs);
+        setIdols(userIdols);
+        setIdolsCount(userIdols.length);
+        setLists(userLists);
       } else if (user) {
         // Carrega dados do usuário autenticado no Supabase
-        const stats = await getProfileStats({ userId: user.id });
-        const userRevs = await getUserReviews({ userId: user.id });
-        const userFavs = await getUserFavoriteAlbums({ userId: user.id });
-        const userIdols = await getUserFollowedArtists({ userId: user.id });
-        const userLists = await getUserListsFromSupabase({ userId: user.id });
+        const [stats, userRevs, userFavs, userIdols, userLists] = await Promise.all([
+          getProfileStats({ userId: user.id }),
+          getUserReviews({ userId: user.id }),
+          getUserFavoriteAlbums({ userId: user.id }),
+          getUserFollowedArtists({ userId: user.id }),
+          getUserListsFromSupabase({ userId: user.id }),
+        ]);
 
         if (authProfile) {
           setCustomProfile(mapSupabaseProfileToView(authProfile, stats));
@@ -120,13 +123,18 @@ export function ProfileView({
           }
         }
 
-        if (userRevs) setReviews(userRevs);
-        if (userFavs) setFavorites(userFavs);
-        if (userIdols) {
-          setIdols(userIdols);
-          setIdolsCount(userIdols.length);
-        }
-        if (userLists) setLists(userLists);
+        setReviews(userRevs);
+        setFavorites(userFavs);
+        setIdols(userIdols);
+        setIdolsCount(userIdols.length);
+        setLists(userLists);
+      } else {
+        setCustomProfile(null);
+        setReviews([]);
+        setFavorites([]);
+        setIdols([]);
+        setIdolsCount(0);
+        setLists([]);
       }
     } catch (err) {
       console.warn('[ProfileView] Erro ao carregar perfil do Supabase:', err);
@@ -136,21 +144,6 @@ export function ProfileView({
   useEffect(() => {
     loadProfileData();
   }, [loadProfileData]);
-
-  // Listener para atualizações reativas do cache local
-  useEffect(() => {
-    const unsubscribe = subscribeAlbumsUpdated(() => {
-      setLocalProfile(getUserProfile());
-      if (!user) {
-        setReviews(getMyReviews());
-        setFavorites(getFavoriteAlbums());
-        setIdols(getFollowedArtists());
-        setIdolsCount(getFollowedArtistIds().length);
-        setLists(getUserLists());
-      }
-    });
-    return unsubscribe;
-  }, [user]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -187,31 +180,29 @@ export function ProfileView({
         },
       }
     : {
-        name: isVisiting
-          ? visitingUsername === 'lucas_snd'
-            ? 'Lucas Sound'
-            : visitingUsername === 'beatcritic'
-              ? 'Beat Critic'
-              : `Usuário @${visitingUsername}`
-          : localProfile.name,
-        username: isVisiting ? (visitingUsername || 'user') : localProfile.username,
-        email: isVisiting ? `${visitingUsername}@musicpostr.com` : localProfile.email,
-        phone: localProfile.phone,
-        bio: localProfile.bio,
-        avatarUrl: localProfile.avatarUrl,
-        bannerUrl: localProfile.bannerUrl,
-        profileVisibility: localProfile.profileVisibility,
-        emailNotif: localProfile.emailNotif,
-        communityNotif: localProfile.communityNotif,
-        releasesNotif: localProfile.releasesNotif,
-        isLinkedGoogle: Boolean(localProfile.isLinkedGoogle),
-        isLinkedApple: Boolean(localProfile.isLinkedApple),
-        socials: localProfile.socials,
+        name: isVisiting ? `@${visitingUsername}` : (authProfile?.full_name || user?.email?.split('@')[0] || 'Visitante'),
+        username: isVisiting ? (visitingUsername || 'user') : (authProfile?.username || user?.email?.split('@')[0] || 'visitante'),
+        email: isVisiting ? '' : (authProfile?.email || user?.email || ''),
+        phone: authProfile?.phone || '',
+        bio: authProfile?.bio || '',
+        avatarUrl:
+          authProfile?.avatar_url ||
+          'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500',
+        bannerUrl:
+          authProfile?.banner_url ||
+          'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=65&w=600&auto=format&fit=crop',
+        profileVisibility: authProfile?.profile_visibility || 'public',
+        emailNotif: authProfile?.email_notif ?? true,
+        communityNotif: authProfile?.community_notif ?? true,
+        releasesNotif: authProfile?.releases_notif ?? false,
+        isLinkedGoogle: Boolean(authProfile?.is_linked_google),
+        isLinkedApple: Boolean(authProfile?.is_linked_apple),
+        socials: authProfile?.socials || {},
         stats: {
           reviews: reviews.length,
           favorites: favorites.length,
-          avgRating: avgCalculated || 9.2,
-          friends: isVisiting ? 38 : 42,
+          avgRating: avgCalculated,
+          friends: 0,
           idols: idolsCount,
           lists: lists.length,
         },

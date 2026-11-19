@@ -15,31 +15,45 @@ import {
   ArrowLeft,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import { MobileHeader } from '@/components/MobileHeader';
 import { CoverImage } from '@/components/CoverImage';
 import {
   type MyReviewRecord,
-  getMyReviews,
   deleteMyReview,
-  subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
+import {
+  getUserReviews,
+  deleteReviewFromSupabase,
+} from '@/services/profile.service';
 
 export default function MyReviewsScreen() {
   const { colors } = useAppTheme();
-  const [reviews, setReviews] = useState<MyReviewRecord[]>(() =>
-    getMyReviews()
-  );
+  const { user } = useAuth();
+  const [reviews, setReviews] = useState<MyReviewRecord[]>([]);
 
   useEffect(() => {
-    const unsubscribe = subscribeAlbumsUpdated(() => {
-      setReviews(getMyReviews());
-    });
-    return unsubscribe;
-  }, []);
+    let active = true;
+    const load = async () => {
+      if (!user) {
+        setReviews([]);
+        return;
+      }
+      const data = await getUserReviews({ userId: user.id });
+      if (active) setReviews(data);
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, [user]);
 
-  const handleDelete = (id: string) => {
-    const updated = deleteMyReview(id);
-    setReviews(updated);
+  const handleDelete = async (id: string) => {
+    deleteMyReview(id);
+    if (user) {
+      await deleteReviewFromSupabase(id, user.id);
+    }
+    setReviews((prev) => prev.filter((r) => r.id !== id));
   };
 
   return (

@@ -7,26 +7,47 @@ export interface AuthCredentials {
   fullName?: string;
 }
 
+const DEFAULT_AVATAR_URL =
+  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500';
+
 // Realiza o cadastro do usuário
 export async function signUp({ email, password, username, fullName }: AuthCredentials) {
-  // 1. Cadastra no Auth do Supabase
+  const resolvedUsername = username || email.split('@')[0];
+  const resolvedFullName = fullName || 'Melômano';
+
+  // 1. Cadastra no Auth do Supabase enviando metadados para a trigger `on_auth_user_created`
   const { data: authData, error: authError } = await supabase.auth.signUp({
     email,
     password,
+    options: {
+      data: {
+        username: resolvedUsername,
+        full_name: resolvedFullName,
+        avatar_url: DEFAULT_AVATAR_URL,
+      },
+    },
   });
 
   if (authError) throw authError;
   if (!authData.user) throw new Error('Erro ao criar usuário.');
 
-  // 2. Insere os dados públicos na tabela profiles
-  const { error: profileError } = await supabase.from('profiles').insert({
-    id: authData.user.id,
-    username: username || email.split('@')[0],
-    full_name: fullName || 'Melômano',
-    avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500', // Avatar padrão
-  });
+  // 2. Quando há sessão ativa (confirmação de e-mail desativada), sincroniza via upsert.
+  // Quando não há sessão (aguardando confirmação de e-mail), a trigger `handle_new_auth_user`
+  // (SECURITY DEFINER) já cria o perfil automaticamente sem violar a política RLS.
+  if (authData.session) {
+    const { error: profileError } = await supabase.from('profiles').upsert(
+      {
+        id: authData.user.id,
+        username: resolvedUsername,
+        full_name: resolvedFullName,
+        email,
+        avatar_url: DEFAULT_AVATAR_URL,
+      },
+      { onConflict: 'id' }
+    );
 
-  if (profileError) throw profileError;
+    if (profileError) throw profileError;
+  }
 
   return authData;
 }

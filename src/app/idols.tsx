@@ -11,14 +11,15 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
 import { Award, ArrowLeft } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import { MobileHeader } from '@/components/MobileHeader';
 import { CoverImage } from '@/components/CoverImage';
 import {
   type CatalogArtist,
-  getFollowedArtists,
   toggleFollowArtist,
-  subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
+import { getUserFollowedArtists } from '@/services/profile.service';
+import { supabase } from '@/services/supabase';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 42) / 2;
@@ -27,22 +28,40 @@ export default function IdolsScreen() {
   const { username } = useLocalSearchParams<{ username?: string }>();
   const isVisiting = Boolean(username);
   const { colors } = useAppTheme();
+  const { user } = useAuth();
 
-  const [idols, setIdols] = useState<CatalogArtist[]>(() =>
-    getFollowedArtists()
-  );
+  const [idols, setIdols] = useState<CatalogArtist[]>([]);
 
   useEffect(() => {
-    const unsubscribe = subscribeAlbumsUpdated(() => {
-      setIdols(getFollowedArtists());
-    });
-    return unsubscribe;
-  }, []);
+    let active = true;
+    const load = async () => {
+      if (isVisiting && username) {
+        const data = await getUserFollowedArtists({ username });
+        if (active) setIdols(data);
+      } else if (user) {
+        const data = await getUserFollowedArtists({ userId: user.id });
+        if (active) setIdols(data);
+      } else {
+        setIdols([]);
+      }
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, [isVisiting, username, user]);
 
-  const handleUnfollow = (artist: CatalogArtist) => {
+  const handleUnfollow = async (artist: CatalogArtist) => {
     if (isVisiting) return;
     toggleFollowArtist(artist);
-    setIdols(getFollowedArtists());
+    if (user) {
+      await supabase
+        .from('user_followed_artists')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('artist_id', artist.id);
+    }
+    setIdols((prev) => prev.filter((item) => item.id !== artist.id));
   };
 
   return (

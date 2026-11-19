@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,40 +10,40 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
 import { Users, ArrowLeft } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import { MobileHeader } from '@/components/MobileHeader';
 import { CoverImage } from '@/components/CoverImage';
-
-interface Friend {
-  id: string;
-  name: string;
-  username: string;
-  avatar: string;
-  reviewsCount: number;
-}
+import {
+  type FriendProfileRecord,
+  getUserFriends,
+} from '@/services/profile.service';
 
 export default function FriendsScreen() {
   const { username } = useLocalSearchParams<{ username?: string }>();
   const isVisiting = Boolean(username);
   const { colors } = useAppTheme();
+  const { user } = useAuth();
 
-  const [friends] = useState<Friend[]>([
-    {
-      id: '1',
-      name: 'Lucas Sound',
-      username: 'lucas_snd',
-      avatar:
-        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=65&w=150',
-      reviewsCount: 34,
-    },
-    {
-      id: '2',
-      name: 'Beat Critic',
-      username: 'beatcritic',
-      avatar:
-        'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?q=65&w=150',
-      reviewsCount: 51,
-    },
-  ]);
+  const [friends, setFriends] = useState<FriendProfileRecord[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      if (isVisiting && username) {
+        const data = await getUserFriends({ username });
+        if (active) setFriends(data);
+      } else if (user) {
+        const data = await getUserFriends({ userId: user.id });
+        if (active) setFriends(data);
+      } else {
+        setFriends([]);
+      }
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, [isVisiting, username, user]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
