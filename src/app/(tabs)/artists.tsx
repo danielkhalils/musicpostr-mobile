@@ -21,21 +21,28 @@ import {
   Building2,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import {
   type CatalogArtist,
   type CatalogAlbum,
   type CatalogTrack,
-  FEATURED_ARTISTS,
-  INITIAL_TOP_TRACKS,
-  getInternalAlbumsStore,
-  searchLocalCatalogInstant,
   searchAlbumsInMusicBrainz,
   searchArtistsInMusicBrainz,
   searchTracksInMusicBrainz,
-  getFollowedArtistIds,
-  toggleFollowArtist,
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
+import {
+  getFeaturedArtistsFromSupabase,
+  getPopularAlbumsFromSupabase,
+  getTopTracksFromSupabase,
+  getGenresFromSupabase,
+  getRecordLabelsFromSupabase,
+  searchCatalogInSupabase,
+  getFollowedArtistIdsFromSupabase,
+  toggleFollowArtistInSupabase,
+  type GenreRecord,
+  type RecordLabelRecord,
+} from '@/services/catalog.service';
 import { CoverImage } from '@/components/CoverImage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -48,36 +55,9 @@ type SearchCategory =
   | 'genre'
   | 'label';
 
-const MUSIC_GENRES = [
-  { name: 'Pop', emoji: '🎤' },
-  { name: 'Hip-Hop', emoji: '🔥' },
-  { name: 'Rock', emoji: '🎸' },
-  { name: 'Indie', emoji: '🎧' },
-  { name: 'R&B', emoji: '🎷' },
-  { name: 'Eletrônica', emoji: '⚡' },
-  { name: 'MPB', emoji: '🇧🇷' },
-  { name: 'Samba e Pagode', emoji: '🥁' },
-  { name: 'Metal', emoji: '🤘' },
-  { name: 'Jazz', emoji: '🎺' },
-  { name: 'Trap', emoji: '💣' },
-  { name: 'K-Pop', emoji: '✨' },
-];
-
-const RECORD_LABELS = [
-  { name: 'Sony Music', desc: 'Columbia, RCA, Epic' },
-  { name: 'Universal Music Group', desc: 'Interscope, Republic, Def Jam' },
-  { name: 'Warner Music Group', desc: 'Atlantic, Elektra, Parlophone' },
-  { name: 'Sub Pop', desc: 'Indie & Alternative' },
-  { name: 'XL Recordings', desc: 'Indie, Eletrônica & Hip-Hop' },
-  { name: 'Som Livre', desc: 'Nacional & MPB' },
-  { name: '4AD', desc: 'Post-Punk & Dream Pop' },
-  { name: 'Def Jam Recordings', desc: 'Hip-Hop & R&B Legend' },
-  { name: 'Atlantic Records', desc: 'Pop, Rock & Urban' },
-  { name: 'Interscope Records', desc: 'Pop, Hip-Hop & Mainstream' },
-];
-
 export default function GlobalSearchScreen() {
   const { colors } = useAppTheme();
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -86,30 +66,74 @@ export default function GlobalSearchScreen() {
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const [artists, setArtists] = useState<CatalogArtist[]>(() =>
-    FEATURED_ARTISTS.slice(0, 10)
-  );
-  const [releases, setReleases] = useState<CatalogAlbum[]>(() =>
-    getInternalAlbumsStore()
-  );
-  const [tracks, setTracks] = useState<CatalogTrack[]>(() =>
-    INITIAL_TOP_TRACKS.slice(0, 10)
-  );
+  const [initialArtists, setInitialArtists] = useState<CatalogArtist[]>([]);
+  const [initialReleases, setInitialReleases] = useState<CatalogAlbum[]>([]);
+  const [initialTracks, setInitialTracks] = useState<CatalogTrack[]>([]);
+  const [musicGenres, setMusicGenres] = useState<GenreRecord[]>([]);
+  const [recordLabels, setRecordLabels] = useState<RecordLabelRecord[]>([]);
 
-  const [followedIds, setFollowedIds] = useState<string[]>(() =>
-    getFollowedArtistIds()
-  );
+  const [artists, setArtists] = useState<CatalogArtist[]>([]);
+  const [releases, setReleases] = useState<CatalogAlbum[]>([]);
+  const [tracks, setTracks] = useState<CatalogTrack[]>([]);
+
+  const [followedIds, setFollowedIds] = useState<string[]>([]);
 
   useEffect(() => {
-    const unsubscribe = subscribeAlbumsUpdated(() => {
-      setFollowedIds(getFollowedArtistIds());
-    });
-    return unsubscribe;
+    let active = true;
+    const loadCatalog = async () => {
+      const [dbArtists, dbAlbums, dbTracks, dbGenres, dbLabels] = await Promise.all([
+        getFeaturedArtistsFromSupabase(15),
+        getPopularAlbumsFromSupabase(24),
+        getTopTracksFromSupabase(15),
+        getGenresFromSupabase(),
+        getRecordLabelsFromSupabase(),
+      ]);
+      if (!active) return;
+      setInitialArtists(dbArtists);
+      setInitialReleases(dbAlbums);
+      setInitialTracks(dbTracks);
+      setMusicGenres(dbGenres);
+      setRecordLabels(dbLabels);
+      setArtists(dbArtists);
+      setReleases(dbAlbums);
+      setTracks(dbTracks);
+    };
+    loadCatalog();
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const handleToggleFollow = (artist: CatalogArtist) => {
-    const nextIds = toggleFollowArtist(artist);
-    setFollowedIds(nextIds);
+  useEffect(() => {
+    let active = true;
+    const loadFollowed = async () => {
+      if (!user) {
+        if (active) setFollowedIds([]);
+        return;
+      }
+      const ids = await getFollowedArtistIdsFromSupabase(user.id);
+      if (active) setFollowedIds(ids);
+    };
+    loadFollowed();
+    const unsubscribe = subscribeAlbumsUpdated(() => {
+      loadFollowed();
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [user]);
+
+  const handleToggleFollow = async (artist: CatalogArtist) => {
+    if (!user) {
+      router.push('/login' as any);
+      return;
+    }
+    const currentlyFollowing = followedIds.includes(artist.id);
+    setFollowedIds((prev) =>
+      currentlyFollowing ? prev.filter((id) => id !== artist.id) : [...prev, artist.id]
+    );
+    await toggleFollowArtistInSupabase(user.id, artist, currentlyFollowing);
   };
 
   const handleSelectGenre = (genre: string) => {
@@ -139,24 +163,14 @@ export default function GlobalSearchScreen() {
     const trimmed = searchQuery.trim();
 
     if (!trimmed) {
-      setArtists(FEATURED_ARTISTS.slice(0, 10));
-      setReleases(getInternalAlbumsStore());
-      setTracks(INITIAL_TOP_TRACKS.slice(0, 10));
+      setArtists(initialArtists);
+      setReleases(initialReleases);
+      setTracks(initialTracks);
       setIsLoading(false);
       return;
     }
 
-    // Resultados instantâneos locais
-    const local = searchLocalCatalogInstant(trimmed);
-    setArtists(local.artists);
-    setReleases(local.albums);
-    setTracks(local.tracks);
-
-    const hasInstant =
-      local.artists.length > 0 ||
-      local.albums.length > 0 ||
-      local.tracks.length > 0;
-    setIsLoading(!hasInstant);
+    setIsLoading(true);
 
     const timer = setTimeout(async () => {
       try {
@@ -173,36 +187,43 @@ export default function GlobalSearchScreen() {
         const shouldSearchTracks =
           activeCategory === 'all' || activeCategory === 'track';
 
-        const [artistRes, albumRes, trackRes] = await Promise.all([
+        const [dbLocal, artistRes, albumRes, trackRes] = await Promise.all([
+          searchCatalogInSupabase(trimmed),
           shouldSearchArtists
             ? searchArtistsInMusicBrainz(trimmed, 14, 0)
-            : Promise.resolve({ artists: local.artists, total: 0 }),
+            : Promise.resolve({ artists: [] as CatalogArtist[], total: 0 }),
           shouldSearchReleases
             ? searchAlbumsInMusicBrainz(trimmed, 18, 0)
-            : Promise.resolve({ albums: local.albums, total: 0 }),
+            : Promise.resolve({ albums: [] as CatalogAlbum[], total: 0 }),
           shouldSearchTracks
             ? searchTracksInMusicBrainz(trimmed, 10)
-            : Promise.resolve(local.tracks),
+            : Promise.resolve([] as CatalogTrack[]),
         ]);
 
         if (!isMounted) return;
 
-        // Mesclar artistas
+        // Mesclar artistas (Supabase + MusicBrainz)
         const artistMap = new Map<string, CatalogArtist>();
-        local.artists.forEach((a) => artistMap.set(a.id, a));
-        artistRes.artists.forEach((a) => artistMap.set(a.id, a));
+        dbLocal.artists.forEach((a) => artistMap.set(a.id, a));
+        artistRes.artists.forEach((a) => {
+          if (!artistMap.has(a.id)) artistMap.set(a.id, a);
+        });
         setArtists(Array.from(artistMap.values()));
 
         // Mesclar álbuns / EPs
         const releaseMap = new Map<string, CatalogAlbum>();
-        local.albums.forEach((r) => releaseMap.set(r.id, r));
-        albumRes.albums.forEach((r) => releaseMap.set(r.id, r));
+        dbLocal.albums.forEach((r) => releaseMap.set(r.id, r));
+        albumRes.albums.forEach((r) => {
+          if (!releaseMap.has(r.id)) releaseMap.set(r.id, r);
+        });
         setReleases(Array.from(releaseMap.values()));
 
         // Mesclar músicas
         const trackMap = new Map<string, CatalogTrack>();
-        local.tracks.forEach((t) => trackMap.set(t.id, t));
-        trackRes.forEach((t) => trackMap.set(t.id, t));
+        dbLocal.tracks.forEach((t) => trackMap.set(t.id, t));
+        trackRes.forEach((t) => {
+          if (!trackMap.has(t.id)) trackMap.set(t.id, t);
+        });
         setTracks(Array.from(trackMap.values()));
       } catch {
         // ignore network errors
@@ -217,7 +238,7 @@ export default function GlobalSearchScreen() {
       isMounted = false;
       clearTimeout(timer);
     };
-  }, [searchQuery, activeCategory]);
+  }, [searchQuery, activeCategory, initialArtists, initialReleases, initialTracks]);
 
   const filteredAlbums = releases.filter((r) => r.record_type === 'album');
   const filteredEps = releases.filter((r) => r.record_type === 'ep');
@@ -709,7 +730,7 @@ export default function GlobalSearchScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.chipsScrollRow}
               >
-                {MUSIC_GENRES.map((item) => {
+                {musicGenres.map((item) => {
                   const isSelected = selectedGenre === item.name;
                   return (
                     <TouchableOpacity
@@ -762,7 +783,7 @@ export default function GlobalSearchScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.chipsScrollRow}
               >
-                {RECORD_LABELS.map((item) => {
+                {recordLabels.map((item) => {
                   const isSelected = selectedLabel === item.name;
                   return (
                     <TouchableOpacity

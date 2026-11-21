@@ -1,4 +1,13 @@
-import { supabase } from './supabase';
+import { isSupabaseConfigured, supabase } from './supabase';
+
+const SUPABASE_NOT_CONFIGURED_ERROR =
+  'Supabase não configurado. Crie o arquivo .env na raiz do projeto com EXPO_PUBLIC_SUPABASE_URL e EXPO_PUBLIC_SUPABASE_ANON_KEY e reinicie o servidor Expo com "npx expo start -c".';
+
+function ensureSupabaseConfigured() {
+  if (!isSupabaseConfigured) {
+    throw new Error(SUPABASE_NOT_CONFIGURED_ERROR);
+  }
+}
 
 export interface AuthCredentials {
   email: string;
@@ -12,6 +21,7 @@ const DEFAULT_AVATAR_URL =
 
 // Realiza o cadastro do usuário
 export async function signUp({ email, password, username, fullName }: AuthCredentials) {
+  ensureSupabaseConfigured();
   const resolvedUsername = username || email.split('@')[0];
   const resolvedFullName = fullName || 'Melômano';
 
@@ -54,6 +64,7 @@ export async function signUp({ email, password, username, fullName }: AuthCreden
 
 // Realiza o login
 export async function signIn({ email, password }: AuthCredentials) {
+  ensureSupabaseConfigured();
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,

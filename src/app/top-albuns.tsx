@@ -22,37 +22,47 @@ import { MobileHeader } from '@/components/MobileHeader';
 import { CoverImage } from '@/components/CoverImage';
 import {
   type CatalogAlbum,
-  getPopularAlbumsByInternalActivity,
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
+import {
+  getPopularAlbumsFromSupabase,
+  getGenresFromSupabase,
+} from '@/services/catalog.service';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 42) / 2;
-
-const GENRES = [
-  'Todos',
-  'Pop',
-  'Rock',
-  'Hip-Hop',
-  'Eletrônica',
-  'Indie',
-  'R&B',
-  'Samba e pagode',
-];
 
 export default function TopAlbunsScreen() {
   const { colors } = useAppTheme();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('Todos');
-  const [allAlbums, setAllAlbums] = useState<CatalogAlbum[]>(() =>
-    getPopularAlbumsByInternalActivity(30)
-  );
+  const [genres, setGenres] = useState<string[]>(['Todos']);
+  const [allAlbums, setAllAlbums] = useState<CatalogAlbum[]>([]);
 
   useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const [albumsData, genresData] = await Promise.all([
+        getPopularAlbumsFromSupabase(40),
+        getGenresFromSupabase(),
+      ]);
+      if (!active) return;
+      setAllAlbums(albumsData);
+      if (genresData.length > 0) {
+        setGenres(['Todos', ...genresData.map((g) => g.name)]);
+      } else {
+        const derived = Array.from(new Set(albumsData.map((a) => a.genreName).filter(Boolean)));
+        setGenres(['Todos', ...derived]);
+      }
+    };
+    load();
     const unsubscribe = subscribeAlbumsUpdated(() => {
-      setAllAlbums(getPopularAlbumsByInternalActivity(30));
+      load();
     });
-    return unsubscribe;
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
   const filteredAlbums = allAlbums.filter((album) => {
@@ -129,7 +139,7 @@ export default function TopAlbunsScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ gap: 8, marginTop: 10 }}
           >
-            {GENRES.map((genre) => {
+            {genres.map((genre) => {
               const active = selectedGenre === genre;
               return (
                 <TouchableOpacity

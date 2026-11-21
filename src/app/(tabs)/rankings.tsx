@@ -16,12 +16,15 @@ import {
 import { useAppTheme } from '@/context/ThemeContext';
 import {
   type CatalogAlbum,
-  getTopRatedAlbumsByInternalReviews,
-  getPopularAlbumsByInternalActivity,
-  getInitialNewReleases,
   fetchNewReleasesFromMusicBrainz,
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
+import {
+  getTopRatedAlbumsFromSupabase,
+  getPopularAlbumsFromSupabase,
+  getRecentAlbumsFromSupabase,
+  getGenresFromSupabase,
+} from '@/services/catalog.service';
 import { CoverImage } from '@/components/CoverImage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -29,28 +32,7 @@ interface RankingAlbum extends CatalogAlbum {
   rank: number;
 }
 
-const GENRES_LIST = [
-  { name: 'Todos', emoji: '🌟' },
-  { name: 'Pop', emoji: '🎤' },
-  { name: 'Hip-Hop', emoji: '🔥' },
-  { name: 'Rock', emoji: '🎸' },
-  { name: 'Indie', emoji: '🎧' },
-  { name: 'Eletrônica', emoji: '⚡' },
-  { name: 'R&B', emoji: '🎷' },
-  { name: 'Samba e pagode', emoji: '🥁' },
-];
-
 type RankingFilterMode = 'top-rated' | 'popular' | 'releases';
-
-function computeInitialRankings(mode: RankingFilterMode): RankingAlbum[] {
-  const base =
-    mode === 'releases'
-      ? getInitialNewReleases(20)
-      : mode === 'popular'
-        ? getPopularAlbumsByInternalActivity(30)
-        : getTopRatedAlbumsByInternalReviews(30);
-  return base.map((item, idx) => ({ ...item, rank: idx + 1 }));
-}
 
 export default function RankingsScreen() {
   const { colors } = useAppTheme();
@@ -58,9 +40,10 @@ export default function RankingsScreen() {
   const params = useLocalSearchParams<{ filter?: string }>();
 
   const [filterMode, setFilterMode] = useState<RankingFilterMode>('top-rated');
-  const [rankings, setRankings] = useState<RankingAlbum[]>(() =>
-    computeInitialRankings('top-rated')
-  );
+  const [rankings, setRankings] = useState<RankingAlbum[]>([]);
+  const [genresList, setGenresList] = useState<{ name: string; emoji: string }[]>([
+    { name: 'Todos', emoji: '🌟' },
+  ]);
   const [activeGenre, setActiveGenre] = useState<string>('Todos');
 
   useEffect(() => {
@@ -74,23 +57,50 @@ export default function RankingsScreen() {
 
   useEffect(() => {
     let isMounted = true;
-    setRankings(computeInitialRankings(filterMode));
+    getGenresFromSupabase().then((dbGenres) => {
+      if (isMounted && dbGenres.length > 0) {
+        setGenresList([{ name: 'Todos', emoji: '🌟' }, ...dbGenres]);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
-    if (filterMode === 'releases') {
-      fetchNewReleasesFromMusicBrainz(20)
-        .then((freshReleases) => {
-          if (isMounted && freshReleases.length > 0) {
-            setRankings(
-              freshReleases.map((item, idx) => ({ ...item, rank: idx + 1 }))
-            );
-          }
-        })
-        .catch(() => {});
-    }
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadRankings = async () => {
+      if (filterMode === 'releases') {
+        const [dbRecent, mbFresh] = await Promise.all([
+          getRecentAlbumsFromSupabase(20),
+          fetchNewReleasesFromMusicBrainz(20).catch(() => []),
+        ]);
+        if (!isMounted) return;
+        const mergedMap = new Map<string, CatalogAlbum>();
+        for (const item of [...mbFresh, ...dbRecent]) {
+          if (!mergedMap.has(item.id)) mergedMap.set(item.id, item);
+        }
+        const merged = Array.from(mergedMap.values()).slice(0, 25);
+        setRankings(merged.map((item, idx) => ({ ...item, rank: idx + 1 })));
+      } else if (filterMode === 'popular') {
+        const popular = await getPopularAlbumsFromSupabase(30);
+        if (isMounted) {
+          setRankings(popular.map((item, idx) => ({ ...item, rank: idx + 1 })));
+        }
+      } else {
+        const topRated = await getTopRatedAlbumsFromSupabase(30);
+        if (isMounted) {
+          setRankings(topRated.map((item, idx) => ({ ...item, rank: idx + 1 })));
+        }
+      }
+    };
+
+    loadRankings();
 
     const unsubscribe = subscribeAlbumsUpdated(() => {
       if (filterMode !== 'releases') {
-        setRankings(computeInitialRankings(filterMode));
+        loadRankings();
       }
     });
 
@@ -311,7 +321,7 @@ export default function RankingsScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ gap: 8 }}
         >
-          {GENRES_LIST.map((item) => {
+          {genresList.map((item) => {
             const active = activeGenre === item.name;
             return (
               <TouchableOpacity

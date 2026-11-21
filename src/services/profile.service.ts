@@ -152,22 +152,102 @@ export async function getProfileByUsername(username: string): Promise<UserProfil
   }
 }
 
+let isProfileStatsViewMissing = false;
+
+async function getProfileStatsFallback(
+  identifier: { userId?: string; username?: string }
+): Promise<ProfileStats> {
+  const emptyStats: ProfileStats = {
+    reviews: 0,
+    favorites: 0,
+    avgRating: 0.0,
+    friends: 0,
+    idols: 0,
+    lists: 0,
+  };
+
+  let targetUserId = identifier.userId;
+  if (!targetUserId && identifier.username) {
+    const profile = await getProfileByUsername(identifier.username);
+    targetUserId = profile?.id;
+  }
+
+  if (!targetUserId) {
+    return emptyStats;
+  }
+
+  const [reviewsRes, favoritesRes, idolsRes, listsRes, friendsRes] = await Promise.all([
+    supabase.from('album_reviews').select('rating').eq('user_id', targetUserId),
+    supabase
+      .from('user_favorite_albums')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', targetUserId),
+    supabase
+      .from('user_followed_artists')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', targetUserId),
+    supabase
+      .from('user_lists')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', targetUserId),
+    supabase
+      .from('friendships')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', targetUserId)
+      .eq('status', 'accepted'),
+  ]);
+
+  const ratings =
+    !reviewsRes.error && Array.isArray(reviewsRes.data)
+      ? reviewsRes.data
+          .map((row) => Number(row.rating))
+          .filter((val) => Number.isFinite(val))
+      : [];
+
+  const reviewsCount = ratings.length;
+  const avgRating =
+    reviewsCount > 0
+      ? Number((ratings.reduce((sum, r) => sum + r, 0) / reviewsCount).toFixed(1))
+      : 0.0;
+
+  return {
+    reviews: reviewsCount,
+    avgRating,
+    favorites: !favoritesRes.error ? favoritesRes.count ?? 0 : 0,
+    idols: !idolsRes.error ? idolsRes.count ?? 0 : 0,
+    lists: !listsRes.error ? listsRes.count ?? 0 : 0,
+    friends: !friendsRes.error ? friendsRes.count ?? 0 : 0,
+  };
+}
+
 /**
  * Busca as estatísticas consolidadas do usuário através da view v_profile_stats
  */
 export async function getProfileStats(identifier: { userId?: string; username?: string }): Promise<ProfileStats> {
+  if (!identifier.userId && !identifier.username) {
+    return { reviews: 0, favorites: 0, avgRating: 0.0, friends: 0, idols: 0, lists: 0 };
+  }
+
+  if (isProfileStatsViewMissing) {
+    return getProfileStatsFallback(identifier);
+  }
+
   try {
     let query = supabase.from('v_profile_stats').select('*');
     if (identifier.userId) {
       query = query.eq('user_id', identifier.userId);
     } else if (identifier.username) {
       query = query.ilike('username', identifier.username);
-    } else {
-      return { reviews: 0, favorites: 0, avgRating: 0.0, friends: 0, idols: 0, lists: 0 };
     }
 
     const { data, error } = await query.maybeSingle();
-    if (error) throw error;
+    if (error) {
+      if (error.code === 'PGRST205') {
+        isProfileStatsViewMissing = true;
+        return getProfileStatsFallback(identifier);
+      }
+      throw error;
+    }
 
     if (data) {
       return {

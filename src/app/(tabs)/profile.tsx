@@ -34,7 +34,7 @@ import {
   type FavoriteAlbumRecord,
   type CatalogArtist,
   type UserListRecord,
-  deleteMyReview,
+  subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
 import {
   getProfileByUsername,
@@ -143,6 +143,10 @@ export function ProfileView({
 
   useEffect(() => {
     loadProfileData();
+    const unsubscribe = subscribeAlbumsUpdated(() => {
+      loadProfileData();
+    });
+    return unsubscribe;
   }, [loadProfileData]);
 
   const onRefresh = async () => {
@@ -153,7 +157,6 @@ export function ProfileView({
 
   const handleDeleteReview = async (id: string) => {
     if (isVisiting) return;
-    deleteMyReview(id);
     if (user) {
       await deleteReviewFromSupabase(id, user.id);
     }

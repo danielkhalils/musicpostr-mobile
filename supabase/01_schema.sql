@@ -550,6 +550,9 @@ LEFT JOIN (
   GROUP BY user_id
 ) frd ON frd.user_id = p.id;
 
+GRANT SELECT ON public.v_profile_stats TO anon, authenticated;
+NOTIFY pgrst, 'reload schema';
+
 -- =============================================================================
 -- 8. ROW LEVEL SECURITY (RLS) E POLÍTICAS DE ACESSO
 -- =============================================================================

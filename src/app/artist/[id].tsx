@@ -28,18 +28,19 @@ import {
   Calendar,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import { CoverImage } from '@/components/CoverImage';
 import {
   type CatalogAlbum,
   type CatalogArtist,
-  getInstantArtistPreview,
   fetchArtistDetailsFromMusicBrainz,
-  getFollowedArtistIds,
-  toggleFollowArtist,
   subscribeAlbumsUpdated,
-  getRelatedArtists,
-  getArtistBioAndInfo,
 } from '@/services/musicBrainz.service';
+import {
+  getArtistFromSupabase,
+  getFollowedArtistIdsFromSupabase,
+  toggleFollowArtistInSupabase,
+} from '@/services/catalog.service';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const GRID_GAP = 12;
@@ -50,54 +51,50 @@ export default function ArtistDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
+  const { user } = useAuth();
 
-  const initialPreview = id ? getInstantArtistPreview(id) : null;
-
-  const [artistName, setArtistName] = useState(initialPreview?.name || '');
-  const [artistBanner, setArtistBanner] = useState(
-    initialPreview?.bannerUrl || ''
-  );
-  const [artistGenre, setArtistGenre] = useState(
-    initialPreview?.genre || 'Artista Oficial'
-  );
-  const [artistCountry, setArtistCountry] = useState(
-    initialPreview?.country || ''
-  );
-  const [artistFans, setArtistFans] = useState(
-    initialPreview?.nbFans || 2150
-  );
-  const [albums, setAlbums] = useState<CatalogAlbum[]>(
-    initialPreview?.albums || []
-  );
-  const [epsAndSingles, setEpsAndSingles] = useState<CatalogAlbum[]>(
-    initialPreview?.epsAndSingles || []
-  );
-  const [isLoading, setIsLoading] = useState(!initialPreview);
+  const [artistName, setArtistName] = useState('');
+  const [artistBanner, setArtistBanner] = useState('');
+  const [artistGenre, setArtistGenre] = useState('Artista');
+  const [artistCountry, setArtistCountry] = useState('');
+  const [artistFans, setArtistFans] = useState(0);
+  const [albums, setAlbums] = useState<CatalogAlbum[]>([]);
+  const [epsAndSingles, setEpsAndSingles] = useState<CatalogAlbum[]>([]);
+  const [relatedArtists, setRelatedArtists] = useState<CatalogArtist[]>([]);
+  const [artistInfo, setArtistInfo] = useState({
+    bio: '',
+    label: '',
+    activeYears: '',
+    source: 'Supabase & MusicBrainz',
+  });
+  const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  const [followedIds, setFollowedIds] = useState<string[]>(() =>
-    getFollowedArtistIds()
-  );
+  const [followedIds, setFollowedIds] = useState<string[]>([]);
 
   const [visibleAlbumsCount, setVisibleAlbumsCount] = useState(10);
   const [visibleEpsCount, setVisibleEpsCount] = useState(10);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
 
-  const relatedArtists: CatalogArtist[] = id
-    ? getRelatedArtists(id, artistGenre)
-    : [];
-  const artistInfo = getArtistBioAndInfo(
-    artistName,
-    artistGenre,
-    artistCountry
-  );
-
   useEffect(() => {
+    let active = true;
+    const loadFollowed = async () => {
+      if (!user) {
+        if (active) setFollowedIds([]);
+        return;
+      }
+      const ids = await getFollowedArtistIdsFromSupabase(user.id);
+      if (active) setFollowedIds(ids);
+    };
+    loadFollowed();
     const unsubscribe = subscribeAlbumsUpdated(() => {
-      setFollowedIds(getFollowedArtistIds());
+      loadFollowed();
     });
-    return unsubscribe;
-  }, []);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [user]);
 
   useEffect(() => {
     let isMounted = true;
@@ -105,39 +102,71 @@ export default function ArtistDetailScreen() {
 
     setVisibleAlbumsCount(10);
     setVisibleEpsCount(10);
+    setIsLoading(true);
 
-    const preview = getInstantArtistPreview(id);
-    if (preview) {
-      setArtistName(preview.name);
-      setArtistBanner(preview.bannerUrl);
-      setArtistGenre(preview.genre);
-      setArtistCountry(preview.country);
-      setArtistFans(preview.nbFans);
-      setAlbums(preview.albums);
-      setEpsAndSingles(preview.epsAndSingles);
-      setIsLoading(false);
-      setIsSyncing(true);
-    } else {
-      setIsLoading(true);
-    }
+    const loadArtist = async () => {
+      const dbData = await getArtistFromSupabase(id);
+      if (!isMounted) return;
 
-    fetchArtistDetailsFromMusicBrainz(id)
-      .then((details) => {
-        if (!isMounted) return;
-        setArtistName(details.name);
-        setArtistBanner(details.bannerUrl);
-        if (details.genre) setArtistGenre(details.genre);
-        if (details.country) setArtistCountry(details.country);
-        setAlbums(details.albums);
-        setEpsAndSingles(details.epsAndSingles);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (isMounted) {
-          setIsLoading(false);
-          setIsSyncing(false);
+      if (dbData) {
+        setArtistName(dbData.artist.name);
+        setArtistBanner(dbData.artist.imageUrl);
+        setArtistGenre(dbData.artist.genre);
+        setArtistCountry(dbData.artist.country || '');
+        setArtistFans(dbData.artist.nbFans);
+        setAlbums(dbData.albums);
+        setEpsAndSingles(dbData.epsAndSingles);
+        setRelatedArtists(dbData.related);
+        setArtistInfo({
+          bio: dbData.bio || 'Informações biográficas ainda não cadastradas para este artista.',
+          label: dbData.labelName || 'Independente',
+          activeYears: dbData.activeYears || 'Não informado',
+          source: 'Catálogo Musicpostr & MusicBrainz',
+        });
+        setIsLoading(false);
+        setIsSyncing(true);
+      }
+
+      const mbDetails = await fetchArtistDetailsFromMusicBrainz(id).catch(() => null);
+      if (!isMounted) return;
+
+      if (mbDetails) {
+        if (!dbData) {
+          setArtistName(mbDetails.name);
+          setArtistBanner(mbDetails.bannerUrl);
+          if (mbDetails.genre) setArtistGenre(mbDetails.genre);
+          if (mbDetails.country) setArtistCountry(mbDetails.country);
+          setArtistInfo({
+            bio: 'Dados carregados diretamente da base oficial MusicBrainz.',
+            label: 'Não informada',
+            activeYears: 'Não informado',
+            source: 'MusicBrainz',
+          });
         }
-      });
+        // Mescla discografia do Supabase com MusicBrainz sem duplicar
+        setAlbums((prev) => {
+          const map = new Map<string, CatalogAlbum>();
+          prev.forEach((a) => map.set(a.id, a));
+          mbDetails.albums.forEach((a) => {
+            if (!map.has(a.id)) map.set(a.id, a);
+          });
+          return Array.from(map.values());
+        });
+        setEpsAndSingles((prev) => {
+          const map = new Map<string, CatalogAlbum>();
+          prev.forEach((a) => map.set(a.id, a));
+          mbDetails.epsAndSingles.forEach((a) => {
+            if (!map.has(a.id)) map.set(a.id, a);
+          });
+          return Array.from(map.values());
+        });
+      }
+
+      setIsLoading(false);
+      setIsSyncing(false);
+    };
+
+    loadArtist();
 
     return () => {
       isMounted = false;
@@ -150,17 +179,28 @@ export default function ArtistDetailScreen() {
 
   const isFollowing = Boolean(id && followedIds.includes(id));
 
-  const handleToggleFollow = () => {
+  const handleToggleFollow = async () => {
     if (!id) return;
-    const next = toggleFollowArtist({
-      id,
-      name: artistName || 'Artista',
-      imageUrl: artistBanner,
-      genre: artistGenre,
-      country: artistCountry,
-      nbFans: artistFans,
-    });
-    setFollowedIds(next);
+    if (!user) {
+      router.push('/login' as any);
+      return;
+    }
+    const currentlyFollowing = followedIds.includes(id);
+    setFollowedIds((prev) =>
+      currentlyFollowing ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+    await toggleFollowArtistInSupabase(
+      user.id,
+      {
+        id,
+        name: artistName || 'Artista',
+        imageUrl: artistBanner,
+        genre: artistGenre,
+        country: artistCountry,
+        nbFans: artistFans,
+      },
+      currentlyFollowing
+    );
   };
 
   if (isLoading) {

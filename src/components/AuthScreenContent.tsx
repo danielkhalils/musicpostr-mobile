@@ -28,11 +28,9 @@ import { useAppTheme } from '@/context/ThemeContext';
 import { SocialIcon } from '@/components/SocialIcon';
 import { safeGoBack } from '@/utils/navigation';
 import { signIn, signUp } from '@/services/auth.service';
-import {
-  saveUserProfile,
-  triggerTimelineIntroOnSignup,
-  setAuthSession,
-} from '@/services/musicBrainz.service';
+import { supabase } from '@/services/supabase';
+import { triggerTimelineIntroOnSignup } from '@/services/musicBrainz.service';
+import * as WebBrowser from 'expo-web-browser';
 
 interface AuthScreenContentProps {
   initialMode?: 'login' | 'register';
@@ -119,21 +117,9 @@ export function AuthScreenContent({
 
   const handleLoginSubmit = async (loginEmail: string, loginPassword: string) => {
     try {
-      const authData = await signIn({
+      await signIn({
         email: loginEmail,
         password: loginPassword,
-      });
-
-      saveUserProfile({
-        email: loginEmail,
-        authProvider: 'email',
-      });
-
-      setAuthSession({
-        isLoggedIn: true,
-        provider: 'email',
-        token: authData.session?.access_token || `supabase-token-${Date.now()}`,
-        loginAt: new Date().toISOString(),
       });
 
       setSuccessBanner('Login realizado com sucesso! Bem-vindo(a) de volta.');
@@ -159,28 +145,14 @@ export function AuthScreenContent({
     registerFullName: string
   ) => {
     try {
-      const authData = await signUp({
+      await signUp({
         email: registerEmail,
         password: registerPassword,
         username: registerUsername,
         fullName: registerFullName,
       });
 
-      saveUserProfile({
-        name: registerFullName || 'Melômano',
-        username: registerUsername,
-        email: registerEmail,
-        authProvider: 'email',
-      });
-
       triggerTimelineIntroOnSignup();
-
-      setAuthSession({
-        isLoggedIn: true,
-        provider: 'email',
-        token: authData.session?.access_token || `supabase-token-${Date.now()}`,
-        loginAt: new Date().toISOString(),
-      });
 
       setSuccessBanner('Conta criada com sucesso! Seja bem-vindo(a) ao Musicpostr.');
 
@@ -219,58 +191,31 @@ export function AuthScreenContent({
     }
   };
 
-  const handleSocialAuth = (provider: 'google' | 'apple') => {
+  const handleSocialAuth = async (provider: 'google' | 'apple') => {
     setErrorMessage(null);
     setSocialLoading(provider);
 
-    // Simulação do fluxo nativo OAuth com Google / Apple
-    setTimeout(() => {
-      setSocialLoading(null);
-
-      if (provider === 'google') {
-        saveUserProfile({
-          name: 'Ana Beatriz',
-          username: 'anabeat_google',
-          email: 'anabeat.music@gmail.com',
-          isLinkedGoogle: true,
-          authProvider: 'google',
-        });
-        setSuccessBanner(
-          isLogin
-            ? 'Login com o Google concluído com sucesso!'
-            : 'Conta cadastrada via Google com sucesso!'
-        );
-      } else {
-        saveUserProfile({
-          name: 'Beatriz Apple',
-          username: 'anabeat_apple',
-          email: 'anabeat@privaterelay.appleid.com',
-          isLinkedApple: true,
-          authProvider: 'apple',
-        });
-        setSuccessBanner(
-          isLogin
-            ? 'Login com a Apple concluído com sucesso!'
-            : 'Conta cadastrada via Apple com sucesso!'
-        );
-      }
-
-      if (!isLogin) {
-        triggerTimelineIntroOnSignup();
-      }
-
-      setAuthSession({
-        isLoggedIn: true,
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
-        token: `mock-${provider}-token-${Date.now()}`,
-        loginAt: new Date().toISOString(),
+        options: {
+          redirectTo: 'musicpostr://auth/callback',
+          skipBrowserRedirect: true,
+        },
       });
 
-      setTimeout(() => {
-        const target = onSuccessRedirect || (!isLogin ? '/(tabs)/index' : '/(tabs)/profile');
-        router.replace(target as any);
-      }, 850);
-    }, 800);
+      if (error) {
+        setErrorMessage(`Não foi possível autenticar com ${provider}: ${error.message}`);
+      } else if (data?.url) {
+        await WebBrowser.openAuthSessionAsync(data.url, 'musicpostr://auth/callback');
+      } else {
+        setErrorMessage(`Provedor ${provider} não configurado no Supabase.`);
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || `Erro ao autenticar com ${provider}.`);
+    } finally {
+      setSocialLoading(null);
+    }
   };
 
   const handleForgotPassword = () => {

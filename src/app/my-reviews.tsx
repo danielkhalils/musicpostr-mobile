@@ -20,7 +20,7 @@ import { MobileHeader } from '@/components/MobileHeader';
 import { CoverImage } from '@/components/CoverImage';
 import {
   type MyReviewRecord,
-  deleteMyReview,
+  subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
 import {
   getUserReviews,
@@ -43,13 +43,16 @@ export default function MyReviewsScreen() {
       if (active) setReviews(data);
     };
     load();
+    const unsubscribe = subscribeAlbumsUpdated(() => {
+      load();
+    });
     return () => {
       active = false;
+      unsubscribe();
     };
   }, [user]);
 
   const handleDelete = async (id: string) => {
-    deleteMyReview(id);
     if (user) {
       await deleteReviewFromSupabase(id, user.id);
     }

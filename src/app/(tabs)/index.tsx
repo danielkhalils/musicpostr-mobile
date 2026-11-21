@@ -2,14 +2,17 @@ import { CoverImage } from '@/components/CoverImage';
 import { MobileHeader } from '@/components/MobileHeader';
 import { useHeaderVisibility } from '@/context/HeaderVisibilityContext';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import {
   consumeTimelineIntroOnce,
   type FeedPostItem,
-  getCommunityFeedPosts,
-  getUserProfile,
-  saveCommunityFeedPosts,
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
+import {
+  getFeedPostsFromSupabase,
+  toggleFeedPostLikeInSupabase,
+  addFeedPostCommentInSupabase,
+} from '@/services/catalog.service';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import {
@@ -105,14 +108,12 @@ function FeedCommentInput({
 
 export default function HomeScreen() {
   const { colors, isDark } = useAppTheme();
+  const { user, profile: authProfile } = useAuth();
   const { setIsHeaderVisible } = useHeaderVisibility();
   const lastScrollY = useRef(0);
   const isTypingRef = useRef(false);
 
-  const [feedItems, setFeedItems] = useState<FeedPostItem[]>(() =>
-    getCommunityFeedPosts()
-  );
-  const [userProfile, setUserProfile] = useState(() => getUserProfile());
+  const [feedItems, setFeedItems] = useState<FeedPostItem[]>([]);
   const [showTimelineIntro, setShowTimelineIntro] = useState<boolean>(() =>
     consumeTimelineIntroOnce()
   );
@@ -121,30 +122,32 @@ export default function HomeScreen() {
     [key: string]: boolean;
   }>({});
 
+  const loadFeed = useCallback(async () => {
+    const posts = await getFeedPostsFromSupabase(user?.id);
+    setFeedItems(posts);
+  }, [user?.id]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const posts = getCommunityFeedPosts();
-      const profile = getUserProfile();
-      setFeedItems(posts);
-      setUserProfile(profile);
+      await loadFeed();
     } catch {
       // ignore
     } finally {
-      setTimeout(() => setRefreshing(false), 500);
+      setRefreshing(false);
     }
-  }, []);
+  }, [loadFeed]);
 
   useEffect(() => {
+    loadFeed();
     const unsubscribe = subscribeAlbumsUpdated(() => {
-      setFeedItems(getCommunityFeedPosts());
-      setUserProfile(getUserProfile());
+      loadFeed();
       if (consumeTimelineIntroOnce()) {
         setShowTimelineIntro(true);
       }
     });
     return unsubscribe;
-  }, []);
+  }, [loadFeed]);
 
   useEffect(() => {
     if (!showTimelineIntro) return;
@@ -181,23 +184,26 @@ export default function HomeScreen() {
     lastScrollY.current = currentScrollY;
   };
 
-  const handleToggleLike = (id: string) => {
-    setFeedItems((prev) => {
-      const next = prev.map((item) => {
-        if (item.id === id) {
-          return {
-            ...item,
-            isLiked: !item.isLiked,
-            likesCount: item.isLiked
-              ? item.likesCount - 1
-              : item.likesCount + 1,
-          };
-        }
-        return item;
-      });
-      saveCommunityFeedPosts(next);
-      return next;
-    });
+  const handleToggleLike = async (id: string) => {
+    const target = feedItems.find((item) => item.id === id);
+    if (!target) return;
+    const prevLiked = target.isLiked;
+
+    setFeedItems((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              isLiked: !prevLiked,
+              likesCount: Math.max(0, prevLiked ? item.likesCount - 1 : item.likesCount + 1),
+            }
+          : item
+      )
+    );
+
+    if (user) {
+      await toggleFeedPostLikeInSupabase(id, user.id, prevLiked);
+    }
   };
 
   const handleSharePost = async (item: FeedPostItem) => {
@@ -222,34 +228,38 @@ export default function HomeScreen() {
     setActiveCommentSection((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleAddComment = (id: string, commentText: string) => {
+  const handleAddComment = async (id: string, commentText: string) => {
     const text = commentText.trim();
     if (!text) return;
+    if (!user) {
+      router.push('/login' as any);
+      return;
+    }
 
-    const profile = getUserProfile();
+    const authorName = authProfile?.full_name || authProfile?.username || 'Usuário';
+    const authorAvatar = authProfile?.avatar_url || '';
 
-    setFeedItems((prev) => {
-      const next = prev.map((item) => {
-        if (item.id === id) {
-          const newComment = {
-            id: Date.now().toString(),
-            author: profile.name,
-            avatar: profile.avatarUrl,
-            text,
-            time: 'Agora mesmo',
-          };
-          return {
-            ...item,
-            comments: [...item.comments, newComment],
-          };
-        }
-        return item;
-      });
-      saveCommunityFeedPosts(next);
-      return next;
+    const created = await addFeedPostCommentInSupabase({
+      postId: id,
+      userId: user.id,
+      author: authorName,
+      avatar: authorAvatar,
+      text,
     });
 
-    setActiveCommentSection((prev) => ({ ...prev, [id]: true }));
+    if (created) {
+      setFeedItems((prev) =>
+        prev.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                comments: [...item.comments, created],
+              }
+            : item
+        )
+      );
+      setActiveCommentSection((prev) => ({ ...prev, [id]: true }));
+    }
   };
 
   const getActivityActionText = (item: FeedPostItem) => {
@@ -855,7 +865,7 @@ export default function HomeScreen() {
                     {/* Input de Comentário isolado com Avatar do Usuário Logado */}
                     <FeedCommentInput
                       postId={item.id}
-                      avatarUrl={userProfile.avatarUrl}
+                      avatarUrl={authProfile?.avatar_url || ''}
                       colors={colors}
                       onAddComment={handleAddComment}
                       onFocusChange={(focused) => {

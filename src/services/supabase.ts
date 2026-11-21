@@ -1,23 +1,38 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+const envSupabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim() || '';
+const envSupabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.trim() || '';
+
+export const isSupabaseConfigured = Boolean(envSupabaseUrl && envSupabaseAnonKey);
+
+const isWebSSR = Platform.OS === 'web' && typeof window === 'undefined';
+
+if (!isSupabaseConfigured && !isWebSSR) {
+  console.warn(
+    '[Supabase] Variáveis EXPO_PUBLIC_SUPABASE_URL e/ou EXPO_PUBLIC_SUPABASE_ANON_KEY não configuradas no arquivo .env. O app será iniciado sem conexão com o Supabase.'
+  );
+}
+
+const supabaseUrl = isSupabaseConfigured ? envSupabaseUrl : 'https://placeholder.supabase.co';
+const supabaseAnonKey = isSupabaseConfigured ? envSupabaseAnonKey : 'placeholder-anon-key';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: AsyncStorage,
-    autoRefreshToken: true,
-    persistSession: true,
+    ...(isWebSSR ? {} : { storage: AsyncStorage }),
+    autoRefreshToken: isSupabaseConfigured && !isWebSSR,
+    persistSession: isSupabaseConfigured && !isWebSSR,
     detectSessionInUrl: false,
   },
 });
 
-AppState.addEventListener('change', (state) => {
-  if (state === 'active') {
-    supabase.auth.startAutoRefresh();
-  } else {
-    supabase.auth.stopAutoRefresh();
-  }
-});
+if (isSupabaseConfigured && !isWebSSR) {
+  AppState.addEventListener('change', (state) => {
+    if (state === 'active') {
+      supabase.auth.startAutoRefresh();
+    } else {
+      supabase.auth.stopAutoRefresh();
+    }
+  });
+}

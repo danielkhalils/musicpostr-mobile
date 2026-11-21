@@ -1,13 +1,12 @@
 import { CoverImage } from '@/components/CoverImage';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
+import { subscribeAlbumsUpdated } from '@/services/musicBrainz.service';
 import {
-  type CatalogAlbum,
-  type FeedPostItem,
-  getCommunityFeedPosts,
-  getInternalAlbumsStore,
-  saveCommunityFeedPosts,
-  subscribeAlbumsUpdated,
-} from '@/services/musicBrainz.service';
+  getCommunityReviewsFromSupabase,
+  toggleReviewLikeInSupabase,
+  type CommunityReviewItem,
+} from '@/services/catalog.service';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   Award,
@@ -37,26 +36,12 @@ import {
 
 type CommunityFilter = 'all' | 'recent' | 'top_rated' | 'popular' | 'album_specific';
 
-interface CommunityReviewCardItem {
-  id: string;
-  userName: string;
-  username: string;
-  userAvatar: string;
-  albumTitle: string;
-  artistName: string;
-  albumCover: string;
-  albumId: string;
-  rating: number;
-  comment: string;
-  timeAgo: string;
-  likesCount: number;
-  isLiked: boolean;
-  commentsCount: number;
-}
+type CommunityReviewCardItem = CommunityReviewItem;
 
 export default function CommunityReviewsScreen() {
   const params = useLocalSearchParams<{ albumId?: string; search?: string }>();
   const { colors, isDark } = useAppTheme();
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
 
   const [filter, setFilter] = useState<CommunityFilter>('all');
@@ -73,105 +58,48 @@ export default function CommunityReviewsScreen() {
   }, [params.albumId, params.search]);
   const [visibleCount, setVisibleCount] = useState(10);
 
-  const [feedPosts, setFeedPosts] = useState<FeedPostItem[]>(() =>
-    getCommunityFeedPosts()
-  );
-  const [albumsCatalog, setAlbumsCatalog] = useState<CatalogAlbum[]>(() =>
-    getInternalAlbumsStore()
-  );
+  const [allReviews, setAllReviews] = useState<CommunityReviewCardItem[]>([]);
 
   useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const data = await getCommunityReviewsFromSupabase(user?.id);
+      if (active) setAllReviews(data);
+    };
+    load();
     const unsubscribe = subscribeAlbumsUpdated(() => {
-      setFeedPosts(getCommunityFeedPosts());
-      setAlbumsCatalog(getInternalAlbumsStore());
+      load();
     });
-    return unsubscribe;
-  }, []);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     setVisibleCount(10);
   }, [filter, searchTerm, selectedAlbumId]);
 
-  // Coleta e normalização de todas as reviews da comunidade
-  const allReviews: CommunityReviewCardItem[] = React.useMemo(() => {
-    const list: CommunityReviewCardItem[] = [];
-    const seenIds = new Set<string>();
+  const handleToggleLike = async (reviewId: string) => {
+    const target = allReviews.find((item) => item.id === reviewId);
+    if (!target) return;
+    const prevLiked = target.isLiked;
 
-    // 1. Reviews do Feed Geral
-    const reviewFeedPosts = feedPosts.filter(
-      (p) => !p.activityType || p.activityType === 'review'
+    setAllReviews((prev) =>
+      prev.map((item) =>
+        item.id === reviewId
+          ? {
+              ...item,
+              isLiked: !prevLiked,
+              likesCount: Math.max(0, prevLiked ? item.likesCount - 1 : item.likesCount + 1),
+            }
+          : item
+      )
     );
-    for (const post of reviewFeedPosts) {
-      if (!seenIds.has(post.id)) {
-        seenIds.add(post.id);
-        list.push({
-          id: post.id,
-          userName: post.friendName || 'Usuário da Comunidade',
-          username: post.friendUsername || 'user',
-          userAvatar:
-            post.friendAvatar ||
-            'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=65&w=150',
-          albumTitle: post.albumTitle,
-          artistName: post.artistName,
-          albumCover: post.albumCover,
-          albumId: post.albumId,
-          rating: post.rating,
-          comment: post.comment,
-          timeAgo: post.timeAgo || 'Recente',
-          likesCount: post.likesCount || 0,
-          isLiked: Boolean(post.isLiked),
-          commentsCount: post.comments?.length || 0,
-        });
-      }
+
+    if (user) {
+      await toggleReviewLikeInSupabase(reviewId, user.id, prevLiked);
     }
-
-    // 2. Reviews internas anexadas a álbuns no catálogo
-    for (const alb of albumsCatalog) {
-      if (alb.reviews && alb.reviews.length > 0) {
-        for (const rev of alb.reviews) {
-          const revId = `alb-rev-${alb.id}-${rev.id}`;
-          if (!seenIds.has(revId)) {
-            seenIds.add(revId);
-            list.push({
-              id: revId,
-              userName: rev.user || 'Crítico Musical',
-              username: rev.username || rev.user.toLowerCase().replace(/\s+/g, '_'),
-              userAvatar:
-                rev.avatar ||
-                'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=65&w=150',
-              albumTitle: alb.title,
-              artistName: alb.artist.name,
-              albumCover: alb.cover_medium || alb.cover_big,
-              albumId: alb.id,
-              rating: rev.rating,
-              comment: rev.comment,
-              timeAgo: rev.date || 'Há alguns dias',
-              likesCount: rev.likes || 4,
-              isLiked: Boolean(rev.likedByMe),
-              commentsCount: 0,
-            });
-          }
-        }
-      }
-    }
-
-    return list;
-  }, [feedPosts, albumsCatalog]);
-
-  const handleToggleLike = (reviewId: string) => {
-    // Atualiza feedPosts se existir lá
-    const updatedFeed = feedPosts.map((item) => {
-      if (item.id === reviewId) {
-        return {
-          ...item,
-          isLiked: !item.isLiked,
-          likesCount: item.isLiked ? item.likesCount - 1 : item.likesCount + 1,
-        };
-      }
-      return item;
-    });
-    setFeedPosts(updatedFeed);
-    saveCommunityFeedPosts(updatedFeed);
   };
 
   const handleShareReview = async (review: CommunityReviewCardItem) => {

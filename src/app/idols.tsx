@@ -14,10 +14,7 @@ import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { MobileHeader } from '@/components/MobileHeader';
 import { CoverImage } from '@/components/CoverImage';
-import {
-  type CatalogArtist,
-  toggleFollowArtist,
-} from '@/services/musicBrainz.service';
+import { type CatalogArtist } from '@/services/musicBrainz.service';
 import { getUserFollowedArtists } from '@/services/profile.service';
 import { supabase } from '@/services/supabase';
 
@@ -53,7 +50,6 @@ export default function IdolsScreen() {
 
   const handleUnfollow = async (artist: CatalogArtist) => {
     if (isVisiting) return;
-    toggleFollowArtist(artist);
     if (user) {
       await supabase
         .from('user_followed_artists')

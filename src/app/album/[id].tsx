@@ -2,30 +2,36 @@ import { CoverImage } from '@/components/CoverImage';
 import { MobileHeader } from '@/components/MobileHeader';
 import { StreamingIcon } from '@/components/StreamingIcon';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import {
   findAlbumCoverArt,
   type CoverArtResult,
 } from '@/services/coverArt.service';
 import {
   fetchAlbumDetailsFromMusicBrainz,
-  getInstantAlbumPreview,
-  submitInternalAlbumReview,
-  toggleAlbumListened,
-  toggleFavoriteAlbum,
-  getUserLists,
-  addAlbumToUserList,
-  addUserList,
-  getCommunityFeedPosts,
-  getUserProfile,
-  getMyReviews,
-  getAlbumAwards,
   getFallbackImageUrl,
-  getFollowedArtistIds,
-  toggleFollowArtist,
+  notifyCatalogUpdated,
+  type AlbumAward,
   type AlbumUserReview,
   type CatalogAlbum,
   type UserListRecord,
 } from '@/services/musicBrainz.service';
+import {
+  getAlbumFromSupabase,
+  getAlbumAwardsFromSupabase,
+  isAlbumFavoritedInSupabase,
+  toggleFavoriteAlbumInSupabase,
+  toggleListenedAlbumInSupabase,
+  submitAlbumReviewToSupabase,
+  getFollowedArtistIdsFromSupabase,
+  toggleFollowArtistInSupabase,
+  createUserListInSupabase,
+  addAlbumToUserListInSupabase,
+} from '@/services/catalog.service';
+import {
+  getUserFriends,
+  getUserListsFromSupabase,
+} from '@/services/profile.service';
 import { SocialIcon } from '@/components/SocialIcon';
 import { safeGoBack } from '@/utils/navigation';
 import { BlurView } from 'expo-blur';
@@ -59,6 +65,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Linking,
   Modal,
@@ -92,14 +99,12 @@ const GEN_Z_PHRASES: Record<number, { text: string; color: string }> = {
 export default function AlbumDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors, isDark } = useAppTheme();
+  const { user, profile: authProfile } = useAuth();
   const insets = useSafeAreaInsets();
 
-  const [album, setAlbum] = useState<CatalogAlbum | null>(() =>
-    id ? getInstantAlbumPreview(id) : null
-  );
-  const [isLoading, setIsLoading] = useState<boolean>(() =>
-    id ? !getInstantAlbumPreview(id) : true
-  );
+  const [album, setAlbum] = useState<CatalogAlbum | null>(null);
+  const [awards, setAwards] = useState<AlbumAward[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isLoadingTracks, setIsLoadingTracks] = useState<boolean>(false);
 
   const [rating, setRating] = useState<number>(0);
@@ -115,10 +120,9 @@ export default function AlbumDetailScreen() {
   const [isListModalOpen, setIsListModalOpen] = useState<boolean>(false);
   const [isOptionsMenuOpen, setIsOptionsMenuOpen] = useState<boolean>(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState<boolean>(false);
-  const [followedArtistIds, setFollowedArtistIds] = useState<string[]>(() =>
-    getFollowedArtistIds()
-  );
-  const [userLists, setUserLists] = useState<UserListRecord[]>(() => getUserLists());
+  const [followedArtistIds, setFollowedArtistIds] = useState<string[]>([]);
+  const [friendUsernames, setFriendUsernames] = useState<Set<string>>(new Set());
+  const [userLists, setUserLists] = useState<UserListRecord[]>([]);
   const [listSuccessMessage, setListSuccessMessage] = useState<string | null>(null);
   const [newCustomListTitle, setNewCustomListTitle] = useState<string>('');
 
@@ -127,72 +131,160 @@ export default function AlbumDetailScreen() {
   const screenWidth = Dimensions.get('window').width;
   const scorePagerWidth = screenWidth - 40;
 
-  const [submittedReviews, setSubmittedReviews] = useState<AlbumUserReview[]>(
-    () => (id ? getInstantAlbumPreview(id)?.reviews || [] : [])
-  );
+  const [submittedReviews, setSubmittedReviews] = useState<AlbumUserReview[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    if (!user) {
+      setFollowedArtistIds([]);
+      setUserLists([]);
+      setFriendUsernames(new Set());
+      return;
+    }
+    Promise.all([
+      getFollowedArtistIdsFromSupabase(user.id),
+      getUserListsFromSupabase({ userId: user.id }),
+      getUserFriends({ userId: user.id }),
+    ]).then(([fIds, listsData, friendsData]) => {
+      if (!active) return;
+      setFollowedArtistIds(fIds);
+      setUserLists(listsData);
+      setFriendUsernames(
+        new Set(friendsData.map((f) => f.username.toLowerCase().trim()))
+      );
+    });
+    return () => {
+      active = false;
+    };
+  }, [user]);
 
   useEffect(() => {
     let isMounted = true;
     if (!id) return;
 
-    const preview = getInstantAlbumPreview(id);
     setCoverArt(null);
+    setIsLoading(true);
+    setIsLoadingTracks(false);
 
-    if (preview) {
-      setAlbum(preview);
-      setSubmittedReviews(preview.reviews || []);
-      setIsLoading(false);
-      if (preview.tracks && preview.tracks.data.length > 0) {
-        setIsLoadingTracks(false);
-        return;
-      }
-      setIsLoadingTracks(true);
-    } else {
-      setIsLoading(true);
-    }
+    const loadAlbum = async () => {
+      const [dbAlbum, dbAwards, isFav] = await Promise.all([
+        getAlbumFromSupabase(id, user?.id),
+        getAlbumAwardsFromSupabase(id),
+        user ? isAlbumFavoritedInSupabase(user.id, id) : Promise.resolve(false),
+      ]);
 
-    fetchAlbumDetailsFromMusicBrainz(id)
-      .then((data) => {
-        if (!isMounted) return;
-        if (data) {
-          setAlbum(data);
-          setSubmittedReviews(data.reviews || []);
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (isMounted) {
-          setIsLoading(false);
+      if (!isMounted) return;
+      setAwards(dbAwards);
+
+      if (dbAlbum) {
+        const enriched: CatalogAlbum = { ...dbAlbum, isFavorite: isFav };
+        setAlbum(enriched);
+        setSubmittedReviews(enriched.reviews || []);
+        setIsLoading(false);
+
+        if (enriched.tracks && enriched.tracks.data.length > 0) {
           setIsLoadingTracks(false);
+          return;
         }
-      });
+        setIsLoadingTracks(true);
+      }
+
+      const mbAlbum = await fetchAlbumDetailsFromMusicBrainz(id).catch(() => null);
+      if (!isMounted) return;
+
+      if (mbAlbum) {
+        setAlbum((prev) => {
+          if (prev) {
+            return {
+              ...prev,
+              tracks:
+                prev.tracks && prev.tracks.data.length > 0 ? prev.tracks : mbAlbum.tracks,
+              releaseId: prev.releaseId || mbAlbum.releaseId,
+            };
+          }
+          return { ...mbAlbum, isFavorite: isFav };
+        });
+        if (!dbAlbum) {
+          setSubmittedReviews(mbAlbum.reviews || []);
+        }
+      }
+
+      setIsLoading(false);
+      setIsLoadingTracks(false);
+    };
+
+    loadAlbum();
 
     return () => {
       isMounted = false;
     };
-  }, [id]);
+  }, [id, user]);
 
-  const handlePostReview = () => {
+  const handlePostReview = async () => {
     if (!album) return;
+    if (!user) {
+      setIsReviewModalOpen(false);
+      router.push('/login' as any);
+      return;
+    }
     if (!reviewText.trim() && rating === 0) return;
 
     const chosenRating = rating || 8;
-    const chosenReview = reviewText || 'Avaliação sem comentário escrito.';
+    const chosenReview = reviewText.trim() || 'Avaliação sem comentário escrito.';
 
-    const updatedAlbum = submitInternalAlbumReview(
+    const fallbackUsername =
+      authProfile?.username ||
+      user.email?.split('@')[0] ||
+      'user';
+    const fallbackDisplayName =
+      authProfile?.full_name ||
+      fallbackUsername;
+
+    const { review: created, isEdited, error } = await submitAlbumReviewToSupabase({
       album,
-      chosenRating,
-      chosenReview
+      userId: user.id,
+      displayName: fallbackDisplayName,
+      username: fallbackUsername,
+      avatarUrl: authProfile?.avatar_url || '',
+      rating: chosenRating,
+      comment: chosenReview,
+    });
+
+    if (error || !created) {
+      Alert.alert(
+        'Erro ao publicar avaliação',
+        error || 'Não foi possível salvar sua avaliação no Supabase. Tente novamente.'
+      );
+      return;
+    }
+
+    const nextReviews = isEdited
+      ? submittedReviews.map((r) =>
+          String(r.id) === String(created.id) || (r.userId && r.userId === user.id)
+            ? created
+            : r
+        )
+      : [created, ...submittedReviews];
+
+    const nextTotal = nextReviews.length;
+    const nextAvg = Number(
+      (
+        nextReviews.reduce((acc, r) => acc + Number(r.rating || 0), 0) / nextTotal
+      ).toFixed(1)
     );
 
+    setSubmittedReviews(nextReviews);
     setAlbum({
-      ...updatedAlbum,
-      tracks: album.tracks,
+      ...album,
+      reviews: nextReviews,
+      totalReviews: nextTotal,
+      communityRating: nextAvg,
     });
-    setSubmittedReviews(updatedAlbum.reviews || []);
+    notifyCatalogUpdated();
+
     setRating(chosenRating);
     setReviewText(chosenReview);
-    setPostSuccess(false);
+    setPostSuccess(true);
     setIsReviewModalOpen(false);
   };
 
@@ -202,18 +294,29 @@ export default function AlbumDetailScreen() {
     return followedArtistIds.includes(String(aId));
   }, [album?.artist?.id, followedArtistIds]);
 
-  const handleToggleFollowArtist = () => {
+  const handleToggleFollowArtist = async () => {
     if (!album?.artist) return;
-    const artistObj = album.artist as any;
-    const albumObj = album as any;
-    const nextIds = toggleFollowArtist({
-      id: String(album.artist.id),
-      name: album.artist.name,
-      genre: albumObj.genre || albumObj.genreName || '',
-      imageUrl: artistObj.picture_medium || artistObj.picture || '',
-      nbFans: 0,
-    });
-    setFollowedArtistIds(nextIds);
+    if (!user) {
+      router.push('/login' as any);
+      return;
+    }
+    const artistId = String(album.artist.id);
+    const currentlyFollowing = followedArtistIds.includes(artistId);
+    setFollowedArtistIds((prev) =>
+      currentlyFollowing ? prev.filter((item) => item !== artistId) : [...prev, artistId]
+    );
+    await toggleFollowArtistInSupabase(
+      user.id,
+      {
+        id: artistId,
+        name: album.artist.name,
+        genre: album.genreName || '',
+        imageUrl: '',
+        nbFans: 0,
+      },
+      currentlyFollowing
+    );
+    notifyCatalogUpdated();
   };
 
   const handleShareAlbum = async () => {
@@ -268,51 +371,81 @@ export default function AlbumDetailScreen() {
     } catch {}
   };
 
-  const handleOpenListModal = () => {
-    setUserLists(getUserLists());
+  const handleOpenListModal = async () => {
+    if (!user) {
+      router.push('/login' as any);
+      return;
+    }
     setListSuccessMessage(null);
     setIsListModalOpen(true);
+    const freshLists = await getUserListsFromSupabase({ userId: user.id });
+    setUserLists(freshLists);
   };
 
-  const handleAddToList = (listId: string, listTitle: string) => {
+  const handleAddToList = async (listId: string, listTitle: string) => {
+    if (!album || !user) return;
+    const ok = await addAlbumToUserListInSupabase(listId, album);
+    if (ok) {
+      const freshLists = await getUserListsFromSupabase({ userId: user.id });
+      setUserLists(freshLists);
+      setListSuccessMessage(`Adicionado à lista "${listTitle}"!`);
+      setTimeout(() => {
+        setListSuccessMessage(null);
+        setIsListModalOpen(false);
+      }, 1400);
+    }
+  };
+
+  const handleCreateAndAddList = async () => {
+    if (!newCustomListTitle.trim() || !album || !user) return;
+    const created = await createUserListInSupabase(
+      user.id,
+      newCustomListTitle.trim(),
+      `Lista criada a partir de ${album.title}`
+    );
+    if (created) {
+      await addAlbumToUserListInSupabase(created.id, album);
+      const freshLists = await getUserListsFromSupabase({ userId: user.id });
+      setUserLists(freshLists);
+      setNewCustomListTitle('');
+      setListSuccessMessage('Lista criada e álbum adicionado!');
+      setTimeout(() => {
+        setListSuccessMessage(null);
+        setIsListModalOpen(false);
+      }, 1400);
+    }
+  };
+
+  const handleToggleListened = async () => {
     if (!album) return;
-    addAlbumToUserList(listId, album.title, album.id, album.cover_medium);
-    setUserLists(getUserLists());
-    setListSuccessMessage(`Adicionado à lista "${listTitle}"!`);
-    setTimeout(() => {
-      setListSuccessMessage(null);
-      setIsListModalOpen(false);
-    }, 1400);
-  };
-
-  const handleCreateAndAddList = () => {
-    if (!newCustomListTitle.trim() || !album) return;
-    const nextLists = addUserList(newCustomListTitle.trim(), `Lista criada a partir de ${album.title}`, 1);
-    setUserLists(nextLists);
-    setNewCustomListTitle('');
-    setListSuccessMessage(`Lista criada e álbum adicionado!`);
-    setTimeout(() => {
-      setListSuccessMessage(null);
-      setIsListModalOpen(false);
-    }, 1400);
-  };
-
-  const handleToggleListened = () => {
-    if (!album) return;
-    const updated = toggleAlbumListened(album);
-    setAlbum({
-      ...updated,
-      tracks: album.tracks,
-    });
-  };
-
-  const handleToggleFavorite = () => {
-    if (!album) return;
-    const isFav = toggleFavoriteAlbum(album);
+    if (!user) {
+      router.push('/login' as any);
+      return;
+    }
+    const prev = Boolean(album.listenedByMe);
     setAlbum({
       ...album,
-      isFavorite: isFav,
+      listenedByMe: !prev,
+      listenersCount: Math.max(0, prev ? album.listenersCount - 1 : album.listenersCount + 1),
     });
+    await toggleListenedAlbumInSupabase(user.id, album, prev);
+    notifyCatalogUpdated();
+  };
+
+  const handleToggleFavorite = async () => {
+    if (!album) return;
+    if (!user) {
+      router.push('/login' as any);
+      return;
+    }
+    const prevFav = Boolean(album.isFavorite);
+    setAlbum({
+      ...album,
+      isFavorite: !prevFav,
+    });
+    const isFav = await toggleFavoriteAlbumInSupabase(user.id, album);
+    setAlbum((curr) => (curr ? { ...curr, isFavorite: isFav } : curr));
+    notifyCatalogUpdated();
   };
 
   const formatDuration = (seconds: number) => {
@@ -322,22 +455,16 @@ export default function AlbumDetailScreen() {
     return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
   };
 
-  const userProfile = useMemo(() => getUserProfile(), []);
-
   const currentUserReview = useMemo(() => {
-    if (!album) return null;
-    const myRevs = getMyReviews();
-    const foundInMy = myRevs.find(
-      (r) =>
-        String(r.albumId) === String(album.id) ||
-        (r.albumTitle && r.albumTitle.toLowerCase() === album.title.toLowerCase())
-    );
-    if (foundInMy) return foundInMy;
+    if (!album || !user) return null;
+    const myUsername = (authProfile?.username || '').toLowerCase();
+    const myName = (authProfile?.full_name || '').toLowerCase();
 
     const foundInSubmitted = submittedReviews.find(
       (r) =>
-        (r.username && r.username.toLowerCase() === userProfile.username.toLowerCase()) ||
-        (r.user && r.user.toLowerCase() === userProfile.name.toLowerCase())
+        (r.userId && r.userId === user.id) ||
+        (r.username && myUsername && r.username.toLowerCase() === myUsername) ||
+        (r.user && myName && r.user.toLowerCase() === myName)
     );
     if (foundInSubmitted) {
       return {
@@ -352,7 +479,7 @@ export default function AlbumDetailScreen() {
       };
     }
     return null;
-  }, [album, submittedReviews, userProfile]);
+  }, [album, submittedReviews, authProfile, user]);
 
   useEffect(() => {
     if (currentUserReview && rating === 0) {
@@ -361,11 +488,6 @@ export default function AlbumDetailScreen() {
     }
   }, [currentUserReview, rating]);
 
-  const awards = useMemo(() => {
-    if (!album) return [];
-    return getAlbumAwards(album.id, album.title, album.artist.name);
-  }, [album]);
-
   const handleStarPress = (starIndex: number) => {
     if (starIndex === 10) {
       setRating(10);
@@ -373,7 +495,6 @@ export default function AlbumDetailScreen() {
     }
     const currentBase = Math.floor(rating);
     if (currentBase === starIndex) {
-      // Já está nesta estrela: incrementa décimos de 0 a 9 em ciclo
       const currentDec = Math.round((rating - currentBase) * 10);
       const nextDec = (currentDec + 1) % 10;
       const nextVal = Number((starIndex + nextDec * 0.1).toFixed(1));
@@ -383,101 +504,24 @@ export default function AlbumDetailScreen() {
     }
   };
 
-  const albumId = album?.id;
-  const albumTitle = album?.title;
-
-  // Avaliações de amigos e pessoas que você segue
+  // Avaliações de amigos e da comunidade
   const friendReviews = useMemo(() => {
-    if (!albumId || !albumTitle) return [];
-    const list: (AlbumUserReview & { isFriend?: boolean })[] = [];
-    const seenTexts = new Set<string>();
+    const list: (AlbumUserReview & { isFriend?: boolean })[] = submittedReviews.map((rev) => ({
+      ...rev,
+      isFriend: Boolean(
+        rev.username && friendUsernames.has(rev.username.toLowerCase().trim())
+      ),
+    }));
 
-    // Conjunto de identificadores de amigos / seguidos conhecidos no app
-    const knownFriendsUsernames = new Set([
-      'lucas_snd',
-      'beatcritic',
-      'anabeat',
-      'sofiamel',
-      'rodrigo_indie',
-    ]);
-    const knownFriendsNames = new Set([
-      'lucas sound',
-      'beat critic',
-      'ana beatriz',
-      'sofia melodias',
-      'rodrigo indie',
-      'lucassound',
-    ]);
-
-    const isUserFriendOrFollowed = (username?: string, name?: string) => {
-      if (username && knownFriendsUsernames.has(username.toLowerCase().trim())) {
-        return true;
-      }
-      if (name && knownFriendsNames.has(name.toLowerCase().trim())) {
-        return true;
-      }
-      return false;
-    };
-
-    // 1. Buscar posts do feed geral relacionados a este álbum publicados por amigos
-    try {
-      const feedPosts = getCommunityFeedPosts();
-      const relevantFeedPosts = feedPosts.filter(
-        (p) =>
-          (!p.activityType || p.activityType === 'review') &&
-          ((p.albumId && p.albumId === albumId) ||
-            (p.albumTitle &&
-              p.albumTitle.toLowerCase() === albumTitle.toLowerCase()))
-      );
-
-      for (const p of relevantFeedPosts) {
-        const uName = p.friendUsername;
-        const fName = p.friendName;
-        const key = `${fName || uName}-${p.comment}`;
-        if (!seenTexts.has(key)) {
-          seenTexts.add(key);
-          list.push({
-            id: `feed-${p.id}`,
-            user: fName || uName || 'Amigo',
-            username: uName,
-            avatar: p.friendAvatar,
-            comment: p.comment,
-            rating: p.rating,
-            date: p.timeAgo || 'Recente',
-            likes: p.likesCount || 0,
-            likedByMe: Boolean(p.isLiked),
-            commentsCount: p.comments?.length || 0,
-            isFriend: isUserFriendOrFollowed(uName, fName),
-          });
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    // 2. Reviews internas cadastradas no álbum
-    for (const rev of submittedReviews) {
-      const key = `${rev.user}-${rev.comment}`;
-      if (!seenTexts.has(key)) {
-        seenTexts.add(key);
-        list.push({
-          ...rev,
-          isFriend: isUserFriendOrFollowed(rev.username, rev.user),
-        });
-      }
-    }
-
-    // Priorizar e filtrar avaliações de amigos e quem você segue
     const friendsOnly = list.filter((r) => r.isFriend);
     const pool = friendsOnly.length > 0 ? friendsOnly : list;
 
-    // Ordenar pelas mais relevantes (mais curtidas e mais comentadas)
     return pool.sort((a, b) => {
       const scoreA = (a.likes || 0) + (a.commentsCount || 0) * 2;
       const scoreB = (b.likes || 0) + (b.commentsCount || 0) * 2;
       return scoreB - scoreA;
     });
-  }, [submittedReviews, albumId, albumTitle]);
+  }, [submittedReviews, friendUsernames]);
 
   if (isLoading) {
     return (
@@ -810,7 +854,10 @@ export default function AlbumDetailScreen() {
                 <View style={styles.userReviewQuoteHeader}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
                     <CoverImage
-                      uri={userProfile.avatarUrl || getFallbackImageUrl(userProfile.name)}
+                      uri={
+                        authProfile?.avatar_url ||
+                        getFallbackImageUrl(authProfile?.full_name || 'Usuário')
+                      }
                       style={styles.userReviewAvatar}
                       quality="low"
                     />
@@ -820,7 +867,7 @@ export default function AlbumDetailScreen() {
                           style={[styles.userReviewAuthorName, { color: colors.foreground }]}
                           numberOfLines={1}
                         >
-                          {userProfile.name}
+                          {authProfile?.full_name || 'Você'}
                         </Text>
                         <View style={[styles.myReviewBadge, { backgroundColor: `${colors.primary}22` }]}>
                           <Text style={[styles.myReviewBadgeText, { color: colors.primary }]}>
@@ -829,7 +876,7 @@ export default function AlbumDetailScreen() {
                         </View>
                       </View>
                       <Text style={[styles.userReviewHandle, { color: colors.mutedForeground }]}>
-                        @{userProfile.username}
+                        @{authProfile?.username || 'user'}
                       </Text>
                     </View>
                   </View>
