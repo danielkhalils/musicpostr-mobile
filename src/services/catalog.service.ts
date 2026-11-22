@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { formatSocialDate } from '@/utils/date';
 import type {
   CatalogAlbum,
   CatalogArtist,
@@ -39,22 +40,12 @@ export interface CommunityReviewItem {
   commentsCount: number;
 }
 
-function formatRelativeTime(isoDate?: string | null, fallbackLabel?: string | null): string {
-  if (fallbackLabel && fallbackLabel.trim().length > 0 && fallbackLabel !== 'Agora mesmo') {
-    return fallbackLabel;
-  }
-  if (!isoDate) return fallbackLabel || 'Recente';
-  const parsed = new Date(isoDate);
-  if (Number.isNaN(parsed.getTime())) return fallbackLabel || 'Recente';
-  const diffMs = Date.now() - parsed.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return 'Agora mesmo';
-  if (diffMin < 60) return `Há ${diffMin} min`;
-  const diffHours = Math.floor(diffMin / 60);
-  if (diffHours < 24) return `Há ${diffHours}h`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 30) return `Há ${diffDays}d`;
-  return parsed.toLocaleDateString('pt-BR');
+function formatRelativeTime(
+  isoDate?: string | null,
+  fallbackLabel?: string | null,
+  isEdited?: boolean
+): string {
+  return formatSocialDate(isoDate, { fallback: fallbackLabel, isEdited });
 }
 
 export function mapDbAlbumToCatalog(row: any): CatalogAlbum {
@@ -344,7 +335,7 @@ export async function getAlbumFromSupabase(
         avatar: r.user_avatar || '',
         rating: Number(r.rating || 0),
         comment: r.comment || '',
-        date: formatRelativeTime(r.created_at, r.display_date),
+        date: formatRelativeTime(r.created_at, r.display_date, Boolean(r.is_edited)),
         likes: Number(r.likes_count || 0),
         likedByMe: likedReviewIds.has(String(r.id)),
       }));
@@ -465,19 +456,17 @@ export async function ensureArtistExistsInSupabase(artist: {
 
     if (existing) return { ok: true };
 
-    const { error } = await supabase.from('artists').upsert(
-      {
-        id: artist.id,
-        name: artist.name || 'Artista',
-        image_url: artist.image_url || '',
-        banner_url: artist.banner_url || artist.image_url || '',
-        genre: artist.genre || 'Artista',
-        country: artist.country || '',
-        type: artist.type || 'Person',
-      },
-      { onConflict: 'id', ignoreDuplicates: true }
-    );
-    if (error) {
+    const { error } = await supabase.from('artists').insert({
+      id: artist.id,
+      name: artist.name || 'Artista',
+      image_url: artist.image_url || '',
+      banner_url: artist.banner_url || artist.image_url || '',
+      genre: artist.genre || 'Artista',
+      country: artist.country || '',
+      type: artist.type || 'Person',
+    });
+
+    if (error && error.code !== '23505') {
       console.warn('[CatalogService] Erro ao garantir artista no Supabase:', error);
       return { ok: false, error: error.message };
     }
@@ -516,25 +505,22 @@ export async function ensureAlbumExistsInSupabase(
         ? album.record_type
         : 'album';
 
-    const { error } = await supabase.from('albums').upsert(
-      {
-        id: album.id,
-        release_id: album.releaseId || null,
-        title: album.title || 'Álbum',
-        artist_id: artistId,
-        artist_name: album.artist?.name || 'Artista',
-        cover_xl: album.cover_xl || album.cover_big || album.cover_medium || '',
-        cover_big: album.cover_big || album.cover_medium || album.cover_xl || '',
-        cover_medium: album.cover_medium || album.cover_big || album.cover_xl || '',
-        cover_small: album.cover_small || album.cover_medium || '',
-        release_date: album.release_date || '2025',
-        record_type: normalizedRecordType,
-        genre_name: album.genreName || 'Música',
-        label: album.label || 'Independente',
-      },
-      { onConflict: 'id', ignoreDuplicates: true }
-    );
-    if (error) {
+    const { error } = await supabase.from('albums').insert({
+      id: album.id,
+      release_id: album.releaseId || null,
+      title: album.title || 'Álbum',
+      artist_id: artistId,
+      artist_name: album.artist?.name || 'Artista',
+      cover_xl: album.cover_xl || album.cover_big || album.cover_medium || '',
+      cover_big: album.cover_big || album.cover_medium || album.cover_xl || '',
+      cover_medium: album.cover_medium || album.cover_big || album.cover_xl || '',
+      cover_small: album.cover_small || album.cover_medium || '',
+      release_date: album.release_date || '2025',
+      record_type: normalizedRecordType,
+      genre_name: album.genreName || 'Música',
+      label: album.label || 'Independente',
+    });
+    if (error && error.code !== '23505') {
       console.warn('[CatalogService] Erro ao garantir álbum no Supabase:', error);
       return { ok: false, error: error.message };
     }
@@ -551,30 +537,56 @@ export async function ensureAlbumExistsInSupabase(
 
 export async function getFeedPostsFromSupabase(currentUserId?: string): Promise<FeedPostItem[]> {
   try {
-    const { data: posts, error } = await supabase
-      .from('feed_posts')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(50);
-
-    if (error || !posts || posts.length === 0) return [];
-
-    const postIds = posts.map((p: any) => p.id);
-
-    const [commentsRes, likesRes] = await Promise.all([
+    const [postsRes, reviewsRes] = await Promise.all([
       supabase
-        .from('feed_post_comments')
+        .from('feed_posts')
         .select('*')
-        .in('post_id', postIds)
-        .order('created_at', { ascending: true }),
-      currentUserId
-        ? supabase
-            .from('feed_post_likes')
-            .select('post_id')
-            .eq('user_id', currentUserId)
-            .in('post_id', postIds)
-        : Promise.resolve({ data: [], error: null }),
+        .order('created_at', { ascending: false })
+        .limit(50),
+      supabase
+        .from('album_reviews')
+        .select(`
+          id,
+          album_id,
+          user_id,
+          user_display_name,
+          username,
+          user_avatar,
+          rating,
+          comment,
+          display_date,
+          is_edited,
+          likes_count,
+          created_at,
+          album:albums(title, artist_id, artist_name, genre_name, cover_xl, cover_big, cover_medium)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(30),
     ]);
+
+    const posts: any[] = !postsRes.error && Array.isArray(postsRes.data) ? postsRes.data : [];
+    const postIds = posts.map((p) => p.id);
+
+    const [commentsRes, likesRes] =
+      postIds.length > 0
+        ? await Promise.all([
+            supabase
+              .from('feed_post_comments')
+              .select('*')
+              .in('post_id', postIds)
+              .order('created_at', { ascending: true }),
+            currentUserId
+              ? supabase
+                  .from('feed_post_likes')
+                  .select('post_id')
+                  .eq('user_id', currentUserId)
+                  .in('post_id', postIds)
+              : Promise.resolve({ data: [], error: null }),
+          ])
+        : [
+            { data: [], error: null },
+            { data: [], error: null },
+          ];
 
     const commentsByPost = new Map<
       string,
@@ -601,26 +613,75 @@ export async function getFeedPostsFromSupabase(currentUserId?: string): Promise<
         : []
     );
 
-    return posts.map((p: any): FeedPostItem => ({
-      id: String(p.id),
-      activityType: p.activity_type || 'review',
-      friendName: p.friend_name || 'Usuário',
-      friendUsername: p.friend_username || 'user',
-      friendAvatar: p.friend_avatar || '',
-      albumId: String(p.album_id || ''),
-      albumTitle: p.album_title || '',
-      artistId: p.artist_id ? String(p.artist_id) : undefined,
-      artistName: p.artist_name || '',
-      artistGenre: p.artist_genre || undefined,
-      albumCover: p.album_cover || '',
-      rating: Number(p.rating || 0),
-      comment: p.comment || '',
-      timeAgo: formatRelativeTime(p.created_at, p.time_ago),
-      likesCount: Number(p.likes_count || 0),
-      isLiked: likedSet.has(String(p.id)),
-      isEdited: Boolean(p.is_edited),
-      comments: commentsByPost.get(String(p.id)) || [],
-    }));
+    const existingReviewIds = new Set<string>();
+    const combined: { sortTime: number; item: FeedPostItem }[] = [];
+
+    for (const p of posts) {
+      if (p.review_id) {
+        existingReviewIds.add(String(p.review_id));
+      }
+      const sortTime = p.created_at ? new Date(p.created_at).getTime() || 0 : 0;
+      combined.push({
+        sortTime,
+        item: {
+          id: String(p.id),
+          activityType: p.activity_type || 'review',
+          friendName: p.friend_name || 'Usuário',
+          friendUsername: p.friend_username || 'user',
+          friendAvatar: p.friend_avatar || '',
+          albumId: String(p.album_id || ''),
+          albumTitle: p.album_title || '',
+          artistId: p.artist_id ? String(p.artist_id) : undefined,
+          artistName: p.artist_name || '',
+          artistGenre: p.artist_genre || undefined,
+          albumCover: p.album_cover || '',
+          rating: Number(p.rating || 0),
+          comment: p.comment || '',
+          timeAgo: formatRelativeTime(p.created_at, p.time_ago, Boolean(p.is_edited)),
+          likesCount: Number(p.likes_count || 0),
+          isLiked: likedSet.has(String(p.id)),
+          isEdited: Boolean(p.is_edited),
+          comments: commentsByPost.get(String(p.id)) || [],
+        },
+      });
+    }
+
+    // Garante que qualquer avaliação em `album_reviews` que ainda não tenha entrada em `feed_posts`
+    // também apareça na timeline em ordem cronológica
+    const recentReviews: any[] =
+      !reviewsRes.error && Array.isArray(reviewsRes.data) ? reviewsRes.data : [];
+    for (const r of recentReviews) {
+      const reviewId = String(r.id);
+      if (existingReviewIds.has(reviewId)) continue;
+      const album = Array.isArray(r.album) ? r.album[0] : r.album;
+      const sortTime = r.created_at ? new Date(r.created_at).getTime() || 0 : 0;
+      combined.push({
+        sortTime,
+        item: {
+          id: `review-feed-${reviewId}`,
+          activityType: 'review',
+          friendName: r.user_display_name || r.username || 'Usuário',
+          friendUsername: r.username || 'user',
+          friendAvatar: r.user_avatar || '',
+          albumId: String(r.album_id || ''),
+          albumTitle: album?.title || 'Álbum',
+          artistId: album?.artist_id ? String(album.artist_id) : undefined,
+          artistName: album?.artist_name || 'Artista',
+          artistGenre: album?.genre_name || undefined,
+          albumCover: album?.cover_xl || album?.cover_big || album?.cover_medium || '',
+          rating: Number(r.rating || 0),
+          comment: r.comment || '',
+          timeAgo: formatRelativeTime(r.created_at, r.display_date, Boolean(r.is_edited)),
+          likesCount: Number(r.likes_count || 0),
+          isLiked: false,
+          isEdited: Boolean(r.is_edited),
+          comments: [],
+        },
+      });
+    }
+
+    combined.sort((a, b) => b.sortTime - a.sortTime);
+    return combined.slice(0, 60).map((entry) => entry.item);
   } catch (err) {
     console.warn('[CatalogService] Erro ao buscar feed_posts:', err);
     return [];
@@ -680,7 +741,7 @@ export async function addFeedPostCommentInSupabase(params: {
       author: data.author,
       avatar: data.avatar || '',
       text: data.text,
-      time: 'Agora mesmo',
+      time: formatRelativeTime(data.created_at),
     };
   } catch {
     return null;
@@ -708,10 +769,11 @@ export async function getCommunityReviewsFromSupabase(
         rating,
         comment,
         display_date,
+        is_edited,
         likes_count,
         comments_count,
         created_at,
-        album:albums(title, artist_name, cover_medium, cover_big)
+        album:albums(title, artist_name, cover_xl, cover_big, cover_medium)
       `)
       .order('created_at', { ascending: false })
       .limit(100);
@@ -748,11 +810,11 @@ export async function getCommunityReviewsFromSupabase(
         userAvatar: row.user_avatar || '',
         albumTitle: album?.title || 'Álbum',
         artistName: album?.artist_name || 'Artista',
-        albumCover: album?.cover_medium || album?.cover_big || '',
+        albumCover: album?.cover_xl || album?.cover_big || album?.cover_medium || '',
         albumId: String(row.album_id),
         rating: Number(row.rating || 0),
         comment: row.comment || '',
-        timeAgo: formatRelativeTime(row.created_at, row.display_date),
+        timeAgo: formatRelativeTime(row.created_at, row.display_date, Boolean(row.is_edited)),
         likesCount: Number(row.likes_count || 0),
         isLiked: likedIds.has(String(row.id)),
         commentsCount: Number(row.comments_count || 0),
@@ -866,23 +928,11 @@ export async function submitAlbumReviewToSupabase(params: {
       return { review: null, error: saveError?.message || 'Erro ao publicar avaliação.' };
     }
 
-    // Publica ou atualiza também na timeline (feed_posts) — sem bloquear se falhar
+    // Publica ou atualiza também na timeline (feed_posts) — garante aparição no início
     try {
-      if (isEdited) {
-        await supabase
-          .from('feed_posts')
-          .update({
-            rating: clampedRating,
-            comment: params.comment,
-            is_edited: true,
-            time_ago: 'Editado agora',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('review_id', savedRow.id)
-          .eq('user_id', params.userId);
-      } else {
-        const { error: feedErr } = await supabase.from('feed_posts').insert({
-          activity_type: 'review',
+      const insertFeedPost = async () => {
+        const basePayload = {
+          activity_type: 'review' as const,
           user_id: params.userId,
           friend_name: params.displayName,
           friend_username: params.username,
@@ -891,15 +941,53 @@ export async function submitAlbumReviewToSupabase(params: {
           album_title: params.album.title,
           artist_id: params.album.artist?.id?.trim() || null,
           artist_name: params.album.artist?.name || 'Artista',
-          album_cover: params.album.cover_medium || params.album.cover_big || '',
+          artist_genre: params.album.genreName || null,
+          album_cover: params.album.cover_xl || params.album.cover_big || params.album.cover_medium || '',
           rating: clampedRating,
           comment: params.comment,
-          time_ago: 'Agora mesmo',
+          time_ago: 'agora',
+          is_edited: isEdited,
           review_id: savedRow.id,
-        });
+        };
+
+        const { error: feedErr } = await supabase.from('feed_posts').insert(basePayload);
         if (feedErr) {
-          console.warn('[CatalogService] Aviso ao publicar em feed_posts:', feedErr);
+          // Se falhar por FK de artist_id (ex.: artista com ID divergente), tenta novamente com artist_id = null
+          if (feedErr.code === '23503' && basePayload.artist_id) {
+            const { error: retryErr } = await supabase
+              .from('feed_posts')
+              .insert({ ...basePayload, artist_id: null });
+            if (retryErr) {
+              console.warn('[CatalogService] Aviso ao publicar em feed_posts (retry):', retryErr);
+            }
+          } else {
+            console.warn('[CatalogService] Aviso ao publicar em feed_posts:', feedErr);
+          }
         }
+      };
+
+      if (isEdited) {
+        const { data: updatedPosts, error: updateErr } = await supabase
+          .from('feed_posts')
+          .update({
+            friend_name: params.displayName,
+            friend_username: params.username,
+            friend_avatar: params.avatarUrl || '',
+            rating: clampedRating,
+            comment: params.comment,
+            is_edited: true,
+            time_ago: 'agora · editado',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('review_id', savedRow.id)
+          .eq('user_id', params.userId)
+          .select('id');
+
+        if (updateErr || !updatedPosts || updatedPosts.length === 0) {
+          await insertFeedPost();
+        }
+      } else {
+        await insertFeedPost();
       }
     } catch {
       // non-blocking
@@ -915,7 +1003,7 @@ export async function submitAlbumReviewToSupabase(params: {
         avatar: savedRow.user_avatar || '',
         rating: Number(savedRow.rating),
         comment: savedRow.comment,
-        date: isEdited ? 'Editado agora' : 'Agora mesmo',
+        date: formatRelativeTime(savedRow.created_at, undefined, isEdited),
         likes: Number(savedRow.likes_count || 0),
         likedByMe: false,
       },

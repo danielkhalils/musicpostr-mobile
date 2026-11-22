@@ -10,10 +10,11 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
-import { ListMusic, ArrowLeft, Plus, X } from 'lucide-react-native';
+import { Plus, X } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
-import { MobileHeader } from '@/components/MobileHeader';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PageHeader } from '@/components/PageHeader';
 import { type UserListRecord } from '@/services/musicBrainz.service';
 import { getUserListsFromSupabase } from '@/services/profile.service';
 import { supabase } from '@/services/supabase';
@@ -23,6 +24,7 @@ export default function ListsScreen() {
   const isVisiting = Boolean(username);
   const { colors } = useAppTheme();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [lists, setLists] = useState<UserListRecord[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -83,60 +85,36 @@ export default function ListsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <MobileHeader />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[
+          styles.container,
+          { paddingTop: Math.max(insets.top, 16) },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => safeGoBack('/(tabs)/profile')}
-        >
-          <ArrowLeft size={15} color={colors.mutedForeground} />
-          <Text
-            style={{
-              fontSize: 12,
-              fontWeight: '700',
-              color: colors.mutedForeground,
-            }}
-          >
-            Voltar ao Perfil
-          </Text>
-        </TouchableOpacity>
-
-        <View style={styles.headerRow}>
-          <View style={{ flex: 1, gap: 4 }}>
-            <View
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
-            >
-              <ListMusic size={24} color={colors.emerald} />
-              <Text style={[styles.pageTitle, { color: colors.foreground }]}>
-                {isVisiting ? `Listas de @${username}` : 'Minhas Listas'}
-              </Text>
-            </View>
-            <Text
-              style={[styles.pageSubtitle, { color: colors.mutedForeground }]}
-            >
-              Coletâneas temáticas de álbuns organizadas.
-            </Text>
-          </View>
-
-          {!isVisiting && (
-            <TouchableOpacity
-              onPress={() => setIsModalOpen(true)}
-              style={[
-                styles.newBtn,
-                { backgroundColor: colors.primary },
-              ]}
-            >
-              <Plus size={15} color="#fff" />
-              <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>
-                Nova Lista
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
+        <PageHeader
+          title={isVisiting ? `Listas de @${username}` : 'Listas'}
+          subtitle="Coletâneas temáticas de álbuns organizadas."
+          onBack={() => safeGoBack('/(tabs)/profile')}
+          backLabel="Voltar ao Perfil"
+          rightAction={
+            !isVisiting ? (
+              <TouchableOpacity
+                onPress={() => setIsModalOpen(true)}
+                style={[
+                  styles.newBtn,
+                  { backgroundColor: colors.primary },
+                ]}
+              >
+                <Plus size={15} color="#fff" />
+                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>
+                  Nova Lista
+                </Text>
+              </TouchableOpacity>
+            ) : undefined
+          }
+        />
 
         <View style={{ gap: 12 }}>
           {lists.map((list) => (

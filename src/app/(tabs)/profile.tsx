@@ -8,6 +8,10 @@ import {
   Linking,
   RefreshControl,
   StyleSheet,
+  Modal,
+  ActivityIndicator,
+  Alert,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -17,6 +21,7 @@ import {
   Star,
   Heart,
   Camera,
+  Image as ImageIcon,
   Users,
   Award,
   ListMusic,
@@ -26,9 +31,15 @@ import {
   Trash2,
   ArrowLeft,
   LogIn,
+  X,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
+import {
+  pickAndUploadProfileMedia,
+  type ImageSourceMode,
+  type ProfileMediaKind,
+} from '@/services/profileMedia.service';
 import {
   type MyReviewRecord,
   type FavoriteAlbumRecord,
@@ -49,7 +60,9 @@ import {
   type UnifiedProfileViewData,
 } from '@/services/profile.service';
 import { CoverImage } from '@/components/CoverImage';
+import { FeedStyleActivityCard } from '@/components/FeedStyleActivityCard';
 import { SocialIcon } from '@/components/SocialIcon';
+import { useActivityCardMode } from '@/hooks/use-activity-card-mode';
 
 type ProfileHistoryTab = 'all' | 'reviews' | 'favorites' | 'idols';
 
@@ -60,16 +73,20 @@ export function ProfileView({
 }) {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
-  const { user, profile: authProfile, refreshProfile } = useAuth();
+  const { user, profile: authProfile, refreshProfile, updateProfileData } = useAuth();
+  const { mode: cardMode } = useActivityCardMode();
 
   // Verifica se o usuário atual está visitando outro perfil
   const isVisiting = Boolean(
     visitingUsername && visitingUsername !== authProfile?.username
   );
+  const canEditMedia = Boolean(user && !isVisiting);
 
   const [copied, setCopied] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [historyTab, setHistoryTab] = useState<ProfileHistoryTab>('all');
+  const [mediaPickerTarget, setMediaPickerTarget] = useState<ProfileMediaKind | null>(null);
+  const [uploadingMedia, setUploadingMedia] = useState<ProfileMediaKind | null>(null);
 
   const [reviews, setReviews] = useState<MyReviewRecord[]>([]);
   const [favorites, setFavorites] = useState<FavoriteAlbumRecord[]>([]);
@@ -224,6 +241,54 @@ export function ProfileView({
     }
   };
 
+  const handleSelectProfileMedia = async (
+    kind: ProfileMediaKind,
+    source: ImageSourceMode
+  ) => {
+    if (!user) return;
+    setMediaPickerTarget(null);
+    setUploadingMedia(kind);
+
+    try {
+      const result = await pickAndUploadProfileMedia(user.id, kind, source);
+      if (result.canceled) return;
+
+      if (result.error || !result.url) {
+        Alert.alert(
+          'Não foi possível atualizar a foto',
+          result.error || 'Tente novamente em instantes.'
+        );
+        return;
+      }
+
+      const updatePayload =
+        kind === 'avatar'
+          ? { avatar_url: result.url }
+          : { banner_url: result.url };
+
+      const saved = await updateProfileData(updatePayload);
+      if (!saved.success) {
+        Alert.alert(
+          'Erro ao salvar no perfil',
+          'A imagem foi enviada, mas não foi possível salvar no seu perfil.'
+        );
+        return;
+      }
+
+      setCustomProfile((prev) =>
+        prev
+          ? {
+              ...prev,
+              avatarUrl: kind === 'avatar' ? result.url! : prev.avatarUrl,
+              bannerUrl: kind === 'banner' ? result.url! : prev.bannerUrl,
+            }
+          : prev
+      );
+    } finally {
+      setUploadingMedia(null);
+    }
+  };
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.background }}
@@ -285,12 +350,38 @@ export function ProfileView({
       )}
       {/* Foto de Capa com Botão de Configurações no Topo */}
       <View style={styles.bannerBox}>
-        <CoverImage
-          uri={displayProfile.bannerUrl}
-          style={styles.bannerImg}
-          quality="high"
-        />
-        <View style={styles.bannerOverlay} />
+        <TouchableOpacity
+          activeOpacity={canEditMedia ? 0.9 : 1}
+          disabled={!canEditMedia || uploadingMedia === 'banner'}
+          onPress={() => canEditMedia && setMediaPickerTarget('banner')}
+          style={{ width: '100%', height: '100%' }}
+        >
+          <CoverImage
+            uri={displayProfile.bannerUrl}
+            style={styles.bannerImg}
+            quality="high"
+          />
+        </TouchableOpacity>
+        <View style={styles.bannerOverlay} pointerEvents="none" />
+
+        {uploadingMedia === 'banner' && (
+          <View style={styles.mediaLoadingOverlay}>
+            <ActivityIndicator size="small" color="#fff" />
+            <Text style={styles.mediaLoadingText}>Salvando capa...</Text>
+          </View>
+        )}
+
+        {canEditMedia && uploadingMedia !== 'banner' && (
+          <TouchableOpacity
+            onPress={() => setMediaPickerTarget('banner')}
+            style={styles.bannerEditBtn}
+            accessibilityLabel="Alterar foto de capa"
+            activeOpacity={0.85}
+          >
+            <Camera size={12} color="#fff" />
+            <Text style={styles.bannerEditBtnText}>Alterar capa</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Ações no topo da tela (Voltar na esquerda, Compartilhar e Configurações na direita) */}
         <View
@@ -352,7 +443,10 @@ export function ProfileView({
       >
         {/* Linha do Avatar e Identidade */}
         <View style={styles.avatarHeaderRow}>
-          <View
+          <TouchableOpacity
+            activeOpacity={canEditMedia ? 0.85 : 1}
+            disabled={!canEditMedia || uploadingMedia === 'avatar'}
+            onPress={() => canEditMedia && setMediaPickerTarget('avatar')}
             style={[
               styles.avatarWrapper,
               { borderColor: colors.card },
@@ -363,18 +457,22 @@ export function ProfileView({
               style={styles.avatarImg}
               fallbackType="artist"
             />
-            {!isVisiting && (
-              <TouchableOpacity
-                onPress={() => router.push('/settings' as any)}
+            {uploadingMedia === 'avatar' && (
+              <View style={styles.avatarLoadingOverlay}>
+                <ActivityIndicator size="small" color="#fff" />
+              </View>
+            )}
+            {canEditMedia && uploadingMedia !== 'avatar' && (
+              <View
                 style={[
                   styles.cameraBadge,
                   { backgroundColor: colors.primary },
                 ]}
               >
                 <Camera size={11} color="#fff" />
-              </TouchableOpacity>
+              </View>
             )}
-          </View>
+          </TouchableOpacity>
 
           <View style={styles.identityRightCol}>
             <Text
@@ -694,7 +792,24 @@ export function ProfileView({
       <View style={styles.feedHistoryContainer}>
         {/* 1. Álbuns Avaliados */}
         {(historyTab === 'all' || historyTab === 'reviews') &&
-          reviews.map((rev) => (
+          reviews.map((rev) =>
+            cardMode === 'full' ? (
+              <FeedStyleActivityCard
+                key={`rev-${rev.id}`}
+                activityType="review"
+                authorName={displayProfile.name}
+                authorUsername={displayProfile.username}
+                authorAvatar={displayProfile.avatarUrl}
+                timeAgo={rev.date}
+                title={rev.albumTitle}
+                subtitle={rev.artistName}
+                coverUrl={rev.coverUrl}
+                rating={rev.rating}
+                comment={rev.comment}
+                onPressTarget={() => router.push(`/album/${rev.albumId}` as any)}
+                onDelete={!isVisiting ? () => handleDeleteReview(rev.id) : undefined}
+              />
+            ) : (
             <View
               key={`rev-${rev.id}`}
               style={[
@@ -707,7 +822,7 @@ export function ProfileView({
                 onPress={() => router.push(`/album/${rev.albumId}` as any)}
                 activeOpacity={0.85}
               >
-                <CoverImage uri={rev.coverUrl} style={styles.activityThumb} />
+                <CoverImage uri={rev.coverUrl} albumTitle={rev.albumTitle} albumArtist={rev.artistName} style={styles.activityThumb} quality="medium" />
                 <View style={{ flex: 1, gap: 2 }}>
                   <View style={styles.activityHeaderLine}>
                     <View
@@ -774,11 +889,26 @@ export function ProfileView({
                 )}
               </TouchableOpacity>
             </View>
-          ))}
+            )
+          )}
 
         {/* 2. Álbuns Favoritados */}
         {(historyTab === 'all' || historyTab === 'favorites') &&
-          favorites.map((fav) => (
+          favorites.map((fav) =>
+            cardMode === 'full' ? (
+              <FeedStyleActivityCard
+                key={`fav-${fav.id}`}
+                activityType="favorite"
+                authorName={displayProfile.name}
+                authorUsername={displayProfile.username}
+                authorAvatar={displayProfile.avatarUrl}
+                title={fav.title}
+                subtitle={fav.artist}
+                coverUrl={fav.cover}
+                rating={fav.rating}
+                onPressTarget={() => router.push(`/album/${fav.id}` as any)}
+              />
+            ) : (
             <TouchableOpacity
               key={`fav-${fav.id}`}
               style={[
@@ -789,7 +919,7 @@ export function ProfileView({
               activeOpacity={0.85}
             >
               <View style={styles.activityRowMain}>
-                <CoverImage uri={fav.cover} style={styles.activityThumb} />
+                <CoverImage uri={fav.cover} albumTitle={fav.title} albumArtist={fav.artist} style={styles.activityThumb} quality="medium" />
                 <View style={{ flex: 1, gap: 3 }}>
                   <View style={styles.activityHeaderLine}>
                     <View
@@ -838,11 +968,26 @@ export function ProfileView({
                 </View>
               </View>
             </TouchableOpacity>
-          ))}
+            )
+          )}
 
         {/* 3. Artistas / Ídolos Seguidos */}
         {(historyTab === 'all' || historyTab === 'idols') &&
-          idols.map((artist) => (
+          idols.map((artist) =>
+            cardMode === 'full' ? (
+              <FeedStyleActivityCard
+                key={`idol-${artist.id}`}
+                activityType="follow_idol"
+                authorName={displayProfile.name}
+                authorUsername={displayProfile.username}
+                authorAvatar={displayProfile.avatarUrl}
+                title={artist.name}
+                subtitle={artist.genre || 'Artista'}
+                coverUrl={artist.imageUrl}
+                artistNameForImage={artist.name}
+                onPressTarget={() => router.push(`/artist/${artist.id}` as any)}
+              />
+            ) : (
             <TouchableOpacity
               key={`idol-${artist.id}`}
               style={[
@@ -903,8 +1048,111 @@ export function ProfileView({
                 </View>
               </View>
             </TouchableOpacity>
-          ))}
+            )
+          )}
       </View>
+
+      {/* Modal de escolha de foto (Avatar ou Capa) */}
+      <Modal
+        visible={mediaPickerTarget !== null}
+        animationType="slide"
+        transparent
+        statusBarTranslucent
+        onRequestClose={() => setMediaPickerTarget(null)}
+      >
+        <View style={styles.mediaModalBackdrop}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setMediaPickerTarget(null)}
+          />
+          <View
+            style={[
+              styles.mediaModalSheet,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                paddingBottom: insets.bottom > 0 ? insets.bottom + 14 : 22,
+              },
+            ]}
+          >
+            <View style={styles.mediaModalHandle} />
+            <View style={styles.mediaModalHeader}>
+              <Text style={[styles.mediaModalTitle, { color: colors.foreground }]}>
+                {mediaPickerTarget === 'avatar'
+                  ? 'Alterar foto de avatar'
+                  : 'Alterar foto de capa'}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setMediaPickerTarget(null)}
+                style={[styles.mediaModalCloseBtn, { backgroundColor: colors.secondary }]}
+              >
+                <X size={16} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              onPress={() =>
+                mediaPickerTarget &&
+                handleSelectProfileMedia(mediaPickerTarget, 'library')
+              }
+              style={[
+                styles.mediaOptionRow,
+                { backgroundColor: colors.secondary, borderColor: colors.border },
+              ]}
+              activeOpacity={0.8}
+            >
+              <View
+                style={[
+                  styles.mediaOptionIcon,
+                  { backgroundColor: `${colors.primary}22` },
+                ]}
+              >
+                <ImageIcon size={18} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.mediaOptionTitle, { color: colors.foreground }]}>
+                  Escolher da Galeria
+                </Text>
+                <Text style={{ fontSize: 11.5, color: colors.mutedForeground }}>
+                  Selecione uma imagem salva no seu dispositivo
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {Platform.OS !== 'web' && (
+              <TouchableOpacity
+                onPress={() =>
+                  mediaPickerTarget &&
+                  handleSelectProfileMedia(mediaPickerTarget, 'camera')
+                }
+                style={[
+                  styles.mediaOptionRow,
+                  { backgroundColor: colors.secondary, borderColor: colors.border },
+                ]}
+                activeOpacity={0.8}
+              >
+                <View
+                  style={[
+                    styles.mediaOptionIcon,
+                    { backgroundColor: `${colors.emerald}22` },
+                  ]}
+                >
+                  <Camera size={18} color={colors.emerald} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.mediaOptionTitle, { color: colors.foreground }]}>
+                    Tirar Foto com a Câmera
+                  </Text>
+                  <Text style={{ fontSize: 11.5, color: colors.mutedForeground }}>
+                    Capture uma nova foto agora
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -1075,6 +1323,13 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
   },
+  historyModeBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    marginBottom: 10,
+  },
   feedHistoryContainer: {
     gap: 10,
     paddingHorizontal: 14,
@@ -1127,5 +1382,111 @@ const styles = StyleSheet.create({
   },
   deleteIconBtn: {
     padding: 6,
+  },
+  bannerEditBtn: {
+    position: 'absolute',
+    right: 14,
+    bottom: 30,
+    zIndex: 25,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(9,9,11,0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  bannerEditBtnText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  mediaLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    zIndex: 30,
+  },
+  mediaLoadingText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  avatarLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mediaModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  mediaModalSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    padding: 18,
+    gap: 12,
+  },
+  mediaModalHandle: {
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(150,150,150,0.4)',
+    alignSelf: 'center',
+    marginBottom: 2,
+  },
+  mediaModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  mediaModalTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  mediaModalCloseBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mediaOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  mediaOptionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mediaOptionTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
   },
 });

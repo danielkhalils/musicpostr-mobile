@@ -9,15 +9,16 @@ import {
 import { router } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
 import {
-  Star,
   Trash2,
   Music,
-  ArrowLeft,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
-import { MobileHeader } from '@/components/MobileHeader';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PageHeader } from '@/components/PageHeader';
 import { CoverImage } from '@/components/CoverImage';
+import { FeedStyleActivityCard } from '@/components/FeedStyleActivityCard';
+import { useActivityCardMode } from '@/hooks/use-activity-card-mode';
 import {
   type MyReviewRecord,
   subscribeAlbumsUpdated,
@@ -29,7 +30,9 @@ import {
 
 export default function MyReviewsScreen() {
   const { colors } = useAppTheme();
-  const { user } = useAuth();
+  const { user, profile: authProfile } = useAuth();
+  const insets = useSafeAreaInsets();
+  const { mode: cardMode } = useActivityCardMode();
   const [reviews, setReviews] = useState<MyReviewRecord[]>([]);
 
   useEffect(() => {
@@ -61,42 +64,20 @@ export default function MyReviewsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <MobileHeader />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[
+          styles.container,
+          { paddingTop: Math.max(insets.top, 16) },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => safeGoBack('/(tabs)/profile')}
-        >
-          <ArrowLeft size={15} color={colors.mutedForeground} />
-          <Text
-            style={{
-              fontSize: 12,
-              fontWeight: '700',
-              color: colors.mutedForeground,
-            }}
-          >
-            Voltar ao Perfil
-          </Text>
-        </TouchableOpacity>
-
-        <View style={styles.headerBlock}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Star size={24} color={colors.primary} fill={colors.primary} />
-            <Text style={[styles.pageTitle, { color: colors.foreground }]}>
-              Minhas Avaliações
-            </Text>
-          </View>
-          <Text
-            style={[styles.pageSubtitle, { color: colors.mutedForeground }]}
-          >
-            Gerencie, visualize ou remova as notas e opiniões que você
-            compartilhou na comunidade.
-          </Text>
-        </View>
+        <PageHeader
+          title="Minhas Avaliações"
+          subtitle="Gerencie, visualize ou remova as notas e opiniões que você compartilhou na comunidade."
+          onBack={() => safeGoBack('/(tabs)/profile')}
+          backLabel="Voltar ao Perfil"
+        />
 
         {reviews.length === 0 ? (
           <View style={styles.emptyBox}>
@@ -107,7 +88,24 @@ export default function MyReviewsScreen() {
           </View>
         ) : (
           <View style={{ gap: 12 }}>
-            {reviews.map((rev) => (
+            {reviews.map((rev) =>
+              cardMode === 'full' ? (
+                <FeedStyleActivityCard
+                  key={rev.id}
+                  activityType="review"
+                  authorName={authProfile?.full_name || authProfile?.username || 'Você'}
+                  authorUsername={authProfile?.username || 'user'}
+                  authorAvatar={authProfile?.avatar_url || ''}
+                  timeAgo={rev.date}
+                  title={rev.albumTitle}
+                  subtitle={rev.artistName}
+                  coverUrl={rev.coverUrl}
+                  rating={rev.rating}
+                  comment={rev.comment}
+                  onPressTarget={() => router.push(`/album/${rev.albumId}` as any)}
+                  onDelete={() => handleDelete(rev.id)}
+                />
+              ) : (
               <View
                 key={rev.id}
                 style={[
@@ -119,7 +117,7 @@ export default function MyReviewsScreen() {
                 ]}
               >
                 <View style={styles.topRow}>
-                  <CoverImage uri={rev.coverUrl} style={styles.thumb} />
+                  <CoverImage uri={rev.coverUrl} albumTitle={rev.albumTitle} albumArtist={rev.artistName} style={styles.thumb} quality="medium" />
                   <View style={{ flex: 1, gap: 3 }}>
                     <View style={styles.titleScoreRow}>
                       <View style={{ flex: 1 }}>
@@ -219,7 +217,8 @@ export default function MyReviewsScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
-            ))}
+              )
+            )}
           </View>
         )}
       </ScrollView>

@@ -11,14 +11,13 @@ import {
 import { router } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
 import {
-  ArrowLeft,
-  Disc,
   Headphones,
   Search,
   X,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
-import { MobileHeader } from '@/components/MobileHeader';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PageHeader } from '@/components/PageHeader';
 import { CoverImage } from '@/components/CoverImage';
 import {
   type CatalogAlbum,
@@ -34,6 +33,7 @@ const CARD_WIDTH = (SCREEN_WIDTH - 42) / 2;
 
 export default function TopAlbunsScreen() {
   const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('Todos');
   const [genres, setGenres] = useState<string[]>(['Todos']);
@@ -77,41 +77,22 @@ export default function TopAlbunsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <MobileHeader />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[
+          styles.container,
+          { paddingTop: Math.max(insets.top, 16) },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => safeGoBack('/(tabs)/profile')}
-        >
-          <ArrowLeft size={15} color={colors.mutedForeground} />
-          <Text
-            style={{
-              fontSize: 12,
-              fontWeight: '700',
-              color: colors.mutedForeground,
-            }}
-          >
-            Voltar
-          </Text>
-        </TouchableOpacity>
+        <PageHeader
+          title="Álbuns Populares"
+          subtitle="Ranking baseado nas avaliações internas dos usuários e na quantidade de ouvintes na comunidade."
+          onBack={() => safeGoBack('/(tabs)/profile')}
+          backLabel="Voltar"
+        />
 
         <View style={styles.headerBlock}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Disc size={24} color={colors.primary} />
-            <Text style={[styles.pageTitle, { color: colors.foreground }]}>
-              Álbuns Populares do Momento
-            </Text>
-          </View>
-          <Text
-            style={[styles.pageSubtitle, { color: colors.mutedForeground }]}
-          >
-            Ranking baseado nas avaliações internas dos usuários e na quantidade
-            de ouvintes na comunidade.
-          </Text>
 
           <View
             style={[

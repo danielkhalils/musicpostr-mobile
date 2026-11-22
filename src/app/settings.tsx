@@ -17,7 +17,6 @@ import * as Device from 'expo-device';
 import { safeGoBack } from '@/utils/navigation';
 import { router } from 'expo-router';
 import {
-  Settings,
   User,
   Shield,
   Lock,
@@ -25,7 +24,6 @@ import {
   Info,
   Globe,
   Save,
-  ArrowLeft,
   Moon,
   Sun,
   LogOut,
@@ -49,11 +47,19 @@ import {
   MessageSquareOff,
   CheckCircle2,
   ChevronRight,
+  Camera,
+  Image as ImageIcon,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
+import {
+  pickAndUploadProfileMedia,
+  type ImageSourceMode,
+  type ProfileMediaKind,
+} from '@/services/profileMedia.service';
 import { supabase } from '@/services/supabase';
-import { MobileHeader } from '@/components/MobileHeader';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PageHeader } from '@/components/PageHeader';
 import {
   DEFAULT_EXTENDED_SETTINGS,
   type ExtendedSettings,
@@ -160,6 +166,7 @@ const HUB_ITEMS: HubItemDef[] = [
 export default function SettingsScreen() {
   const { colors, isDark, setDarkMode } = useAppTheme();
   const { user, profile: authProfile, updateProfileData, signOut } = useAuth();
+  const insets = useSafeAreaInsets();
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
 
   const [activeSection, setActiveSection] = useState<SettingsSection>('hub');
@@ -207,6 +214,7 @@ export default function SettingsScreen() {
 
   // Estados de feedback
   const [isSaving, setIsSaving] = useState(false);
+  const [uploadingMedia, setUploadingMedia] = useState<ProfileMediaKind | null>(null);
   const [isClearingCache, setIsClearingCache] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -283,6 +291,47 @@ export default function SettingsScreen() {
   const showToast = (msg: string) => {
     setSavedSuccess(msg);
     setTimeout(() => setSavedSuccess(null), 3500);
+  };
+
+  const handleUploadProfilePhoto = async (
+    kind: ProfileMediaKind,
+    source: ImageSourceMode
+  ) => {
+    if (!user) {
+      setErrorMessage('Faça login para enviar fotos de avatar e capa.');
+      return;
+    }
+    setErrorMessage(null);
+    setUploadingMedia(kind);
+    try {
+      const result = await pickAndUploadProfileMedia(user.id, kind, source);
+      if (result.canceled) return;
+      if (result.error || !result.url) {
+        setErrorMessage(result.error || 'Não foi possível enviar a imagem.');
+        return;
+      }
+
+      if (kind === 'avatar') {
+        setAvatarUrl(result.url);
+      } else {
+        setBannerUrl(result.url);
+      }
+
+      const saved = await updateProfileData(
+        kind === 'avatar' ? { avatar_url: result.url } : { banner_url: result.url }
+      );
+      if (saved.success) {
+        showToast(
+          kind === 'avatar'
+            ? 'Foto de avatar atualizada com sucesso!'
+            : 'Foto de capa atualizada com sucesso!'
+        );
+      } else {
+        setErrorMessage('Imagem enviada, mas houve erro ao salvar no perfil.');
+      }
+    } finally {
+      setUploadingMedia(null);
+    }
   };
 
   const handleSaveProfileAndAccount = async () => {
@@ -587,27 +636,12 @@ export default function SettingsScreen() {
 
     return (
       <>
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => safeGoBack('/(tabs)/profile')}
-        >
-          <ArrowLeft size={15} color={colors.mutedForeground} />
-          <Text style={{ fontSize: 12, fontWeight: '700', color: colors.mutedForeground }}>
-            Voltar ao Perfil
-          </Text>
-        </TouchableOpacity>
-
-        <View style={[styles.headerBox, { borderBottomColor: colors.border }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Settings size={23} color={colors.foreground} />
-            <Text style={[styles.pageTitle, { color: colors.foreground }]}>
-              Configurações
-            </Text>
-          </View>
-          <Text style={[styles.pageSubtitle, { color: colors.mutedForeground }]}>
-            Central de conta, privacidade, moderação, notificações e preferências do Musicpostr.
-          </Text>
-        </View>
+        <PageHeader
+          title="Configurações"
+          subtitle="Central de conta, privacidade, moderação, notificações e preferências do Musicpostr."
+          onBack={() => safeGoBack('/(tabs)/profile')}
+          backLabel="Voltar ao Perfil"
+        />
 
         {renderFeedbackBanners()}
 
@@ -843,7 +877,190 @@ export default function SettingsScreen() {
         />
       </SettingsSectionCard>
 
-      <SettingsSectionCard title="Mídia do Perfil">
+      <SettingsSectionCard
+        title="Mídia do Perfil"
+        subtitle="Escolha fotos da galeria ou câmera para seu avatar e capa, ou informe uma URL."
+      >
+        {/* Pré-visualização interativa de Capa e Avatar */}
+        <View style={{ gap: 12, marginBottom: 6 }}>
+          <View
+            style={{
+              height: 112,
+              borderRadius: 14,
+              overflow: 'hidden',
+              backgroundColor: colors.secondary,
+              borderWidth: 1,
+              borderColor: colors.border,
+              position: 'relative',
+            }}
+          >
+            {bannerUrl ? (
+              <Image
+                source={{ uri: bannerUrl }}
+                style={{ width: '100%', height: '100%' }}
+                contentFit="cover"
+              />
+            ) : null}
+            <View
+              style={{
+                position: 'absolute',
+                inset: 0,
+                backgroundColor: 'rgba(0,0,0,0.28)',
+              }}
+            />
+            {uploadingMedia === 'banner' ? (
+              <View
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: 'rgba(0,0,0,0.45)',
+                }}
+              >
+                <ActivityIndicator size="small" color="#fff" />
+              </View>
+            ) : (
+              <View
+                style={{
+                  position: 'absolute',
+                  right: 10,
+                  bottom: 10,
+                  flexDirection: 'row',
+                  gap: 6,
+                }}
+              >
+                <TouchableOpacity
+                  onPress={() => handleUploadProfilePhoto('banner', 'library')}
+                  disabled={!user || uploadingMedia !== null}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 5,
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 999,
+                    backgroundColor: 'rgba(9,9,11,0.78)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255,255,255,0.2)',
+                  }}
+                >
+                  <ImageIcon size={12} color="#fff" />
+                  <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>
+                    Capa (Galeria)
+                  </Text>
+                </TouchableOpacity>
+                {Platform.OS !== 'web' && (
+                  <TouchableOpacity
+                    onPress={() => handleUploadProfilePhoto('banner', 'camera')}
+                    disabled={!user || uploadingMedia !== null}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 5,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 999,
+                      backgroundColor: 'rgba(9,9,11,0.78)',
+                      borderWidth: 1,
+                      borderColor: 'rgba(255,255,255,0.2)',
+                    }}
+                  >
+                    <Camera size={12} color="#fff" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          </View>
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: 32,
+                overflow: 'hidden',
+                backgroundColor: colors.secondary,
+                borderWidth: 2,
+                borderColor: colors.primary,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {avatarUrl ? (
+                <Image
+                  source={{ uri: avatarUrl }}
+                  style={{ width: '100%', height: '100%' }}
+                  contentFit="cover"
+                />
+              ) : (
+                <User size={24} color={colors.mutedForeground} />
+              )}
+              {uploadingMedia === 'avatar' && (
+                <View
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    backgroundColor: 'rgba(0,0,0,0.55)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <ActivityIndicator size="small" color="#fff" />
+                </View>
+              )}
+            </View>
+
+            <View style={{ flex: 1, gap: 6 }}>
+              <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.foreground }}>
+                Foto de Avatar
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                <TouchableOpacity
+                  onPress={() => handleUploadProfilePhoto('avatar', 'library')}
+                  disabled={!user || uploadingMedia !== null}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 5,
+                    paddingHorizontal: 11,
+                    paddingVertical: 7,
+                    borderRadius: 10,
+                    backgroundColor: colors.primary,
+                  }}
+                >
+                  <ImageIcon size={13} color="#fff" />
+                  <Text style={{ color: '#fff', fontSize: 11.5, fontWeight: '800' }}>
+                    Galeria
+                  </Text>
+                </TouchableOpacity>
+                {Platform.OS !== 'web' && (
+                  <TouchableOpacity
+                    onPress={() => handleUploadProfilePhoto('avatar', 'camera')}
+                    disabled={!user || uploadingMedia !== null}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 5,
+                      paddingHorizontal: 11,
+                      paddingVertical: 7,
+                      borderRadius: 10,
+                      backgroundColor: colors.secondary,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Camera size={13} color={colors.foreground} />
+                    <Text style={{ color: colors.foreground, fontSize: 11.5, fontWeight: '800' }}>
+                      Câmera
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          </View>
+        </View>
+
         <SettingsInputField
           label="URL da Foto de Perfil (Avatar)"
           value={avatarUrl}
@@ -1563,6 +1780,25 @@ export default function SettingsScreen() {
 
       <SettingsSectionCard title="Feed Social" icon={<Sliders size={16} color={colors.primary} />}>
         <SettingsChoiceGroup
+          label="Visualização dos Cards de Atividade"
+          helper="Aplica-se à Timeline, Perfil, Comunidades e Minhas Avaliações."
+          value={ext.activityCardMode}
+          onChange={(v) => updateExt('activityCardMode', v)}
+          options={[
+            {
+              value: 'full',
+              label: 'Completo (Estilo Feed)',
+              description: 'Capa grande em destaque, selo de nota e visualização completa igual à timeline.',
+            },
+            {
+              value: 'compact',
+              label: 'Compacto',
+              description: 'Layout condensado em linha com miniatura da capa para navegar mais rápido.',
+            },
+          ]}
+        />
+        <SettingsDivider />
+        <SettingsChoiceGroup
           label="Ordenação Padrão do Feed"
           value={ext.defaultFeedSort}
           onChange={(v) => updateExt('defaultFeedSort', v)}
@@ -1880,11 +2116,13 @@ export default function SettingsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <MobileHeader />
       <ScrollView
         ref={scrollRef}
         style={{ flex: 1 }}
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[
+          styles.container,
+          { paddingTop: Math.max(insets.top, 16) },
+        ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >

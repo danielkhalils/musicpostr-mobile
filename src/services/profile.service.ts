@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { formatSocialDate } from '@/utils/date';
 import {
   type MyReviewRecord,
   type FavoriteAlbumRecord,
@@ -310,12 +311,15 @@ export async function getUserReviews(identifier: { userId?: string; username?: s
         user_avatar,
         rating,
         comment,
+        is_edited,
         likes_count,
         created_at,
         album:albums(
           id,
           title,
           artist_name,
+          cover_xl,
+          cover_big,
           cover_medium,
           release_date,
           genre_name
@@ -338,10 +342,10 @@ export async function getUserReviews(identifier: { userId?: string; username?: s
         albumId: item.album_id,
         albumTitle: item.album?.title || 'Álbum',
         artistName: item.album?.artist_name || 'Artista',
-        coverUrl: item.album?.cover_medium || '',
+        coverUrl: item.album?.cover_xl || item.album?.cover_big || item.album?.cover_medium || '',
         rating: Number(item.rating),
         comment: item.comment,
-        date: item.created_at,
+        date: formatSocialDate(item.created_at, { isEdited: Boolean(item.is_edited) }),
       }));
     }
   } catch (error) {
@@ -373,6 +377,8 @@ export async function getUserFavoriteAlbums(identifier: { userId?: string; usern
           id,
           title,
           artist_name,
+          cover_xl,
+          cover_big,
           cover_medium,
           release_date,
           genre_name,
@@ -389,7 +395,7 @@ export async function getUserFavoriteAlbums(identifier: { userId?: string; usern
         id: item.album?.id || item.album_id,
         title: item.album?.title || 'Álbum',
         artist: item.album?.artist_name || 'Artista',
-        cover: item.album?.cover_medium || '',
+        cover: item.album?.cover_xl || item.album?.cover_big || item.album?.cover_medium || '',
         rating: Number(item.album?.community_rating || 0),
       }));
     }

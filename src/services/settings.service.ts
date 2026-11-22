@@ -1,8 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import { AppEvents } from './storage';
 
 export type AudienceOption = 'everyone' | 'friends' | 'nobody';
 export type FeedSortOption = 'for_you' | 'recent' | 'friends_only';
+export type ActivityCardMode = 'full' | 'compact';
 export type RatingScaleOption = '5_stars' | '10_points' | '100_points';
 export type StreamingServiceOption = 'spotify' | 'apple_music' | 'youtube_music' | 'deezer' | 'tidal';
 export type ImageQualityOption = 'auto' | 'high' | 'data_saver';
@@ -44,6 +46,7 @@ export interface ExtendedSettings {
   notifWeeklyDigest: boolean;
   // Conteúdo, Feed & Música
   defaultFeedSort: FeedSortOption;
+  activityCardMode: ActivityCardMode;
   ratingScale: RatingScaleOption;
   showCommunityRatingBeforeReview: boolean;
   preferredStreaming: StreamingServiceOption;
@@ -88,6 +91,7 @@ export const DEFAULT_EXTENDED_SETTINGS: ExtendedSettings = {
   notifFollowedLists: true,
   notifWeeklyDigest: false,
   defaultFeedSort: 'for_you',
+  activityCardMode: 'full',
   ratingScale: '5_stars',
   showCommunityRatingBeforeReview: true,
   preferredStreaming: 'spotify',
@@ -126,6 +130,7 @@ export async function saveExtendedSettings(
   try {
     const key = userId ? `${EXTENDED_SETTINGS_KEY}_${userId}` : EXTENDED_SETTINGS_KEY;
     await AsyncStorage.setItem(key, JSON.stringify(settings));
+    AppEvents.emit('musicpostr:settings-updated');
     return true;
   } catch {
     return false;

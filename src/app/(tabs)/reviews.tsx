@@ -1,4 +1,7 @@
 import { CoverImage } from '@/components/CoverImage';
+import { PageHeader } from '@/components/PageHeader';
+import { FeedStyleActivityCard } from '@/components/FeedStyleActivityCard';
+import { useActivityCardMode } from '@/hooks/use-activity-card-mode';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { subscribeAlbumsUpdated } from '@/services/musicBrainz.service';
@@ -43,6 +46,7 @@ export default function CommunityReviewsScreen() {
   const { colors, isDark } = useAppTheme();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
+  const { mode: cardMode } = useActivityCardMode();
 
   const [filter, setFilter] = useState<CommunityFilter>('all');
   const [searchTerm, setSearchTerm] = useState(params.search || '');
@@ -177,11 +181,7 @@ export default function CommunityReviewsScreen() {
       keyboardShouldPersistTaps="handled"
     >
       {/* Título Principal da Página */}
-      <View style={styles.pageHeaderBlock}>
-        <Text style={[styles.mainPageTitle, { color: colors.foreground }]}>
-          Comunidades
-        </Text>
-      </View>
+      <PageHeader title="Comunidades" />
       {/* 1. Barra de Busca de Reviews e Álbuns */}
       <View style={styles.topSearchContainer}>
         <View
@@ -487,7 +487,30 @@ export default function CommunityReviewsScreen() {
           </View>
         ) : (
           <>
-            {displayedReviews.map((review) => (
+            {displayedReviews.map((review) =>
+              cardMode === 'full' ? (
+                <FeedStyleActivityCard
+                  key={review.id}
+                  activityType="review"
+                  authorName={review.userName}
+                  authorUsername={review.username}
+                  authorAvatar={review.userAvatar}
+                  timeAgo={review.timeAgo}
+                  title={review.albumTitle}
+                  subtitle={review.artistName}
+                  coverUrl={review.albumCover}
+                  rating={review.rating}
+                  comment={review.comment}
+                  onPressTarget={() => router.push(`/album/${review.albumId}` as any)}
+                  onPressAuthor={() => router.push(`/user/${review.username}` as any)}
+                  likesCount={review.likesCount}
+                  isLiked={review.isLiked}
+                  onToggleLike={() => handleToggleLike(review.id)}
+                  commentsCount={review.commentsCount}
+                  onPressComment={() => router.push(`/album/${review.albumId}` as any)}
+                  onShare={() => handleShareReview(review)}
+                />
+              ) : (
               <View
                 key={review.id}
                 style={[
@@ -666,7 +689,8 @@ export default function CommunityReviewsScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
-            ))}
+              )
+            )}
 
             {/* Botão de carregar mais 10 publicações */}
             {visibleCount < filteredReviews.length && (

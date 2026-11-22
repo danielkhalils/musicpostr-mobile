@@ -1,8 +1,50 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 const memoryStore = new Map<string, string>();
 type Listener = () => void;
 const listeners = new Map<string, Set<Listener>>();
+
+const PERSISTED_PREFIX = 'musicpostr_';
+let hydrationStarted = false;
+let hydrationDone = false;
+
+async function hydrateFromAsyncStorage(): Promise<void> {
+  if (Platform.OS === 'web' || hydrationStarted) return;
+  hydrationStarted = true;
+  try {
+    const allKeys = await AsyncStorage.getAllKeys();
+    const targetKeys = allKeys.filter((k) => k.startsWith(PERSISTED_PREFIX));
+    if (targetKeys.length > 0) {
+      const pairs = await AsyncStorage.multiGet(targetKeys);
+      for (const [key, value] of pairs) {
+        if (value !== null && !memoryStore.has(key)) {
+          memoryStore.set(key, value);
+        }
+      }
+    }
+  } catch {
+    // ignore storage hydration errors
+  } finally {
+    hydrationDone = true;
+    AppEvents.emit('storage:hydrated');
+  }
+}
+
+export function isStorageHydrated(): boolean {
+  return Platform.OS === 'web' || hydrationDone;
+}
+
+export function onStorageHydrated(listener: Listener): () => void {
+  if (isStorageHydrated()) {
+    listener();
+    return () => {};
+  }
+  return AppEvents.on('storage:hydrated', listener);
+}
+
+// Inicia hidratação do cache persistente em background no mobile
+void hydrateFromAsyncStorage();
 
 export const Storage = {
   getItem(key: string): string | null {
@@ -31,6 +73,10 @@ export const Storage = {
       } catch {
         // ignore storage quota errors
       }
+    } else if (Platform.OS !== 'web' && key.startsWith(PERSISTED_PREFIX)) {
+      AsyncStorage.setItem(key, value).catch(() => {
+        // ignore native storage errors
+      });
     }
   },
 
@@ -42,6 +88,10 @@ export const Storage = {
       } catch {
         // ignore
       }
+    } else if (Platform.OS !== 'web' && key.startsWith(PERSISTED_PREFIX)) {
+      AsyncStorage.removeItem(key).catch(() => {
+        // ignore
+      });
     }
   },
 };

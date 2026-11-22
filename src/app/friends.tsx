@@ -8,10 +8,10 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
-import { Users, ArrowLeft } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
-import { MobileHeader } from '@/components/MobileHeader';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PageHeader } from '@/components/PageHeader';
 import { CoverImage } from '@/components/CoverImage';
 import {
   type FriendProfileRecord,
@@ -23,6 +23,7 @@ export default function FriendsScreen() {
   const isVisiting = Boolean(username);
   const { colors } = useAppTheme();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [friends, setFriends] = useState<FriendProfileRecord[]>([]);
 
@@ -47,41 +48,20 @@ export default function FriendsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <MobileHeader />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[
+          styles.container,
+          { paddingTop: Math.max(insets.top, 16) },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => safeGoBack('/(tabs)/profile')}
-        >
-          <ArrowLeft size={15} color={colors.mutedForeground} />
-          <Text
-            style={{
-              fontSize: 12,
-              fontWeight: '700',
-              color: colors.mutedForeground,
-            }}
-          >
-            Voltar ao Perfil
-          </Text>
-        </TouchableOpacity>
-
-        <View style={styles.headerBlock}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Users size={24} color={colors.primary} />
-            <Text style={[styles.pageTitle, { color: colors.foreground }]}>
-              {isVisiting ? `Amigos de @${username}` : 'Minha Rede de Amigos'}
-            </Text>
-          </View>
-          <Text
-            style={[styles.pageSubtitle, { color: colors.mutedForeground }]}
-          >
-            Críticos e entusiastas musicais conectados.
-          </Text>
-        </View>
+        <PageHeader
+          title={isVisiting ? `Amigos de @${username}` : 'Amigos'}
+          subtitle="Críticos e entusiastas musicais conectados."
+          onBack={() => safeGoBack('/(tabs)/profile')}
+          backLabel="Voltar ao Perfil"
+        />
 
         <View style={{ gap: 12 }}>
           {friends.map((friend) => (

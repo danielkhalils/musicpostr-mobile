@@ -245,23 +245,38 @@ async function mbFetchJson(pathAndQuery: string): Promise<any | null> {
   if (existingPromise) return existingPromise;
 
   const requestPromise = (async () => {
-    try {
+    const attemptFetch = async (): Promise<{ status: number; data: any | null }> => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6500);
-      const res = await fetch(`${MB_API_BASE}/${pathAndQuery}`, {
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'MusicpostrMobile/1.2.0 (https://musicpostr.com)',
-        },
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      if (!res.ok) return null;
-      const data = await res.json();
-      if (data && !data.unavailable && !data.error) {
-        writeApiCache(pathAndQuery, data);
+      const timeoutId = setTimeout(() => controller.abort(), 9000);
+      try {
+        const res = await fetch(`${MB_API_BASE}/${pathAndQuery}`, {
+          headers: {
+            Accept: 'application/json',
+            'User-Agent': 'MusicpostrMobile/1.2.0 (https://musicpostr.com)',
+          },
+          signal: controller.signal,
+        });
+        if (!res.ok) return { status: res.status, data: null };
+        const data = await res.json();
+        return { status: res.status, data };
+      } catch {
+        return { status: 0, data: null };
+      } finally {
+        clearTimeout(timeoutId);
       }
-      return data;
+    };
+
+    try {
+      let result = await attemptFetch();
+      // MusicBrainz retorna 503/429 quando excede 1 req/s — aguarda e tenta novamente uma vez
+      if (result.status === 503 || result.status === 429) {
+        await new Promise((resolve) => setTimeout(resolve, 950));
+        result = await attemptFetch();
+      }
+      if (result.data && !result.data.unavailable && !result.data.error) {
+        writeApiCache(pathAndQuery, result.data);
+      }
+      return result.data;
     } catch {
       return null;
     } finally {
@@ -571,17 +586,66 @@ export async function searchTracksInMusicBrainz(
   return tracks;
 }
 
-export async function fetchArtistDetailsFromMusicBrainz(artistId: string): Promise<{
+export interface MusicBrainzArtistDetails {
   id: string;
   name: string;
   bannerUrl: string;
   genre: string;
   country: string;
+  activeYears: string;
+  type: string;
+  disambiguation: string;
+  wikipediaUrl?: string;
+  wikidataId?: string;
   albums: CatalogAlbum[];
   epsAndSingles: CatalogAlbum[];
-} | null> {
+}
+
+function formatLifeSpan(lifeSpan?: { begin?: string | null; end?: string | null; ended?: boolean }): string {
+  if (!lifeSpan?.begin) return '';
+  const beginYear = String(lifeSpan.begin).substring(0, 4);
+  if (!/^\d{4}$/.test(beginYear)) return '';
+  if (lifeSpan.end) {
+    const endYear = String(lifeSpan.end).substring(0, 4);
+    if (/^\d{4}$/.test(endYear)) {
+      return `${beginYear} – ${endYear}`;
+    }
+  }
+  return lifeSpan.ended ? `${beginYear} – Encerrado` : `${beginYear} – presente`;
+}
+
+function translateArtistType(rawType?: string | null): string {
+  switch ((rawType || '').toLowerCase()) {
+    case 'person':
+      return 'Artista Solo';
+    case 'group':
+      return 'Banda / Grupo';
+    case 'orchestra':
+      return 'Orquestra';
+    case 'choir':
+      return 'Coral';
+    case 'character':
+      return 'Personagem';
+    default:
+      return '';
+  }
+}
+
+const EXCLUDED_STUDIO_SECONDARY_TYPES = new Set([
+  'compilation',
+  'live',
+  'interview',
+  'audiobook',
+  'spokenword',
+  'audio drama',
+  'dj-mix',
+]);
+
+export async function fetchArtistDetailsFromMusicBrainz(
+  artistId: string
+): Promise<MusicBrainzArtistDetails | null> {
   const artistData = await mbFetchJson(
-    `artist/${artistId}?inc=release-groups+tags+genres&fmt=json`
+    `artist/${artistId}?inc=release-groups+tags+genres+url-rels&fmt=json`
   );
 
   if (!artistData || !artistData.id) {
@@ -589,25 +653,96 @@ export async function fetchArtistDetailsFromMusicBrainz(artistId: string): Promi
   }
 
   const artistName = artistData.name || 'Artista';
-  const country = artistData.country || artistData.area?.name || '';
-  const genre = artistData.tags?.length
+  const beginArea = artistData['begin-area']?.name || '';
+  const mainArea = artistData.area?.name || '';
+  const countryCode = artistData.country || '';
+  const country =
+    beginArea && mainArea && beginArea !== mainArea
+      ? `${beginArea}, ${mainArea}`
+      : mainArea || beginArea || countryCode || '';
+
+  const rawGenres: { name: string; count?: number }[] = Array.isArray(artistData.genres)
+    ? artistData.genres
+    : [];
+  const rawTags: { name: string; count?: number }[] = Array.isArray(artistData.tags)
     ? artistData.tags
+    : [];
+  const genrePool = (rawGenres.length > 0 ? rawGenres : rawTags)
+    .slice()
+    .sort((a, b) => (b.count || 0) - (a.count || 0));
+
+  const genre = genrePool.length
+    ? genrePool
         .slice(0, 3)
-        .map((t: any) => t.name)
+        .map((t) =>
+          t.name
+            .split(' ')
+            .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : ''))
+            .join(' ')
+        )
         .join(' • ')
     : 'Artista';
 
-  const releaseGroups: any[] = artistData['release-groups'] || [];
+  const activeYears = formatLifeSpan(artistData['life-span']);
+  const type = translateArtistType(artistData.type);
+  const disambiguation = artistData.disambiguation || '';
+
+  let wikipediaUrl: string | undefined;
+  let wikidataId: string | undefined;
+  const relations: any[] = Array.isArray(artistData.relations) ? artistData.relations : [];
+  for (const rel of relations) {
+    const resource = String(rel?.url?.resource || '');
+    if (!resource) continue;
+    if (rel.type === 'wikipedia' || resource.includes('wikipedia.org/wiki/')) {
+      if (!wikipediaUrl || resource.includes('pt.wikipedia.org')) {
+        wikipediaUrl = resource;
+      }
+    } else if (rel.type === 'wikidata' || resource.includes('wikidata.org/wiki/')) {
+      const match = resource.match(/\/(Q\d+)$/i);
+      if (match?.[1]) wikidataId = match[1].toUpperCase();
+    }
+  }
+
+  let releaseGroups: any[] = artistData['release-groups'] || [];
+
+  // O endpoint artist?inc=release-groups retorna no máximo 25 itens.
+  // Se atingiu o limite, busca a discografia completa (até 100 itens).
+  if (releaseGroups.length >= 25) {
+    const fullRgData = await mbFetchJson(
+      `release-group?artist=${artistId}&limit=100&fmt=json`
+    );
+    if (fullRgData && Array.isArray(fullRgData['release-groups']) && fullRgData['release-groups'].length > releaseGroups.length) {
+      releaseGroups = fullRgData['release-groups'];
+    }
+  }
 
   const uniqueMap = new Map<string, any>();
   for (const rg of releaseGroups) {
-    const normTitle = String(rg.title || '').toLowerCase().trim();
+    const secondaryTypes: string[] = Array.isArray(rg['secondary-types'])
+      ? rg['secondary-types'].map((s: string) => s.toLowerCase())
+      : [];
+    const primaryType = String(rg['primary-type'] || '').toLowerCase();
+
+    // Remove compilações, entrevistas, audiobooks e gravações ao vivo da discografia principal
+    if (
+      primaryType === 'album' &&
+      secondaryTypes.some((s) => EXCLUDED_STUDIO_SECONDARY_TYPES.has(s))
+    ) {
+      continue;
+    }
+
+    const normTitle = String(rg.title || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
     if (!normTitle) continue;
-    const existing = uniqueMap.get(normTitle);
+    const dedupeKey = `${normalizeRecordType(rg['primary-type'], rg['secondary-types'])}::${normTitle}`;
+    const existing = uniqueMap.get(dedupeKey);
     if (!existing) {
-      uniqueMap.set(normTitle, rg);
+      uniqueMap.set(dedupeKey, rg);
     } else if (!existing['first-release-date'] && rg['first-release-date']) {
-      uniqueMap.set(normTitle, rg);
+      uniqueMap.set(dedupeKey, rg);
     }
   }
 
@@ -638,9 +773,170 @@ export async function fetchArtistDetailsFromMusicBrainz(artistId: string): Promi
     bannerUrl,
     genre,
     country,
+    activeYears,
+    type,
+    disambiguation,
+    wikipediaUrl,
+    wikidataId,
     albums,
     epsAndSingles,
   };
+}
+
+const BIO_CACHE_PREFIX = 'musicpostr_artist_bio_v1_';
+const BIO_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 dias
+const bioMemoryCache = new Map<string, { bio: string; source: string } | null>();
+const inflightBioRequests = new Map<string, Promise<{ bio: string; source: string } | null>>();
+
+async function fetchWikiSummary(lang: 'pt' | 'en', pageTitle: string): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(
+      `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageTitle)}`,
+      {
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data?.type === 'disambiguation') return null;
+    const extract = typeof data?.extract === 'string' ? data.extract.trim() : '';
+    return extract.length >= 40 ? extract : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveWikiTitlesFromWikidata(
+  wikidataId: string
+): Promise<{ pt?: string; en?: string }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5500);
+    const res = await fetch(
+      `https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${encodeURIComponent(
+        wikidataId
+      )}&props=sitelinks&sitefilter=ptwiki|enwiki&format=json&origin=*`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timer);
+    if (!res.ok) return {};
+    const data = await res.json();
+    const sitelinks = data?.entities?.[wikidataId]?.sitelinks;
+    return {
+      pt: sitelinks?.ptwiki?.title,
+      en: sitelinks?.enwiki?.title,
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Busca a biografia real do artista na Wikipedia (priorizando PT-BR, com fallback para EN)
+ * usando os links oficiais do MusicBrainz/Wikidata ou busca direta pelo nome.
+ */
+export async function fetchArtistBioFromWikipedia(
+  artistName: string,
+  wikipediaUrl?: string,
+  wikidataId?: string
+): Promise<{ bio: string; source: string } | null> {
+  const key = artistName.trim().toLowerCase();
+  if (!key) return null;
+
+  if (bioMemoryCache.has(key)) {
+    return bioMemoryCache.get(key) ?? null;
+  }
+
+  try {
+    const raw = Storage.getItem(BIO_CACHE_PREFIX + key);
+    if (raw) {
+      const parsed = JSON.parse(raw) as {
+        value: { bio: string; source: string } | null;
+        cachedAt: number;
+      };
+      if (Date.now() - parsed.cachedAt < BIO_CACHE_TTL_MS) {
+        bioMemoryCache.set(key, parsed.value);
+        return parsed.value;
+      }
+      Storage.removeItem(BIO_CACHE_PREFIX + key);
+    }
+  } catch {
+    // ignore
+  }
+
+  const pending = inflightBioRequests.get(key);
+  if (pending) return pending;
+
+  const task = (async (): Promise<{ bio: string; source: string } | null> => {
+    let result: { bio: string; source: string } | null = null;
+
+    // 1. Se temos Wikidata ID do MusicBrainz, resolvemos diretamente o artigo PT e EN exato
+    if (wikidataId) {
+      const titles = await resolveWikiTitlesFromWikidata(wikidataId);
+      if (titles.pt) {
+        const ptBio = await fetchWikiSummary('pt', titles.pt);
+        if (ptBio) result = { bio: ptBio, source: 'Wikipedia (PT) & MusicBrainz' };
+      }
+      if (!result && titles.en) {
+        const enBio = await fetchWikiSummary('en', titles.en);
+        if (enBio) result = { bio: enBio, source: 'Wikipedia (EN) & MusicBrainz' };
+      }
+    }
+
+    // 2. Se temos URL direta da Wikipedia do MusicBrainz
+    if (!result && wikipediaUrl) {
+      const match = wikipediaUrl.match(/https?:\/\/([a-z]{2})\.wikipedia\.org\/wiki\/(.+)$/i);
+      if (match?.[1] && match?.[2]) {
+        const lang = match[1].toLowerCase() === 'pt' ? 'pt' : 'en';
+        const title = decodeURIComponent(match[2]).replace(/_/g, ' ');
+        const directBio = await fetchWikiSummary(lang, title);
+        if (directBio) {
+          result = {
+            bio: directBio,
+            source: `Wikipedia (${lang.toUpperCase()}) & MusicBrainz`,
+          };
+        }
+      }
+    }
+
+    // 3. Fallback por nome exato na Wikipedia PT e depois EN (validando contexto musical)
+    if (!result) {
+      const musicRegex =
+        /\b(cantor|cantora|banda|músic|music|singer|songwriter|rapper|band|album|álbum|rock|pop|hip[- ]hop|dj|produtor|producer|compositor|vocalist|guitarist|mpb|samba|funk|sertanejo|jazz|soul)\b/i;
+
+      const ptDirect = await fetchWikiSummary('pt', artistName.trim());
+      if (ptDirect && musicRegex.test(ptDirect)) {
+        result = { bio: ptDirect, source: 'Wikipedia (PT) & MusicBrainz' };
+      } else {
+        const enDirect = await fetchWikiSummary('en', artistName.trim());
+        if (enDirect && musicRegex.test(enDirect)) {
+          result = { bio: enDirect, source: 'Wikipedia (EN) & MusicBrainz' };
+        }
+      }
+    }
+
+    bioMemoryCache.set(key, result);
+    try {
+      Storage.setItem(
+        BIO_CACHE_PREFIX + key,
+        JSON.stringify({ value: result, cachedAt: Date.now() })
+      );
+    } catch {
+      // ignore
+    }
+    return result;
+  })();
+
+  inflightBioRequests.set(key, task);
+  try {
+    return await task;
+  } finally {
+    inflightBioRequests.delete(key);
+  }
 }
 
 export async function fetchAlbumDetailsFromMusicBrainz(

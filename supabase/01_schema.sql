@@ -175,6 +175,26 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Garante que bases já existentes recebam todas as colunas novas de `profiles`
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS full_name TEXT DEFAULT 'Melômano',
+  ADD COLUMN IF NOT EXISTS email TEXT,
+  ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT 'Entusiasta de álbuns conceituais, vinil e descobertas musicais na comunidade Musicpostr.',
+  ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500',
+  ADD COLUMN IF NOT EXISTS banner_url TEXT DEFAULT 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=65&w=600&auto=format&fit=crop',
+  ADD COLUMN IF NOT EXISTS profile_visibility public.profile_visibility_enum NOT NULL DEFAULT 'public',
+  ADD COLUMN IF NOT EXISTS email_notif BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS community_notif BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS releases_notif BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS is_linked_google BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS is_linked_apple BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS auth_provider TEXT DEFAULT 'email',
+  ADD COLUMN IF NOT EXISTS theme_preference TEXT DEFAULT 'dark',
+  ADD COLUMN IF NOT EXISTS socials JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
 CREATE INDEX IF NOT EXISTS idx_profiles_username ON public.profiles (LOWER(username));
 
 -- 4.2. Amizades e Conexões (`friendships`)
@@ -507,6 +527,7 @@ SELECT
 FROM public.albums a;
 
 -- View: Estatísticas Consolidadas de Perfil (`ProfileView`)
+DROP VIEW IF EXISTS public.v_profile_stats;
 CREATE OR REPLACE VIEW public.v_profile_stats AS
 SELECT
   p.id AS user_id,
@@ -604,17 +625,33 @@ DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 CREATE POLICY "Users can update own profile" ON public.profiles
   FOR UPDATE USING (auth.uid() = id);
 
+GRANT SELECT, INSERT, UPDATE ON public.artists TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.albums TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.tracks TO authenticated;
+
 DROP POLICY IF EXISTS "Authenticated users can upsert catalog artists" ON public.artists;
-CREATE POLICY "Authenticated users can upsert catalog artists" ON public.artists
-  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Authenticated users can insert catalog artists" ON public.artists;
+DROP POLICY IF EXISTS "Authenticated users can update catalog artists" ON public.artists;
+CREATE POLICY "Authenticated users can insert catalog artists" ON public.artists
+  FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Authenticated users can update catalog artists" ON public.artists
+  FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Authenticated users can upsert catalog albums" ON public.albums;
-CREATE POLICY "Authenticated users can upsert catalog albums" ON public.albums
-  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Authenticated users can insert catalog albums" ON public.albums;
+DROP POLICY IF EXISTS "Authenticated users can update catalog albums" ON public.albums;
+CREATE POLICY "Authenticated users can insert catalog albums" ON public.albums
+  FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Authenticated users can update catalog albums" ON public.albums
+  FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Authenticated users can upsert catalog tracks" ON public.tracks;
-CREATE POLICY "Authenticated users can upsert catalog tracks" ON public.tracks
-  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Authenticated users can insert catalog tracks" ON public.tracks;
+DROP POLICY IF EXISTS "Authenticated users can update catalog tracks" ON public.tracks;
+CREATE POLICY "Authenticated users can insert catalog tracks" ON public.tracks
+  FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Authenticated users can update catalog tracks" ON public.tracks
+  FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Users can manage own friendships" ON public.friendships;
 CREATE POLICY "Users can manage own friendships" ON public.friendships

@@ -26,6 +26,7 @@ import {
   getGenresFromSupabase,
 } from '@/services/catalog.service';
 import { CoverImage } from '@/components/CoverImage';
+import { PageHeader } from '@/components/PageHeader';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface RankingAlbum extends CatalogAlbum {
@@ -128,11 +129,7 @@ export default function RankingsScreen() {
       showsVerticalScrollIndicator={false}
     >
       {/* Título Principal da Página */}
-      <View style={styles.pageHeaderBlock}>
-        <Text style={[styles.mainPageTitle, { color: colors.foreground }]}>
-          Rankings
-        </Text>
-      </View>
+      <PageHeader title="Rankings" />
       {/* Filtros de Ranking no Topo */}
       <View style={styles.filterBarContainer}>
         <ScrollView

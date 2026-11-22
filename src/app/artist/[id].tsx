@@ -29,10 +29,19 @@ import {
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
+import { Image } from 'expo-image';
 import { CoverImage } from '@/components/CoverImage';
+import {
+  buildDeezerCoverIndex,
+  fetchDeezerArtistAlbums,
+  matchDeezerCover,
+  resolveDeezerArtistProfile,
+  type DeezerAlbumCover,
+} from '@/services/artistImage.service';
 import {
   type CatalogAlbum,
   type CatalogArtist,
+  fetchArtistBioFromWikipedia,
   fetchArtistDetailsFromMusicBrainz,
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
@@ -65,10 +74,12 @@ export default function ArtistDetailScreen() {
     bio: '',
     label: '',
     activeYears: '',
+    type: '',
     source: 'Supabase & MusicBrainz',
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isSyncingBio, setIsSyncingBio] = useState(false);
 
   const [followedIds, setFollowedIds] = useState<string[]>([]);
 
@@ -100,13 +111,109 @@ export default function ArtistDetailScreen() {
     let isMounted = true;
     if (!id) return;
 
+    // Limpa estado anterior ao trocar de artista (ex.: clique em Artista Relacionado)
+    setArtistName('');
+    setArtistBanner('');
+    setArtistGenre('Artista');
+    setArtistCountry('');
+    setArtistFans(0);
+    setAlbums([]);
+    setEpsAndSingles([]);
+    setRelatedArtists([]);
+    setArtistInfo({
+      bio: '',
+      label: '',
+      activeYears: '',
+      type: '',
+      source: 'Supabase & MusicBrainz',
+    });
     setVisibleAlbumsCount(10);
     setVisibleEpsCount(10);
     setIsLoading(true);
+    setIsSyncing(false);
+    setIsSyncingBio(false);
+
+    const applyDeezerCovers = (
+      list: CatalogAlbum[],
+      index: { exact: Map<string, DeezerAlbumCover>; base: Map<string, DeezerAlbumCover> }
+    ): CatalogAlbum[] =>
+      list.map((item) => {
+        const matched = matchDeezerCover(item.title, index);
+        if (!matched) return item;
+        return {
+          ...item,
+          cover_xl: matched.cover_xl || item.cover_xl,
+          cover_big: matched.cover_big || item.cover_big,
+          cover_medium: matched.cover_medium || item.cover_medium,
+          cover_small: matched.cover_small || item.cover_small,
+          release_date: item.release_date || matched.release_date,
+        };
+      });
+
+    const mergeDiscography = (
+      base: CatalogAlbum[],
+      incoming: CatalogAlbum[],
+      deezerIndex: { exact: Map<string, DeezerAlbumCover>; base: Map<string, DeezerAlbumCover> } | null
+    ): CatalogAlbum[] => {
+      const map = new Map<string, CatalogAlbum>();
+      base.forEach((a) => map.set(a.id, a));
+      incoming.forEach((a) => {
+        if (!map.has(a.id)) map.set(a.id, a);
+      });
+      const merged = Array.from(map.values()).sort((a, b) =>
+        String(b.release_date || '').localeCompare(String(a.release_date || ''))
+      );
+      return deezerIndex ? applyDeezerCovers(merged, deezerIndex) : merged;
+    };
 
     const loadArtist = async () => {
-      const dbData = await getArtistFromSupabase(id);
+      let deezerIndex: { exact: Map<string, DeezerAlbumCover>; base: Map<string, DeezerAlbumCover> } | null = null;
+      let deezerStartedFor = '';
+
+      const triggerDeezerEnrichment = (name: string, hasCommunityFans: boolean) => {
+        const trimmed = name.trim();
+        if (!trimmed || deezerStartedFor === trimmed.toLowerCase()) return;
+        deezerStartedFor = trimmed.toLowerCase();
+
+        // Carrega perfil (foto HD + fãs) e todas as capas da discografia no Deezer em paralelo
+        resolveDeezerArtistProfile(trimmed)
+          .then((profile) => {
+            if (!isMounted || !profile) return;
+            if (profile.imageUrl) {
+              setArtistBanner((prev) => prev || profile.imageUrl || '');
+            }
+            if (!hasCommunityFans && profile.nbFans > 0) {
+              setArtistFans((prev) => (prev > 0 ? prev : profile.nbFans));
+            }
+          })
+          .catch(() => {});
+
+        fetchDeezerArtistAlbums(trimmed)
+          .then((deezerAlbums) => {
+            if (!isMounted || deezerAlbums.length === 0) return;
+            deezerIndex = buildDeezerCoverIndex(deezerAlbums);
+            setAlbums((prev) => {
+              const enriched = applyDeezerCovers(prev, deezerIndex!);
+              const urls = enriched
+                .slice(0, 10)
+                .map((a) => a.cover_medium || a.cover_big)
+                .filter(Boolean);
+              if (urls.length > 0) Image.prefetch(urls).catch(() => {});
+              return enriched;
+            });
+            setEpsAndSingles((prev) => applyDeezerCovers(prev, deezerIndex!));
+          })
+          .catch(() => {});
+      };
+
+      // Dispara Supabase e MusicBrainz em paralelo para reduzir drasticamente o tempo de carregamento
+      const dbPromise = getArtistFromSupabase(id).catch(() => null);
+      const mbPromise = fetchArtistDetailsFromMusicBrainz(id).catch(() => null);
+
+      const dbData = await dbPromise;
       if (!isMounted) return;
+
+      const hasDbBio = Boolean(dbData?.bio && dbData.bio.trim().length > 20);
 
       if (dbData) {
         setArtistName(dbData.artist.name);
@@ -118,17 +225,23 @@ export default function ArtistDetailScreen() {
         setEpsAndSingles(dbData.epsAndSingles);
         setRelatedArtists(dbData.related);
         setArtistInfo({
-          bio: dbData.bio || 'Informações biográficas ainda não cadastradas para este artista.',
+          bio: hasDbBio ? dbData.bio : '',
           label: dbData.labelName || 'Independente',
-          activeYears: dbData.activeYears || 'Não informado',
+          activeYears: dbData.activeYears || '',
+          type: dbData.artist.type || '',
           source: 'Catálogo Musicpostr & MusicBrainz',
         });
         setIsLoading(false);
         setIsSyncing(true);
+        if (!hasDbBio) setIsSyncingBio(true);
+
+        triggerDeezerEnrichment(dbData.artist.name, dbData.artist.nbFans > 0);
       }
 
-      const mbDetails = await fetchArtistDetailsFromMusicBrainz(id).catch(() => null);
+      const mbDetails = await mbPromise;
       if (!isMounted) return;
+
+      const resolvedName = dbData?.artist.name || mbDetails?.name || '';
 
       if (mbDetails) {
         if (!dbData) {
@@ -137,33 +250,63 @@ export default function ArtistDetailScreen() {
           if (mbDetails.genre) setArtistGenre(mbDetails.genre);
           if (mbDetails.country) setArtistCountry(mbDetails.country);
           setArtistInfo({
-            bio: 'Dados carregados diretamente da base oficial MusicBrainz.',
+            bio: '',
             label: 'Não informada',
-            activeYears: 'Não informado',
+            activeYears: mbDetails.activeYears || '',
+            type: mbDetails.type || '',
             source: 'MusicBrainz',
           });
+          setIsLoading(false);
+          setIsSyncingBio(true);
+        } else {
+          // Enriquece campos ausentes do Supabase com os dados reais do MusicBrainz
+          if (!dbData.artist.country && mbDetails.country) {
+            setArtistCountry(mbDetails.country);
+          }
+          if ((!dbData.artist.genre || dbData.artist.genre === 'Artista') && mbDetails.genre) {
+            setArtistGenre(mbDetails.genre);
+          }
+          setArtistInfo((prev) => ({
+            ...prev,
+            activeYears: prev.activeYears || mbDetails.activeYears || '',
+            type: prev.type || mbDetails.type || '',
+          }));
         }
-        // Mescla discografia do Supabase com MusicBrainz sem duplicar
-        setAlbums((prev) => {
-          const map = new Map<string, CatalogAlbum>();
-          prev.forEach((a) => map.set(a.id, a));
-          mbDetails.albums.forEach((a) => {
-            if (!map.has(a.id)) map.set(a.id, a);
-          });
-          return Array.from(map.values());
-        });
-        setEpsAndSingles((prev) => {
-          const map = new Map<string, CatalogAlbum>();
-          prev.forEach((a) => map.set(a.id, a));
-          mbDetails.epsAndSingles.forEach((a) => {
-            if (!map.has(a.id)) map.set(a.id, a);
-          });
-          return Array.from(map.values());
-        });
+
+        triggerDeezerEnrichment(resolvedName, Boolean(dbData && dbData.artist.nbFans > 0));
+
+        // Mescla discografia do Supabase com MusicBrainz sem duplicar e aplica capas do Deezer
+        setAlbums((prev) => mergeDiscography(prev, mbDetails.albums, deezerIndex));
+        setEpsAndSingles((prev) => mergeDiscography(prev, mbDetails.epsAndSingles, deezerIndex));
       }
 
       setIsLoading(false);
       setIsSyncing(false);
+
+      // Se não há biografia salva no Supabase, busca resumo real na Wikipedia (PT/EN)
+      if (!hasDbBio && resolvedName) {
+        setIsSyncingBio(true);
+        const wikiResult = await fetchArtistBioFromWikipedia(
+          resolvedName,
+          mbDetails?.wikipediaUrl,
+          mbDetails?.wikidataId
+        ).catch(() => null);
+        if (!isMounted) return;
+
+        setArtistInfo((prev) => ({
+          ...prev,
+          bio:
+            wikiResult?.bio ||
+            prev.bio ||
+            (mbDetails?.disambiguation
+              ? `${resolvedName} — ${mbDetails.disambiguation}. Dados catalogados via MusicBrainz.`
+              : 'Informações biográficas ainda não disponíveis para este artista.'),
+          source: wikiResult?.source || prev.source,
+        }));
+        setIsSyncingBio(false);
+      } else {
+        setIsSyncingBio(false);
+      }
     };
 
     loadArtist();
@@ -535,9 +678,11 @@ export default function ArtistDetailScreen() {
                     activeOpacity={0.85}
                   >
                     <CoverImage
-                      uri={album.cover_small || album.cover_medium || album.cover_big}
+                      uri={album.cover_medium || album.cover_big || album.cover_small}
+                      albumTitle={album.title}
+                      albumArtist={artistName || album.artist?.name}
                       style={styles.releaseCover}
-                      quality="low"
+                      quality="medium"
                     />
                     <Text
                       style={[
@@ -630,9 +775,11 @@ export default function ArtistDetailScreen() {
                     activeOpacity={0.85}
                   >
                     <CoverImage
-                      uri={item.cover_small || item.cover_medium || item.cover_big}
+                      uri={item.cover_medium || item.cover_big || item.cover_small}
+                      albumTitle={item.title}
+                      albumArtist={artistName || item.artist?.name}
                       style={styles.releaseCover}
-                      quality="low"
+                      quality="medium"
                     />
                     <Text
                       style={[
@@ -915,7 +1062,8 @@ export default function ArtistDetailScreen() {
                     ]}
                     numberOfLines={1}
                   >
-                    Carreira Ativa
+                    {artistInfo.activeYears || 'Carreira Ativa'}
+                    {artistInfo.type ? ` • ${artistInfo.type}` : ''}
                   </Text>
                 </View>
               </View>
@@ -933,17 +1081,26 @@ export default function ArtistDetailScreen() {
                 Biografia e Trajetória
               </Text>
               <ScrollView
-                style={{ maxHeight: 150 }}
+                style={{ maxHeight: 170 }}
                 showsVerticalScrollIndicator={false}
               >
-                <Text
-                  style={[
-                    styles.modalBioText,
-                    { color: colors.foreground },
-                  ]}
-                >
-                  {artistInfo.bio}
-                </Text>
+                {isSyncingBio && !artistInfo.bio ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 }}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={{ fontSize: 12.5, color: colors.mutedForeground }}>
+                      Carregando biografia...
+                    </Text>
+                  </View>
+                ) : (
+                  <Text
+                    style={[
+                      styles.modalBioText,
+                      { color: colors.foreground },
+                    ]}
+                  >
+                    {artistInfo.bio || 'Informações biográficas ainda não disponíveis para este artista.'}
+                  </Text>
+                )}
               </ScrollView>
             </View>
 
@@ -961,7 +1118,7 @@ export default function ArtistDetailScreen() {
                   fontStyle: 'italic',
                 }}
               >
-                Informações catalogadas via Wikipedia & MusicBrainz API
+                Fonte: {artistInfo.source}
               </Text>
             </View>
           </View>

@@ -1,9 +1,10 @@
-import { Storage } from './storage';
+import { onStorageHydrated, Storage } from './storage';
 
 const MB_RELEASE_SEARCH = 'https://musicbrainz.org/ws/2/release';
 const CAA_RELEASE_BASE = 'https://coverartarchive.org/release';
 const CAA_RELEASE_GROUP_BASE = 'https://coverartarchive.org/release-group';
 const CACHE_PREFIX = 'musicpostr_coverart_v2_';
+const RESOLVED_ALBUM_COVER_KEY = 'musicpostr_resolved_album_covers_v1';
 const MISSING_COVERS_KEY = 'musicpostr_missing_covers_v2';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 dias
 const NEGATIVE_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 1 dia
@@ -30,6 +31,11 @@ export const DEFAULT_ALBUM_COVER = FALLBACK_ALBUM_POOL[0];
 
 export const DEFAULT_ARTIST_IMAGE = FALLBACK_ARTIST_POOL[0];
 
+export function isFallbackPlaceholderUrl(url?: string | null): boolean {
+  if (!url) return true;
+  return url.includes('images.unsplash.com/photo-');
+}
+
 export function getFallbackImageUrl(
   seed?: string | null,
   type: 'album' | 'artist' = 'album'
@@ -44,14 +50,49 @@ export function getFallbackImageUrl(
 }
 
 const missingCoversMemory = new Set<string>();
-try {
-  const savedMissing = Storage.getItem(MISSING_COVERS_KEY);
-  if (savedMissing) {
-    const parsed: string[] = JSON.parse(savedMissing);
-    parsed.forEach((id) => missingCoversMemory.add(id));
+const resolvedAlbumCoversMemory = new Map<string, string | null>();
+const inflightAlbumCoverResolve = new Map<string, Promise<string | null>>();
+
+function loadPersistedCoverCaches(): void {
+  try {
+    const savedMissing = Storage.getItem(MISSING_COVERS_KEY);
+    if (savedMissing) {
+      const parsed: string[] = JSON.parse(savedMissing);
+      parsed.forEach((id) => missingCoversMemory.add(id));
+    }
+  } catch {
+    // ignore
   }
-} catch {
-  // ignore
+  try {
+    const savedResolved = Storage.getItem(RESOLVED_ALBUM_COVER_KEY);
+    if (savedResolved) {
+      const parsed: Record<string, string | null> = JSON.parse(savedResolved);
+      Object.entries(parsed).forEach(([k, v]) => {
+        if (!resolvedAlbumCoversMemory.has(k)) {
+          resolvedAlbumCoversMemory.set(k, v);
+        }
+      });
+    }
+  } catch {
+    // ignore
+  }
+}
+
+loadPersistedCoverCaches();
+onStorageHydrated(loadPersistedCoverCaches);
+
+let persistResolvedTimer: ReturnType<typeof setTimeout> | null = null;
+function persistResolvedAlbumCovers(): void {
+  if (persistResolvedTimer) return;
+  persistResolvedTimer = setTimeout(() => {
+    persistResolvedTimer = null;
+    try {
+      const entries = Array.from(resolvedAlbumCoversMemory.entries()).slice(-300);
+      Storage.setItem(RESOLVED_ALBUM_COVER_KEY, JSON.stringify(Object.fromEntries(entries)));
+    } catch {
+      // ignore
+    }
+  }, 800);
 }
 
 export function markCoverAsMissing(url: string): void {
@@ -67,6 +108,154 @@ export function markCoverAsMissing(url: string): void {
     Storage.setItem(MISSING_COVERS_KEY, JSON.stringify(arr));
   } catch {
     // ignore
+  }
+}
+
+function normalizeText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function stripEditionSuffix(title: string): string {
+  return title
+    .replace(/\s*\([^)]*(deluxe|remaster|edition|version|explicit|bonus|expanded|anniversary)[^)]*\)/gi, '')
+    .replace(/\s*\[[^\]]*\]/g, '')
+    .trim();
+}
+
+function buildResolvedCoverKey(albumTitle: string, artistName?: string | null): string {
+  return `${normalizeText(artistName || '')}::${normalizeText(albumTitle)}`;
+}
+
+export function getCachedResolvedAlbumCover(
+  albumTitle?: string | null,
+  artistName?: string | null
+): string | null | undefined {
+  if (!albumTitle) return undefined;
+  const key = buildResolvedCoverKey(albumTitle, artistName);
+  return resolvedAlbumCoversMemory.get(key);
+}
+
+/**
+ * Resolve a capa oficial de um álbum via Deezer (com fallback para iTunes Search API)
+ * quando a URL primária (ex.: Cover Art Archive) falha ou não existe.
+ */
+export async function resolveAlbumCoverUrl(
+  albumTitle?: string | null,
+  artistName?: string | null
+): Promise<string | null> {
+  if (!albumTitle || !albumTitle.trim()) return null;
+  const key = buildResolvedCoverKey(albumTitle, artistName);
+  if (!key || key === '::') return null;
+
+  if (resolvedAlbumCoversMemory.has(key)) {
+    return resolvedAlbumCoversMemory.get(key) ?? null;
+  }
+
+  const pending = inflightAlbumCoverResolve.get(key);
+  if (pending) return pending;
+
+  const task = (async (): Promise<string | null> => {
+    const cleanTitle = stripEditionSuffix(albumTitle.trim()) || albumTitle.trim();
+    const normTitle = normalizeText(cleanTitle);
+    const normArtist = normalizeText(artistName || '');
+
+    const titleMatches = (candidate: string) => {
+      const c = normalizeText(stripEditionSuffix(candidate || ''));
+      if (!c || !normTitle) return false;
+      return c === normTitle || c.includes(normTitle) || normTitle.includes(c);
+    };
+
+    const artistMatches = (candidate: string) => {
+      if (!normArtist) return true;
+      const c = normalizeText(candidate || '');
+      if (!c) return false;
+      return c === normArtist || c.includes(normArtist) || normArtist.includes(c);
+    };
+
+    // 1. Tentativa via Deezer Album Search
+    try {
+      const query = artistName?.trim()
+        ? `artist:"${artistName.trim()}" album:"${cleanTitle}"`
+        : cleanTitle;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5500);
+      const res = await fetch(
+        `https://api.deezer.com/search/album?q=${encodeURIComponent(query)}&limit=6`,
+        { signal: controller.signal }
+      );
+      clearTimeout(timer);
+
+      if (res.ok) {
+        const json = await res.json();
+        const list: any[] = Array.isArray(json?.data) ? json.data : [];
+        const match =
+          list.find(
+            (item) =>
+              titleMatches(String(item?.title || '')) &&
+              artistMatches(String(item?.artist?.name || ''))
+          ) ||
+          list.find((item) => artistMatches(String(item?.artist?.name || '')));
+
+        const coverUrl: string | undefined =
+          match?.cover_big || match?.cover_xl || match?.cover_medium;
+        if (coverUrl && !/\/images\/cover\/\//.test(coverUrl)) {
+          resolvedAlbumCoversMemory.set(key, coverUrl);
+          persistResolvedAlbumCovers();
+          return coverUrl;
+        }
+      }
+    } catch {
+      // fallback to iTunes
+    }
+
+    // 2. Fallback via iTunes Search API
+    try {
+      const term = artistName?.trim()
+        ? `${artistName.trim()} ${cleanTitle}`
+        : cleanTitle;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5500);
+      const res = await fetch(
+        `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=album&limit=6`,
+        { signal: controller.signal }
+      );
+      clearTimeout(timer);
+
+      if (res.ok) {
+        const json = await res.json();
+        const list: any[] = Array.isArray(json?.results) ? json.results : [];
+        const match = list.find(
+          (item) =>
+            titleMatches(String(item?.collectionName || '')) &&
+            artistMatches(String(item?.artistName || ''))
+        );
+        const rawArt: string | undefined = match?.artworkUrl100 || match?.artworkUrl60;
+        if (rawArt) {
+          const highRes = rawArt.replace(/\d+x\d+bb\.(jpg|png)/i, '600x600bb.$1');
+          resolvedAlbumCoversMemory.set(key, highRes);
+          persistResolvedAlbumCovers();
+          return highRes;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    resolvedAlbumCoversMemory.set(key, null);
+    persistResolvedAlbumCovers();
+    return null;
+  })();
+
+  inflightAlbumCoverResolve.set(key, task);
+  try {
+    return await task;
+  } finally {
+    inflightAlbumCoverResolve.delete(key);
   }
 }
 
@@ -114,11 +303,20 @@ export function optimizeCoverUrl(
 ): string | undefined {
   if (!url) return undefined;
   if (url.includes('coverartarchive.org')) {
-    return url.replace(/\/(front|back)-(1200|500|250)\b/, `/$1-${targetSize}`);
+    return url.replace(/\/(front|back)(?:-(1200|500|250))?\b/, `/$1-${targetSize}`);
+  }
+  if (url.includes('dzcdn.net') || url.includes('e-cdns-images.dzcdn.net')) {
+    const dim = targetSize === '1200' ? '1000x1000' : targetSize === '500' ? '500x500' : '250x250';
+    const jpgQuality = targetSize === '1200' ? '90' : '85';
+    return url.replace(/\/\d+x\d+-\d+-\d+-\d+-\d+\.jpg/i, `/${dim}-000000-${jpgQuality}-0-0.jpg`);
+  }
+  if (url.includes('mzstatic.com')) {
+    const dim = targetSize === '1200' ? '1000x1000' : targetSize === '500' ? '600x600' : '300x300';
+    return url.replace(/\/\d+x\d+bb\.(jpg|png)/i, `/${dim}bb.$1`);
   }
   if (url.includes('images.unsplash.com')) {
-    const width = targetSize === '1200' ? '1080' : targetSize === '500' ? '500' : '250';
-    const quality = targetSize === '1200' ? '80' : '65';
+    const width = targetSize === '1200' ? '1200' : targetSize === '500' ? '600' : '300';
+    const quality = targetSize === '1200' ? '85' : '75';
     return url
       .replace(/([?&])q=\d+/, `$1q=${quality}`)
       .replace(/([?&])w=\d+/, `$1w=${width}`);
@@ -311,42 +509,55 @@ export async function findAlbumCoverArt(
       }
     );
 
-    if (!response.ok) {
-      return null;
-    }
+    if (response.ok) {
+      const data = await response.json();
+      const releases: any[] = data?.releases ?? [];
 
-    const data = await response.json();
-    const releases: any[] = data?.releases ?? [];
-
-    const withFrontAndBack = releases.find(
-      (release) =>
-        release['cover-art-archive']?.artwork === true &&
-        release['cover-art-archive']?.back === true
-    );
-    const withArtwork =
-      withFrontAndBack ||
-      releases.find(
-        (release) => release['cover-art-archive']?.artwork === true
+      const withFrontAndBack = releases.find(
+        (release) =>
+          release['cover-art-archive']?.artwork === true &&
+          release['cover-art-archive']?.back === true
       );
+      const withArtwork =
+        withFrontAndBack ||
+        releases.find(
+          (release) => release['cover-art-archive']?.artwork === true
+        );
 
-    if (!withArtwork) {
-      writeCache(cacheKey, null);
-      return null;
+      if (withArtwork) {
+        const caa = withArtwork['cover-art-archive'];
+        const result: CoverArtResult = {
+          mbid: withArtwork.id,
+          entityType: 'release',
+          frontUrl: `${CAA_RELEASE_BASE}/${withArtwork.id}/front-500`,
+          frontMediumUrl: `${CAA_RELEASE_BASE}/${withArtwork.id}/front-250`,
+          frontSmallUrl: `${CAA_RELEASE_BASE}/${withArtwork.id}/front-250`,
+          backUrl: caa.back ? `${CAA_RELEASE_BASE}/${withArtwork.id}/back-500` : null,
+        };
+
+        writeCache(cacheKey, result);
+        return result;
+      }
     }
+  } catch {
+    // fallback below
+  }
 
-    const caa = withArtwork['cover-art-archive'];
+  // Fallback final para Deezer/iTunes quando Cover Art Archive não tiver a capa
+  const fallbackCover = await resolveAlbumCoverUrl(albumTitle, artistName);
+  if (fallbackCover) {
     const result: CoverArtResult = {
-      mbid: withArtwork.id,
-      entityType: 'release',
-      frontUrl: `${CAA_RELEASE_BASE}/${withArtwork.id}/front-500`,
-      frontMediumUrl: `${CAA_RELEASE_BASE}/${withArtwork.id}/front-250`,
-      frontSmallUrl: `${CAA_RELEASE_BASE}/${withArtwork.id}/front-250`,
-      backUrl: caa.back ? `${CAA_RELEASE_BASE}/${withArtwork.id}/back-500` : null,
+      mbid: mbid || releaseId || '',
+      entityType: 'release-group',
+      frontUrl: optimizeCoverUrl(fallbackCover, '1200') || fallbackCover,
+      frontMediumUrl: optimizeCoverUrl(fallbackCover, '500') || fallbackCover,
+      frontSmallUrl: optimizeCoverUrl(fallbackCover, '250') || fallbackCover,
+      backUrl: null,
     };
-
     writeCache(cacheKey, result);
     return result;
-  } catch {
-    return null;
   }
+
+  writeCache(cacheKey, null);
+  return null;
 }

@@ -9,10 +9,10 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
-import { Award, ArrowLeft } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
-import { MobileHeader } from '@/components/MobileHeader';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PageHeader } from '@/components/PageHeader';
 import { CoverImage } from '@/components/CoverImage';
 import { type CatalogArtist } from '@/services/musicBrainz.service';
 import { getUserFollowedArtists } from '@/services/profile.service';
@@ -26,6 +26,7 @@ export default function IdolsScreen() {
   const isVisiting = Boolean(username);
   const { colors } = useAppTheme();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [idols, setIdols] = useState<CatalogArtist[]>([]);
 
@@ -62,41 +63,20 @@ export default function IdolsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <MobileHeader />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[
+          styles.container,
+          { paddingTop: Math.max(insets.top, 16) },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => safeGoBack('/(tabs)/profile')}
-        >
-          <ArrowLeft size={15} color={colors.mutedForeground} />
-          <Text
-            style={{
-              fontSize: 12,
-              fontWeight: '700',
-              color: colors.mutedForeground,
-            }}
-          >
-            Voltar ao Perfil
-          </Text>
-        </TouchableOpacity>
-
-        <View style={styles.headerBlock}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Award size={24} color={colors.amber} />
-            <Text style={[styles.pageTitle, { color: colors.foreground }]}>
-              {isVisiting ? `Ídolos de @${username}` : 'Meus Ídolos Musicais'}
-            </Text>
-          </View>
-          <Text
-            style={[styles.pageSubtitle, { color: colors.mutedForeground }]}
-          >
-            Artistas que você segue e acompanha de perto no cenário musical.
-          </Text>
-        </View>
+        <PageHeader
+          title={isVisiting ? `Ídolos de @${username}` : 'Ídolos'}
+          subtitle="Artistas que você segue e acompanha de perto no cenário musical."
+          onBack={() => safeGoBack('/(tabs)/profile')}
+          backLabel="Voltar ao Perfil"
+        />
 
         <View style={styles.grid}>
           {idols.map((artist) => (

@@ -44,6 +44,7 @@ import {
   type RecordLabelRecord,
 } from '@/services/catalog.service';
 import { CoverImage } from '@/components/CoverImage';
+import { PageHeader } from '@/components/PageHeader';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type SearchCategory =
@@ -291,11 +292,7 @@ export default function GlobalSearchScreen() {
       showsVerticalScrollIndicator={false}
     >
       {/* Título Principal da Página */}
-      <View style={styles.pageHeaderBlock}>
-        <Text style={[styles.mainPageTitle, { color: colors.foreground }]}>
-          Pesquisar
-        </Text>
-      </View>
+      <PageHeader title="Pesquisar" />
       {/* Barra de pesquisa e Filtros no topo (Sem sessão de introdução) */}
       <View style={styles.topFilterBar}>
         <View
@@ -541,6 +538,8 @@ export default function GlobalSearchScreen() {
                     >
                       <CoverImage
                         uri={track.album?.cover_medium}
+                        albumTitle={track.album?.title || track.title}
+                        albumArtist={track.artist?.name}
                         style={styles.thumb}
                         quality="low"
                       />
@@ -611,6 +610,8 @@ export default function GlobalSearchScreen() {
                     >
                       <CoverImage
                         uri={album.cover_medium || album.cover_big}
+                        albumTitle={album.title}
+                        albumArtist={album.artist?.name}
                         style={styles.thumb}
                         quality="low"
                       />
@@ -678,6 +679,8 @@ export default function GlobalSearchScreen() {
                   >
                     <CoverImage
                       uri={ep.cover_medium || ep.cover_big}
+                      albumTitle={ep.title}
+                      albumArtist={ep.artist?.name}
                       style={styles.thumb}
                       quality="low"
                     />

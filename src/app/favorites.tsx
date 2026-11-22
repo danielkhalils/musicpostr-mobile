@@ -9,10 +9,11 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
-import { Heart, Disc, ArrowLeft } from 'lucide-react-native';
+import { Disc } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
-import { MobileHeader } from '@/components/MobileHeader';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PageHeader } from '@/components/PageHeader';
 import { CoverImage } from '@/components/CoverImage';
 import { type FavoriteAlbumRecord } from '@/services/musicBrainz.service';
 import { getUserFavoriteAlbums } from '@/services/profile.service';
@@ -25,6 +26,7 @@ export default function FavoritesScreen() {
   const isVisiting = Boolean(username);
   const { colors } = useAppTheme();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [favorites, setFavorites] = useState<FavoriteAlbumRecord[]>([]);
 
@@ -49,45 +51,24 @@ export default function FavoritesScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <MobileHeader />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[
+          styles.container,
+          { paddingTop: Math.max(insets.top, 16) },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => safeGoBack('/(tabs)/profile')}
-        >
-          <ArrowLeft size={15} color={colors.mutedForeground} />
-          <Text
-            style={{
-              fontSize: 12,
-              fontWeight: '700',
-              color: colors.mutedForeground,
-            }}
-          >
-            Voltar ao Perfil
-          </Text>
-        </TouchableOpacity>
-
-        <View style={styles.headerBlock}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Heart size={24} color={colors.rose} fill={colors.rose} />
-            <Text style={[styles.pageTitle, { color: colors.foreground }]}>
-              {isVisiting
-                ? `Favoritos de @${username}`
-                : 'Meus Álbuns Favoritos'}
-            </Text>
-          </View>
-          <Text
-            style={[styles.pageSubtitle, { color: colors.mutedForeground }]}
-          >
-            {isVisiting
+        <PageHeader
+          title={isVisiting ? `Favoritos de @${username}` : 'Favoritos'}
+          subtitle={
+            isVisiting
               ? `Discos prediletos selecionados por @${username}.`
-              : 'Sua seleção definitiva de discos prediletos.'}
-          </Text>
-        </View>
+              : 'Sua seleção definitiva de discos prediletos.'
+          }
+          onBack={() => safeGoBack('/(tabs)/profile')}
+          backLabel="Voltar ao Perfil"
+        />
 
         {favorites.length === 0 ? (
           <View style={styles.emptyBox}>

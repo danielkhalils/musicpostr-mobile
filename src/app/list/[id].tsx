@@ -9,14 +9,14 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
 import {
-  ArrowLeft,
   ListMusic,
   Disc,
   Sparkles,
   ChevronRight,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
-import { MobileHeader } from '@/components/MobileHeader';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PageHeader } from '@/components/PageHeader';
 import { CoverImage } from '@/components/CoverImage';
 import { type UserListRecord } from '@/services/musicBrainz.service';
 import { supabase } from '@/services/supabase';
@@ -24,6 +24,7 @@ import { supabase } from '@/services/supabase';
 export default function ListDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
 
   const [list, setList] = useState<UserListRecord | null>(null);
 
@@ -92,25 +93,20 @@ export default function ListDetailScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <MobileHeader />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[
+          styles.container,
+          { paddingTop: Math.max(insets.top, 16) },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Botão de Retorno */}
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => safeGoBack('/lists')}
-          activeOpacity={0.8}
-        >
-          <ArrowLeft size={16} color={colors.foreground} />
-          <Text
-            style={[styles.backBtnText, { color: colors.foreground }]}
-          >
-            Voltar para Listas
-          </Text>
-        </TouchableOpacity>
+        <PageHeader
+          title={list?.title || 'Lista'}
+          subtitle={list?.description || undefined}
+          onBack={() => safeGoBack('/lists')}
+          backLabel="Voltar para Listas"
+        />
 
         {/* Cabeçalho da Lista */}
         <View

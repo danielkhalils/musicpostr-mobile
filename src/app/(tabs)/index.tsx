@@ -1,5 +1,6 @@
 import { CoverImage } from '@/components/CoverImage';
 import { MobileHeader } from '@/components/MobileHeader';
+import { useActivityCardMode } from '@/hooks/use-activity-card-mode';
 import { useHeaderVisibility } from '@/context/HeaderVisibilityContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -14,7 +15,7 @@ import {
   addFeedPostCommentInSupabase,
 } from '@/services/catalog.service';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import {
   Award,
   Clock,
@@ -110,6 +111,7 @@ export default function HomeScreen() {
   const { colors, isDark } = useAppTheme();
   const { user, profile: authProfile } = useAuth();
   const { setIsHeaderVisible } = useHeaderVisibility();
+  const { mode: cardMode } = useActivityCardMode();
   const lastScrollY = useRef(0);
   const isTypingRef = useRef(false);
 
@@ -148,6 +150,13 @@ export default function HomeScreen() {
     });
     return unsubscribe;
   }, [loadFeed]);
+
+  // Atualiza a timeline sempre que o usuário volta para a aba Início
+  useFocusEffect(
+    useCallback(() => {
+      loadFeed();
+    }, [loadFeed])
+  );
 
   useEffect(() => {
     if (!showTimelineIntro) return;
@@ -534,124 +543,197 @@ export default function HomeScreen() {
                   {renderActivityBadge(item)}
                 </View>
 
-                {/* 2. CARD DE MÍDIA DESTACADO (Hero da Postagem Estilo Instagram) */}
-                <TouchableOpacity
-                  style={styles.heroMediaContainer}
-                  onPress={() => router.push(targetRoute as any)}
-                  activeOpacity={0.92}
-                >
-                  <CoverImage
-                    uri={item.albumCover}
-                    style={styles.heroMediaImage}
-                    fallbackType={isIdolActivity ? 'artist' : 'album'}
-                    quality="high"
-                  />
-
-                  {/* Círculo de Nota de Destaque Estilo Musicpostr / Tela de Álbuns */}
-                  {!isIdolActivity && item.rating > 0 ? (
-                    <View
-                      style={[
-                        styles.musicpostrHeroBadge,
-                        {
-                          backgroundColor: isDark
-                            ? 'rgba(18, 18, 20, 0.94)'
-                            : 'rgba(255, 255, 255, 0.96)',
-                          borderColor: getScoreColor(item.rating),
-                          shadowColor: getScoreColor(item.rating),
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.musicpostrScoreText,
-                          { color: colors.foreground },
-                        ]}
-                      >
-                        {item.rating.toFixed(1)}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.musicpostrScoreLabel,
-                          { color: getScoreColor(item.rating) },
-                        ]}
-                      >
-                        NOTA
-                      </Text>
-                    </View>
-                  ) : isIdolActivity ? (
-                    <View
-                      style={[
-                        styles.musicpostrHeroBadge,
-                        {
-                          backgroundColor: isDark
-                            ? 'rgba(18, 18, 20, 0.94)'
-                            : 'rgba(255, 255, 255, 0.96)',
-                          borderColor: '#a855f7',
-                          shadowColor: '#a855f7',
-                        },
-                      ]}
-                    >
-                      <Award size={22} color="#a855f7" />
-                      <Text
-                        style={[
-                          styles.musicpostrScoreLabel,
-                          { color: '#a855f7' },
-                        ]}
-                      >
-                        ÍDOLO
-                      </Text>
-                    </View>
-                  ) : isFavoriteActivity ? (
-                    <View
-                      style={[
-                        styles.musicpostrHeroBadge,
-                        {
-                          backgroundColor: isDark
-                            ? 'rgba(18, 18, 20, 0.94)'
-                            : 'rgba(255, 255, 255, 0.96)',
-                          borderColor: colors.rose,
-                          shadowColor: colors.rose,
-                        },
-                      ]}
-                    >
-                      <Heart size={20} color={colors.rose} fill={colors.rose} />
-                      <Text
-                        style={[
-                          styles.musicpostrScoreLabel,
-                          { color: colors.rose },
-                        ]}
-                      >
-                        FAVORITO
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {/* Gradiente Inferior com Título do Álbum e Artista */}
-                  <LinearGradient
-                    colors={[
-                      'transparent',
-                      'rgba(0, 0, 0, 0.35)',
-                      'rgba(0, 0, 0, 0.88)',
-                    ]}
-                    locations={[0, 0.45, 1]}
-                    style={styles.heroGradientOverlay}
+                {/* 2. MÍDIA DO POST: COMPLETA (HERO) OU COMPACTA */}
+                {cardMode === 'compact' ? (
+                  <TouchableOpacity
+                    style={styles.compactMediaRow}
+                    onPress={() => router.push(targetRoute as any)}
+                    activeOpacity={0.88}
                   >
-                    <View style={styles.heroMediaInfo}>
-                      <View style={styles.heroMediaTypePill}>
-                        <Disc size={11} color="#ffffff" />
-                        <Text style={styles.heroMediaTypeText}>
-                          {isIdolActivity ? 'ARTISTA' : 'ÁLBUM'}
+                    <CoverImage
+                      uri={item.albumCover}
+                      artistName={isIdolActivity ? item.albumTitle : undefined}
+                      albumTitle={!isIdolActivity ? item.albumTitle : undefined}
+                      albumArtist={!isIdolActivity ? item.artistName : undefined}
+                      style={[
+                        styles.compactMediaThumb,
+                        isIdolActivity && { borderRadius: 999 },
+                      ]}
+                      fallbackType={isIdolActivity ? 'artist' : 'album'}
+                      quality="medium"
+                    />
+                    <View style={{ flex: 1, gap: 3 }}>
+                      <View style={styles.compactTitleLine}>
+                        <Text
+                          style={[styles.compactTitle, { color: colors.foreground }]}
+                          numberOfLines={1}
+                        >
+                          {item.albumTitle}
                         </Text>
+                        {!isIdolActivity && item.rating > 0 && (
+                          <View
+                            style={[
+                              styles.compactScorePill,
+                              {
+                                backgroundColor: `${getScoreColor(item.rating)}20`,
+                                borderColor: `${getScoreColor(item.rating)}55`,
+                              },
+                            ]}
+                          >
+                            <Star
+                              size={10}
+                              color={getScoreColor(item.rating)}
+                              fill={getScoreColor(item.rating)}
+                            />
+                            <Text
+                              style={[
+                                styles.compactScoreText,
+                                { color: getScoreColor(item.rating) },
+                              ]}
+                            >
+                              {item.rating.toFixed(1)}
+                            </Text>
+                          </View>
+                        )}
                       </View>
-                      <Text style={styles.heroMediaTitle} numberOfLines={1}>
-                        {item.albumTitle}
-                      </Text>
-                      <Text style={styles.heroMediaArtist} numberOfLines={1}>
+                      <Text
+                        style={[styles.compactArtist, { color: colors.mutedForeground }]}
+                        numberOfLines={1}
+                      >
                         {item.artistName}
                       </Text>
+                      {Boolean(item.comment) && (
+                        <Text
+                          style={[styles.compactComment, { color: colors.foreground }]}
+                          numberOfLines={2}
+                        >
+                          {`"${item.comment}"`}
+                        </Text>
+                      )}
                     </View>
-                  </LinearGradient>
-                </TouchableOpacity>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.heroMediaContainer}
+                    onPress={() => router.push(targetRoute as any)}
+                    activeOpacity={0.92}
+                  >
+                    <CoverImage
+                      uri={item.albumCover}
+                      artistName={isIdolActivity ? item.albumTitle : undefined}
+                      albumTitle={!isIdolActivity ? item.albumTitle : undefined}
+                      albumArtist={!isIdolActivity ? item.artistName : undefined}
+                      style={styles.heroMediaImage}
+                      fallbackType={isIdolActivity ? 'artist' : 'album'}
+                      quality="high"
+                    />
+
+                    {/* Círculo de Nota de Destaque Estilo Musicpostr / Tela de Álbuns */}
+                    {!isIdolActivity && item.rating > 0 ? (
+                      <View
+                        style={[
+                          styles.musicpostrHeroBadge,
+                          {
+                            backgroundColor: isDark
+                              ? 'rgba(18, 18, 20, 0.94)'
+                              : 'rgba(255, 255, 255, 0.96)',
+                            borderColor: getScoreColor(item.rating),
+                            shadowColor: getScoreColor(item.rating),
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.musicpostrScoreText,
+                            { color: colors.foreground },
+                          ]}
+                        >
+                          {item.rating.toFixed(1)}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.musicpostrScoreLabel,
+                            { color: getScoreColor(item.rating) },
+                          ]}
+                        >
+                          NOTA
+                        </Text>
+                      </View>
+                    ) : isIdolActivity ? (
+                      <View
+                        style={[
+                          styles.musicpostrHeroBadge,
+                          {
+                            backgroundColor: isDark
+                              ? 'rgba(18, 18, 20, 0.94)'
+                              : 'rgba(255, 255, 255, 0.96)',
+                            borderColor: '#a855f7',
+                            shadowColor: '#a855f7',
+                          },
+                        ]}
+                      >
+                        <Award size={22} color="#a855f7" />
+                        <Text
+                          style={[
+                            styles.musicpostrScoreLabel,
+                            { color: '#a855f7' },
+                          ]}
+                        >
+                          ÍDOLO
+                        </Text>
+                      </View>
+                    ) : isFavoriteActivity ? (
+                      <View
+                        style={[
+                          styles.musicpostrHeroBadge,
+                          {
+                            backgroundColor: isDark
+                              ? 'rgba(18, 18, 20, 0.94)'
+                              : 'rgba(255, 255, 255, 0.96)',
+                            borderColor: colors.rose,
+                            shadowColor: colors.rose,
+                          },
+                        ]}
+                      >
+                        <Heart size={20} color={colors.rose} fill={colors.rose} />
+                        <Text
+                          style={[
+                            styles.musicpostrScoreLabel,
+                            { color: colors.rose },
+                          ]}
+                        >
+                          FAVORITO
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    {/* Gradiente Inferior com Título do Álbum e Artista */}
+                    <LinearGradient
+                      colors={[
+                        'transparent',
+                        'rgba(0, 0, 0, 0.35)',
+                        'rgba(0, 0, 0, 0.88)',
+                      ]}
+                      locations={[0, 0.45, 1]}
+                      style={styles.heroGradientOverlay}
+                    >
+                      <View style={styles.heroMediaInfo}>
+                        <View style={styles.heroMediaTypePill}>
+                          <Disc size={11} color="#ffffff" />
+                          <Text style={styles.heroMediaTypeText}>
+                            {isIdolActivity ? 'ARTISTA' : 'ÁLBUM'}
+                          </Text>
+                        </View>
+                        <Text style={styles.heroMediaTitle} numberOfLines={1}>
+                          {item.albumTitle}
+                        </Text>
+                        <Text style={styles.heroMediaArtist} numberOfLines={1}>
+                          {item.artistName}
+                        </Text>
+                      </View>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                )}
 
                 {/* 3. BARRA DE INTERAÇÃO ESTILO INSTAGRAM (Curtir, Comentar, Compartilhar) */}
                 <View style={styles.instagramActionBar}>
@@ -727,8 +809,8 @@ export default function HomeScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {/* 4. CAPTION DO USUÁRIO ESTILO INSTAGRAM (username + comentário) */}
-                {Boolean(item.comment) && (
+                {/* 4. CAPTION DO USUÁRIO ESTILO INSTAGRAM (exibido no modo completo; no compacto já aparece ao lado da capa) */}
+                {cardMode === 'full' && Boolean(item.comment) && (
                   <View style={styles.instagramCaptionContainer}>
                     <Text
                       style={[
@@ -886,6 +968,63 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  viewModeBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  viewModeLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  compactMediaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  compactMediaThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: 12,
+  },
+  compactTitleLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  compactTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    flex: 1,
+  },
+  compactScorePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  compactScoreText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  compactArtist: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  compactComment: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    lineHeight: 16,
+    opacity: 0.9,
+  },
   container: {
     padding: 14,
     paddingBottom: 110,

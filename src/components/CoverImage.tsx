@@ -4,9 +4,12 @@ import {
   resolveArtistImage,
 } from '@/services/artistImage.service';
 import {
+  getCachedResolvedAlbumCover,
   getFallbackImageUrl,
+  isFallbackPlaceholderUrl,
   markCoverAsMissing,
   optimizeCoverUrl,
+  resolveAlbumCoverUrl,
 } from '@/services/coverArt.service';
 import { Image } from 'expo-image';
 import { Disc } from 'lucide-react-native';
@@ -28,6 +31,12 @@ interface CoverImageProps {
    * ícone de estrela do Musicpostr — nunca uma imagem genérica ou de outro artista.
    */
   artistName?: string | null;
+  /**
+   * Quando informado em capas de álbum/EP/single, permite buscar automaticamente
+   * a capa oficial via Deezer/iTunes caso a URL primária (ex.: Cover Art Archive) falhe.
+   */
+  albumTitle?: string | null;
+  albumArtist?: string | null;
 }
 
 export function CoverImage({
@@ -38,12 +47,20 @@ export function CoverImage({
   contentFit = 'cover',
   quality = 'low',
   artistName,
+  albumTitle,
+  albumArtist,
 }: CoverImageProps) {
-  const [stage, setStage] = useState<'primary' | 'fallback' | 'icon'>('primary');
+  const [stage, setStage] = useState<'primary' | 'resolved' | 'fallback' | 'icon'>('primary');
   const { colors } = useAppTheme();
 
   const [artistPhoto, setArtistPhoto] = useState<string | null | undefined>(() =>
     artistName ? getCachedArtistImage(artistName) : undefined
+  );
+
+  const [resolvedAlbumCover, setResolvedAlbumCover] = useState<string | null | undefined>(() =>
+    !artistName && fallbackType === 'album' && albumTitle
+      ? getCachedResolvedAlbumCover(albumTitle, albumArtist)
+      : undefined
   );
 
   useEffect(() => {
@@ -61,21 +78,56 @@ export function CoverImage({
     };
   }, [artistName]);
 
-  const resolvedUri = artistName
+  const targetSize = quality === 'high' ? '1200' : quality === 'medium' ? '500' : '250';
+
+  const primaryUri = artistName
     ? artistPhoto || null
-    : optimizeCoverUrl(
-        uri,
-        quality === 'high' ? '500' : quality === 'medium' ? '500' : '250'
-      );
-  const fallbackUri = getFallbackImageUrl(resolvedUri || fallbackType, fallbackType);
+    : optimizeCoverUrl(uri, targetSize);
+
+  const primaryIsPlaceholder = !artistName && isFallbackPlaceholderUrl(primaryUri);
+
+  // Se a URL primária do álbum já é ausente ou placeholder (ex.: CAA marcado como 404),
+  // tenta resolver automaticamente a capa oficial via Deezer/iTunes
+  useEffect(() => {
+    if (artistName || fallbackType !== 'album' || !albumTitle) {
+      setResolvedAlbumCover(undefined);
+      return;
+    }
+
+    const cached = getCachedResolvedAlbumCover(albumTitle, albumArtist);
+    setResolvedAlbumCover(cached);
+
+    if (primaryIsPlaceholder && cached === undefined) {
+      let alive = true;
+      resolveAlbumCoverUrl(albumTitle, albumArtist).then((url) => {
+        if (alive) setResolvedAlbumCover(url);
+      });
+      return () => {
+        alive = false;
+      };
+    }
+  }, [artistName, fallbackType, albumTitle, albumArtist, primaryIsPlaceholder]);
+
+  const optimizedResolvedAlbumCover = resolvedAlbumCover
+    ? optimizeCoverUrl(resolvedAlbumCover, targetSize)
+    : null;
+
+  const fallbackUri = getFallbackImageUrl(
+    primaryUri || albumTitle || fallbackType,
+    fallbackType
+  );
 
   useEffect(() => {
     if (artistName || fallbackType === 'artist') {
-      setStage(resolvedUri ? 'primary' : 'icon');
+      setStage(primaryUri ? 'primary' : 'icon');
+    } else if (!primaryIsPlaceholder && primaryUri) {
+      setStage('primary');
+    } else if (optimizedResolvedAlbumCover) {
+      setStage('resolved');
     } else {
-      setStage(resolvedUri ? 'primary' : 'fallback');
+      setStage(primaryUri ? 'primary' : 'fallback');
     }
-  }, [resolvedUri, artistName, fallbackType]);
+  }, [primaryUri, primaryIsPlaceholder, optimizedResolvedAlbumCover, artistName, fallbackType]);
 
   const renderIconBox = (child: ReactNode) => (
     <View
@@ -114,7 +166,11 @@ export function CoverImage({
   }
 
   const activeUri =
-    stage === 'primary' && resolvedUri ? resolvedUri : fallbackUri;
+    stage === 'primary' && primaryUri
+      ? primaryUri
+      : stage === 'resolved' && optimizedResolvedAlbumCover
+        ? optimizedResolvedAlbumCover
+        : fallbackUri;
 
   return (
     <Image
@@ -122,12 +178,30 @@ export function CoverImage({
       style={style}
       contentFit={contentFit}
       cachePolicy="memory-disk"
-      allowDownscaling={true}
+      allowDownscaling={quality === 'low'}
       recyclingKey={activeUri}
-      transition={120}
+      transition={140}
+      placeholder={{ blurhash: 'L15#?{of00ay00ay00ay00ay00ay' }}
       onError={() => {
         if (stage === 'primary' && !artistName && fallbackType !== 'artist') {
-          if (resolvedUri) markCoverAsMissing(resolvedUri);
+          if (primaryUri) markCoverAsMissing(primaryUri);
+          if (albumTitle) {
+            if (optimizedResolvedAlbumCover) {
+              setStage('resolved');
+              return;
+            }
+            resolveAlbumCoverUrl(albumTitle, albumArtist).then((found) => {
+              if (found) {
+                setResolvedAlbumCover(found);
+                setStage('resolved');
+              } else {
+                setStage('fallback');
+              }
+            });
+            return;
+          }
+          setStage('fallback');
+        } else if (stage === 'resolved') {
           setStage('fallback');
         } else {
           setStage('icon');
