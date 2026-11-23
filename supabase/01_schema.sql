@@ -698,6 +698,19 @@ DROP POLICY IF EXISTS "Authenticated users can comment on feed" ON public.feed_p
 CREATE POLICY "Authenticated users can comment on feed" ON public.feed_post_comments
   FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
 
+DROP POLICY IF EXISTS "Comment author or post owner can delete feed comments" ON public.feed_post_comments;
+CREATE POLICY "Comment author or post owner can delete feed comments" ON public.feed_post_comments
+  FOR DELETE TO authenticated
+  USING (
+    auth.uid() = user_id
+    OR EXISTS (
+      SELECT 1
+      FROM public.feed_posts fp
+      WHERE fp.id = feed_post_comments.post_id
+        AND fp.user_id = auth.uid()
+    )
+  );
+
 DROP POLICY IF EXISTS "Users can manage own feed likes" ON public.feed_post_likes;
 CREATE POLICY "Users can manage own feed likes" ON public.feed_post_likes
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);

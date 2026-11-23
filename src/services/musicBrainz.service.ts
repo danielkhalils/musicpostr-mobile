@@ -91,6 +91,7 @@ export type FeedActivityType = 'review' | 'favorite' | 'follow_idol' | 'list';
 
 export interface FeedPostItem {
   id: string;
+  userId?: string;
   activityType?: FeedActivityType;
   friendName: string;
   friendUsername: string;
@@ -109,6 +110,7 @@ export interface FeedPostItem {
   isEdited?: boolean;
   comments: {
     id: string;
+    userId?: string;
     author: string;
     avatar: string;
     text: string;

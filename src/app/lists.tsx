@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   ScrollView,
@@ -15,7 +16,7 @@ import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PageHeader } from '@/components/PageHeader';
-import { type UserListRecord } from '@/services/musicBrainz.service';
+import { notifyCatalogUpdated, type UserListRecord } from '@/services/musicBrainz.service';
 import { getUserListsFromSupabase } from '@/services/profile.service';
 import { supabase } from '@/services/supabase';
 
@@ -30,6 +31,7 @@ export default function ListsScreen() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
+  const [isSavingList, setIsSavingList] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -51,36 +53,42 @@ export default function ListsScreen() {
   }, [isVisiting, username, user]);
 
   const handleCreateList = async () => {
-    if (!newTitle.trim() || !user) return;
-    const { data, error } = await supabase
-      .from('user_lists')
-      .insert({
-        user_id: user.id,
-        title: newTitle.trim(),
-        description: newDesc.trim() || 'Nova coleção musical.',
-        items_count: 0,
-        is_default: false,
-        created_label: 'Agora mesmo',
-      })
-      .select('*')
-      .single();
+    if (!newTitle.trim() || !user || isSavingList) return;
+    setIsSavingList(true);
+    try {
+      const { data, error } = await supabase
+        .from('user_lists')
+        .insert({
+          user_id: user.id,
+          title: newTitle.trim(),
+          description: newDesc.trim() || 'Nova coleção musical.',
+          items_count: 0,
+          is_default: false,
+          created_label: 'Agora mesmo',
+        })
+        .select('*')
+        .single();
 
-    if (!error && data) {
-      setLists((prev) => [
-        {
-          id: data.id,
-          title: data.title,
-          count: data.items_count || 0,
-          description: data.description || '',
-          createdAt: data.created_label || data.created_at,
-          isDefault: Boolean(data.is_default),
-        },
-        ...prev,
-      ]);
+      if (!error && data) {
+        setLists((prev) => [
+          {
+            id: data.id,
+            title: data.title,
+            count: data.items_count || 0,
+            description: data.description || '',
+            createdAt: data.created_label || data.created_at,
+            isDefault: Boolean(data.is_default),
+          },
+          ...prev,
+        ]);
+        notifyCatalogUpdated();
+      }
+      setNewTitle('');
+      setNewDesc('');
+      setIsModalOpen(false);
+    } finally {
+      setIsSavingList(false);
     }
-    setNewTitle('');
-    setNewDesc('');
-    setIsModalOpen(false);
   };
 
   return (
@@ -275,13 +283,22 @@ export default function ListsScreen() {
 
             <TouchableOpacity
               onPress={handleCreateList}
+              disabled={!newTitle.trim() || isSavingList}
               style={[
                 styles.createBtn,
-                { backgroundColor: colors.primary },
+                {
+                  backgroundColor: colors.primary,
+                  opacity: !newTitle.trim() || isSavingList ? 0.7 : 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                },
               ]}
             >
+              {isSavingList && <ActivityIndicator size="small" color="#fff" />}
               <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>
-                Salvar Lista
+                {isSavingList ? 'Salvando...' : 'Salvar Lista'}
               </Text>
             </TouchableOpacity>
           </View>

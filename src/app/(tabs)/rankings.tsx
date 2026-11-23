@@ -14,6 +14,7 @@ import {
   Headphones,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
+import { formatRating } from '@/utils/rating';
 import {
   type CatalogAlbum,
   fetchNewReleasesFromMusicBrainz,
@@ -293,7 +294,7 @@ export default function RankingsScreen() {
                     <Text
                       style={[styles.podiumScoreText, { color: colors.primary }]}
                     >
-                      {album.communityRating.toFixed(1)} / 10
+                      {formatRating(album.communityRating)} / 10
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -444,7 +445,7 @@ export default function RankingsScreen() {
               ]}
             >
               <Text style={[styles.scoreCellText, { color: colors.primary }]}>
-                {item.communityRating.toFixed(1)}
+                {formatRating(item.communityRating)}
               </Text>
             </View>
           </TouchableOpacity>

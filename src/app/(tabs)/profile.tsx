@@ -87,6 +87,7 @@ export function ProfileView({
   const [historyTab, setHistoryTab] = useState<ProfileHistoryTab>('all');
   const [mediaPickerTarget, setMediaPickerTarget] = useState<ProfileMediaKind | null>(null);
   const [uploadingMedia, setUploadingMedia] = useState<ProfileMediaKind | null>(null);
+  const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
 
   const [reviews, setReviews] = useState<MyReviewRecord[]>([]);
   const [favorites, setFavorites] = useState<FavoriteAlbumRecord[]>([]);
@@ -172,12 +173,46 @@ export function ProfileView({
     setRefreshing(false);
   };
 
-  const handleDeleteReview = async (id: string) => {
-    if (isVisiting) return;
-    if (user) {
-      await deleteReviewFromSupabase(id, user.id);
+  const executeDeleteReview = async (id: string) => {
+    if (isVisiting || deletingReviewId) return;
+    setDeletingReviewId(id);
+    try {
+      const ok = user ? await deleteReviewFromSupabase(id, user.id) : true;
+      if (ok) {
+        setReviews((prev) => prev.filter((r) => r.id !== id));
+      } else {
+        Alert.alert(
+          'Erro ao excluir',
+          'Não foi possível excluir esta avaliação. Tente novamente.'
+        );
+      }
+    } finally {
+      setDeletingReviewId(null);
     }
-    setReviews((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const handleDeleteReview = (id: string, albumTitle?: string) => {
+    if (isVisiting || deletingReviewId) return;
+    const message = albumTitle
+      ? `Tem certeza que deseja excluir sua avaliação de "${albumTitle}"? Ela também será removida da timeline.`
+      : 'Tem certeza que deseja excluir esta avaliação? Ela também será removida da timeline.';
+
+    if (Platform.OS === 'web') {
+      const confirmed = typeof window !== 'undefined' && window.confirm(message);
+      if (confirmed) {
+        executeDeleteReview(id);
+      }
+      return;
+    }
+
+    Alert.alert('Excluir avaliação', message, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Excluir',
+        style: 'destructive',
+        onPress: () => executeDeleteReview(id),
+      },
+    ]);
   };
 
   const avgCalculated =
@@ -807,7 +842,8 @@ export function ProfileView({
                 rating={rev.rating}
                 comment={rev.comment}
                 onPressTarget={() => router.push(`/album/${rev.albumId}` as any)}
-                onDelete={!isVisiting ? () => handleDeleteReview(rev.id) : undefined}
+                onDelete={!isVisiting ? () => handleDeleteReview(rev.id, rev.albumTitle) : undefined}
+                isDeleting={deletingReviewId === rev.id}
               />
             ) : (
             <View
@@ -881,10 +917,18 @@ export function ProfileView({
 
                 {!isVisiting && (
                   <TouchableOpacity
-                    onPress={() => handleDeleteReview(rev.id)}
-                    style={styles.deleteIconBtn}
+                    onPress={() => handleDeleteReview(rev.id, rev.albumTitle)}
+                    disabled={deletingReviewId === rev.id}
+                    style={[
+                      styles.deleteIconBtn,
+                      { opacity: deletingReviewId === rev.id ? 0.6 : 1 },
+                    ]}
                   >
-                    <Trash2 size={14} color={colors.mutedForeground} />
+                    {deletingReviewId === rev.id ? (
+                      <ActivityIndicator size="small" color={colors.mutedForeground} />
+                    ) : (
+                      <Trash2 size={14} color={colors.mutedForeground} />
+                    )}
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>

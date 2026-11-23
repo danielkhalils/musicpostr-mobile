@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
+  Platform,
   View,
   Text,
   ScrollView,
@@ -34,6 +37,7 @@ export default function MyReviewsScreen() {
   const insets = useSafeAreaInsets();
   const { mode: cardMode } = useActivityCardMode();
   const [reviews, setReviews] = useState<MyReviewRecord[]>([]);
+  const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -55,11 +59,46 @@ export default function MyReviewsScreen() {
     };
   }, [user]);
 
-  const handleDelete = async (id: string) => {
-    if (user) {
-      await deleteReviewFromSupabase(id, user.id);
+  const executeDelete = async (id: string) => {
+    if (deletingReviewId) return;
+    setDeletingReviewId(id);
+    try {
+      const ok = user ? await deleteReviewFromSupabase(id, user.id) : true;
+      if (ok) {
+        setReviews((prev) => prev.filter((r) => r.id !== id));
+      } else {
+        Alert.alert(
+          'Erro ao excluir',
+          'Não foi possível excluir esta avaliação. Tente novamente.'
+        );
+      }
+    } finally {
+      setDeletingReviewId(null);
     }
-    setReviews((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const handleDelete = (id: string, albumTitle?: string) => {
+    if (deletingReviewId) return;
+    const message = albumTitle
+      ? `Tem certeza que deseja excluir sua avaliação de "${albumTitle}"? Ela também será removida da timeline.`
+      : 'Tem certeza que deseja excluir esta avaliação? Ela também será removida da timeline.';
+
+    if (Platform.OS === 'web') {
+      const confirmed = typeof window !== 'undefined' && window.confirm(message);
+      if (confirmed) {
+        executeDelete(id);
+      }
+      return;
+    }
+
+    Alert.alert('Excluir avaliação', message, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Excluir',
+        style: 'destructive',
+        onPress: () => executeDelete(id),
+      },
+    ]);
   };
 
   return (
@@ -103,7 +142,8 @@ export default function MyReviewsScreen() {
                   rating={rev.rating}
                   comment={rev.comment}
                   onPressTarget={() => router.push(`/album/${rev.albumId}` as any)}
-                  onDelete={() => handleDelete(rev.id)}
+                  onDelete={() => handleDelete(rev.id, rev.albumTitle)}
+                  isDeleting={deletingReviewId === rev.id}
                 />
               ) : (
               <View
@@ -201,10 +241,18 @@ export default function MyReviewsScreen() {
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    onPress={() => handleDelete(rev.id)}
-                    style={styles.deleteBtn}
+                    onPress={() => handleDelete(rev.id, rev.albumTitle)}
+                    disabled={deletingReviewId === rev.id}
+                    style={[
+                      styles.deleteBtn,
+                      { opacity: deletingReviewId === rev.id ? 0.6 : 1 },
+                    ]}
                   >
-                    <Trash2 size={14} color={colors.destructive} />
+                    {deletingReviewId === rev.id ? (
+                      <ActivityIndicator size="small" color={colors.destructive} />
+                    ) : (
+                      <Trash2 size={14} color={colors.destructive} />
+                    )}
                     <Text
                       style={{
                         fontSize: 12,
@@ -212,7 +260,7 @@ export default function MyReviewsScreen() {
                         color: colors.destructive,
                       }}
                     >
-                      Excluir
+                      {deletingReviewId === rev.id ? 'Excluindo...' : 'Excluir'}
                     </Text>
                   </TouchableOpacity>
                 </View>

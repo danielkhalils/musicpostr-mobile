@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   Award,
@@ -13,6 +13,7 @@ import {
   UserCheck,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
+import { formatRating } from '@/utils/rating';
 import { CoverImage } from './CoverImage';
 
 export interface FeedStyleActivityCardProps {
@@ -30,6 +31,7 @@ export interface FeedStyleActivityCardProps {
   onPressTarget: () => void;
   onPressAuthor?: () => void;
   onDelete?: () => void;
+  isDeleting?: boolean;
   likesCount?: number;
   isLiked?: boolean;
   onToggleLike?: () => void;
@@ -61,6 +63,7 @@ export function FeedStyleActivityCard({
   onPressTarget,
   onPressAuthor,
   onDelete,
+  isDeleting = false,
   likesCount = 0,
   isLiked = false,
   onToggleLike,
@@ -182,8 +185,16 @@ export function FeedStyleActivityCard({
           )}
 
           {onDelete && (
-            <TouchableOpacity onPress={onDelete} style={{ padding: 4 }}>
-              <Trash2 size={14} color={colors.mutedForeground} />
+            <TouchableOpacity
+              onPress={onDelete}
+              disabled={isDeleting}
+              style={{ padding: 4, opacity: isDeleting ? 0.6 : 1 }}
+            >
+              {isDeleting ? (
+                <ActivityIndicator size="small" color={colors.mutedForeground} />
+              ) : (
+                <Trash2 size={14} color={colors.mutedForeground} />
+              )}
             </TouchableOpacity>
           )}
         </View>
@@ -219,7 +230,7 @@ export function FeedStyleActivityCard({
             ]}
           >
             <Text style={[styles.heroScoreText, { color: colors.foreground }]}>
-              {rating.toFixed(1)}
+              {formatRating(rating)}
             </Text>
             <Text style={[styles.heroScoreLabel, { color: getScoreColor(rating) }]}>
               NOTA

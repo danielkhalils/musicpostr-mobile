@@ -34,6 +34,7 @@ import {
 } from '@/services/profile.service';
 import { SocialIcon } from '@/components/SocialIcon';
 import { safeGoBack } from '@/utils/navigation';
+import { formatRating } from '@/utils/rating';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -110,6 +111,7 @@ export default function AlbumDetailScreen() {
   const [rating, setRating] = useState<number>(0);
   const [reviewText, setReviewText] = useState<string>('');
   const [postSuccess, setPostSuccess] = useState<boolean>(false);
+  const [isSubmittingReview, setIsSubmittingReview] = useState<boolean>(false);
 
   const [isCoverViewerOpen, setIsCoverViewerOpen] = useState<boolean>(false);
   const [coverSide, setCoverSide] = useState<'front' | 'back'>('front');
@@ -125,6 +127,9 @@ export default function AlbumDetailScreen() {
   const [userLists, setUserLists] = useState<UserListRecord[]>([]);
   const [listSuccessMessage, setListSuccessMessage] = useState<string | null>(null);
   const [newCustomListTitle, setNewCustomListTitle] = useState<string>('');
+  const [isLoadingLists, setIsLoadingLists] = useState<boolean>(false);
+  const [savingListId, setSavingListId] = useState<string | null>(null);
+  const [isCreatingList, setIsCreatingList] = useState<boolean>(false);
 
   const [scoreSlideIndex, setScoreSlideIndex] = useState<number>(0);
   const scoreSliderRef = useRef<any>(null);
@@ -221,7 +226,7 @@ export default function AlbumDetailScreen() {
   }, [id, user]);
 
   const handlePostReview = async () => {
-    if (!album) return;
+    if (!album || isSubmittingReview) return;
     if (!user) {
       setIsReviewModalOpen(false);
       router.push('/login' as any);
@@ -240,52 +245,57 @@ export default function AlbumDetailScreen() {
       authProfile?.full_name ||
       fallbackUsername;
 
-    const { review: created, isEdited, error } = await submitAlbumReviewToSupabase({
-      album,
-      userId: user.id,
-      displayName: fallbackDisplayName,
-      username: fallbackUsername,
-      avatarUrl: authProfile?.avatar_url || '',
-      rating: chosenRating,
-      comment: chosenReview,
-    });
+    setIsSubmittingReview(true);
+    try {
+      const { review: created, isEdited, error } = await submitAlbumReviewToSupabase({
+        album,
+        userId: user.id,
+        displayName: fallbackDisplayName,
+        username: fallbackUsername,
+        avatarUrl: authProfile?.avatar_url || '',
+        rating: chosenRating,
+        comment: chosenReview,
+      });
 
-    if (error || !created) {
-      Alert.alert(
-        'Erro ao publicar avaliação',
-        error || 'Não foi possível salvar sua avaliação no Supabase. Tente novamente.'
+      if (error || !created) {
+        Alert.alert(
+          'Erro ao publicar avaliação',
+          error || 'Não foi possível salvar sua avaliação no Supabase. Tente novamente.'
+        );
+        return;
+      }
+
+      const nextReviews = isEdited
+        ? submittedReviews.map((r) =>
+            String(r.id) === String(created.id) || (r.userId && r.userId === user.id)
+              ? created
+              : r
+          )
+        : [created, ...submittedReviews];
+
+      const nextTotal = nextReviews.length;
+      const nextAvg = Number(
+        (
+          nextReviews.reduce((acc, r) => acc + Number(r.rating || 0), 0) / nextTotal
+        ).toFixed(1)
       );
-      return;
+
+      setSubmittedReviews(nextReviews);
+      setAlbum({
+        ...album,
+        reviews: nextReviews,
+        totalReviews: nextTotal,
+        communityRating: nextAvg,
+      });
+      notifyCatalogUpdated();
+
+      setRating(chosenRating);
+      setReviewText(chosenReview);
+      setPostSuccess(true);
+      setIsReviewModalOpen(false);
+    } finally {
+      setIsSubmittingReview(false);
     }
-
-    const nextReviews = isEdited
-      ? submittedReviews.map((r) =>
-          String(r.id) === String(created.id) || (r.userId && r.userId === user.id)
-            ? created
-            : r
-        )
-      : [created, ...submittedReviews];
-
-    const nextTotal = nextReviews.length;
-    const nextAvg = Number(
-      (
-        nextReviews.reduce((acc, r) => acc + Number(r.rating || 0), 0) / nextTotal
-      ).toFixed(1)
-    );
-
-    setSubmittedReviews(nextReviews);
-    setAlbum({
-      ...album,
-      reviews: nextReviews,
-      totalReviews: nextTotal,
-      communityRating: nextAvg,
-    });
-    notifyCatalogUpdated();
-
-    setRating(chosenRating);
-    setReviewText(chosenReview);
-    setPostSuccess(true);
-    setIsReviewModalOpen(false);
   };
 
   const isFollowingArtist = useMemo(() => {
@@ -325,7 +335,7 @@ export default function AlbumDetailScreen() {
     try {
       await Share.share({
         title: `${album.title} - ${album.artist?.name || 'Artista'}`,
-        message: `Confira o álbum "${album.title}" de ${album.artist?.name || 'Artista'} no Musicpostr! Avaliação da comunidade: ${album.communityRating.toFixed(1)}/10 ⭐`,
+        message: `Confira o álbum "${album.title}" de ${album.artist?.name || 'Artista'} no Musicpostr! Avaliação da comunidade: ${formatRating(album.communityRating)}/10 ⭐`,
       });
     } catch {}
   };
@@ -336,7 +346,7 @@ export default function AlbumDetailScreen() {
     try {
       await Share.share({
         title: `Minha avaliação de ${album.title} no Musicpostr`,
-        message: `Minha avaliação para "${album.title}" de ${album.artist?.name || 'Artista'} no Musicpostr: ⭐️ ${Number(currentUserReview.rating).toFixed(1)}/10!\n"${currentUserReview.comment}"\n\nConfira no Musicpostr!`,
+        message: `Minha avaliação para "${album.title}" de ${album.artist?.name || 'Artista'} no Musicpostr: ⭐️ ${formatRating(currentUserReview.rating)}/10!\n"${currentUserReview.comment}"\n\nConfira no Musicpostr!`,
       });
     } catch {}
   };
@@ -344,7 +354,7 @@ export default function AlbumDetailScreen() {
   const handleShareReviewInstagramStories = async () => {
     if (!album || !currentUserReview) return;
     setIsShareModalOpen(false);
-    const storyText = `Minha nota para "${album.title}" de ${album.artist?.name || 'Artista'} no Musicpostr: ⭐️ ${Number(currentUserReview.rating).toFixed(1)}/10!\n"${currentUserReview.comment}"`;
+    const storyText = `Minha nota para "${album.title}" de ${album.artist?.name || 'Artista'} no Musicpostr: ⭐️ ${formatRating(currentUserReview.rating)}/10!\n"${currentUserReview.comment}"`;
 
     const igStoryUrl = 'instagram://story-camera';
     try {
@@ -378,41 +388,68 @@ export default function AlbumDetailScreen() {
     }
     setListSuccessMessage(null);
     setIsListModalOpen(true);
-    const freshLists = await getUserListsFromSupabase({ userId: user.id });
-    setUserLists(freshLists);
+    setIsLoadingLists(true);
+    try {
+      const freshLists = await getUserListsFromSupabase({ userId: user.id });
+      setUserLists(freshLists);
+    } finally {
+      setIsLoadingLists(false);
+    }
   };
 
   const handleAddToList = async (listId: string, listTitle: string) => {
-    if (!album || !user) return;
-    const ok = await addAlbumToUserListInSupabase(listId, album);
-    if (ok) {
-      const freshLists = await getUserListsFromSupabase({ userId: user.id });
-      setUserLists(freshLists);
-      setListSuccessMessage(`Adicionado à lista "${listTitle}"!`);
-      setTimeout(() => {
-        setListSuccessMessage(null);
-        setIsListModalOpen(false);
-      }, 1400);
+    if (!album || !user || savingListId || isCreatingList) return;
+    setSavingListId(listId);
+    try {
+      const ok = await addAlbumToUserListInSupabase(listId, album);
+      if (ok) {
+        const freshLists = await getUserListsFromSupabase({ userId: user.id });
+        setUserLists(freshLists);
+        notifyCatalogUpdated();
+        setListSuccessMessage(`Adicionado à lista "${listTitle}"!`);
+        setTimeout(() => {
+          setListSuccessMessage(null);
+          setIsListModalOpen(false);
+        }, 1400);
+      } else {
+        Alert.alert(
+          'Erro ao salvar na lista',
+          'Não foi possível adicionar este álbum à lista. Tente novamente.'
+        );
+      }
+    } finally {
+      setSavingListId(null);
     }
   };
 
   const handleCreateAndAddList = async () => {
-    if (!newCustomListTitle.trim() || !album || !user) return;
-    const created = await createUserListInSupabase(
-      user.id,
-      newCustomListTitle.trim(),
-      `Lista criada a partir de ${album.title}`
-    );
-    if (created) {
-      await addAlbumToUserListInSupabase(created.id, album);
-      const freshLists = await getUserListsFromSupabase({ userId: user.id });
-      setUserLists(freshLists);
-      setNewCustomListTitle('');
-      setListSuccessMessage('Lista criada e álbum adicionado!');
-      setTimeout(() => {
-        setListSuccessMessage(null);
-        setIsListModalOpen(false);
-      }, 1400);
+    if (!newCustomListTitle.trim() || !album || !user || isCreatingList || savingListId) return;
+    setIsCreatingList(true);
+    try {
+      const created = await createUserListInSupabase(
+        user.id,
+        newCustomListTitle.trim(),
+        `Lista criada a partir de ${album.title}`
+      );
+      if (created) {
+        await addAlbumToUserListInSupabase(created.id, album);
+        const freshLists = await getUserListsFromSupabase({ userId: user.id });
+        setUserLists(freshLists);
+        notifyCatalogUpdated();
+        setNewCustomListTitle('');
+        setListSuccessMessage('Lista criada e álbum adicionado!');
+        setTimeout(() => {
+          setListSuccessMessage(null);
+          setIsListModalOpen(false);
+        }, 1400);
+      } else {
+        Alert.alert(
+          'Erro ao criar lista',
+          'Não foi possível criar a lista. Tente novamente.'
+        );
+      }
+    } finally {
+      setIsCreatingList(false);
     }
   };
 
@@ -562,7 +599,7 @@ export default function AlbumDetailScreen() {
   const hdCoverImage = album.cover_xl || album.cover_big || album.cover_medium;
   const artistId = album.artist?.id || '';
   const artistName = album.artist?.name || 'Artista';
-  const averageRating = album.communityRating.toFixed(1);
+  const averageRating = formatRating(album.communityRating);
   const currentGenZ = GEN_Z_PHRASES[Math.floor(rating)] || GEN_Z_PHRASES[0];
 
   const friendsRated = friendReviews.filter((r) => r.isFriend && r.rating > 0);
@@ -779,7 +816,7 @@ export default function AlbumDetailScreen() {
                 {[
                   {
                     key: 'friends',
-                    score: friendsAverage !== null ? friendsAverage.toFixed(1) : '—',
+                    score: friendsAverage !== null ? formatRating(friendsAverage) : '—',
                     label: 'NOTA DOS AMIGOS',
                     sub:
                       friendsAverage !== null
@@ -884,7 +921,7 @@ export default function AlbumDetailScreen() {
                   <View style={[styles.userReviewScoreBadge, { backgroundColor: `${colors.amber}22` }]}>
                     <Star size={13} color={colors.amber} fill={colors.amber} />
                     <Text style={[styles.userReviewScoreText, { color: colors.amber }]}>
-                      {Number(currentUserReview.rating).toFixed(1)}/10
+                      {formatRating(currentUserReview.rating)}/10
                     </Text>
                   </View>
                 </View>
@@ -1369,7 +1406,7 @@ export default function AlbumDetailScreen() {
                             color: revPhrase.color,
                           }}
                         >
-                          {Number(rev.rating).toFixed(1)}/10
+                          {formatRating(rev.rating)}/10
                         </Text>
                       </View>
                     </View>
@@ -1783,7 +1820,7 @@ export default function AlbumDetailScreen() {
                   letterSpacing: -1,
                 }}
               >
-                {rating > 0 ? rating.toFixed(1) : '—'}
+                {rating > 0 ? formatRating(rating) : '—'}
                 <Text style={{ fontSize: 16, fontWeight: '700', color: colors.mutedForeground }}>
                   {' '}/ 10
                 </Text>
@@ -1952,10 +1989,24 @@ export default function AlbumDetailScreen() {
 
             <TouchableOpacity
               onPress={handlePostReview}
-              style={[styles.submitReviewBtn, { backgroundColor: colors.primary }]}
+              disabled={isSubmittingReview}
+              style={[
+                styles.submitReviewBtn,
+                {
+                  backgroundColor: colors.primary,
+                  opacity: isSubmittingReview ? 0.7 : 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                },
+              ]}
               activeOpacity={0.85}
             >
-              <Text style={styles.submitReviewBtnText}>Publicar Avaliação</Text>
+              {isSubmittingReview && <ActivityIndicator size="small" color="#fff" />}
+              <Text style={styles.submitReviewBtnText}>
+                {isSubmittingReview ? 'Salvando avaliação...' : 'Publicar Avaliação'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -2048,20 +2099,25 @@ export default function AlbumDetailScreen() {
               />
               <TouchableOpacity
                 onPress={handleCreateAndAddList}
-                disabled={!newCustomListTitle.trim()}
+                disabled={!newCustomListTitle.trim() || isCreatingList || Boolean(savingListId)}
                 style={[
                   styles.createListAddBtn,
                   {
                     backgroundColor: newCustomListTitle.trim()
                       ? colors.primary
                       : colors.secondary,
+                    opacity: isCreatingList || Boolean(savingListId) ? 0.7 : 1,
                   },
                 ]}
               >
-                <Plus
-                  size={16}
-                  color={newCustomListTitle.trim() ? '#fff' : colors.mutedForeground}
-                />
+                {isCreatingList ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Plus
+                    size={16}
+                    color={newCustomListTitle.trim() ? '#fff' : colors.mutedForeground}
+                  />
+                )}
               </TouchableOpacity>
             </View>
 
@@ -2070,83 +2126,97 @@ export default function AlbumDetailScreen() {
               style={{ maxHeight: 250, marginTop: 8 }}
               showsVerticalScrollIndicator={false}
             >
-              {userLists.map((item) => {
-                const isDefaultList =
-                  item.id === 'want-to-listen' || item.isDefault;
-                return (
-                  <TouchableOpacity
-                    key={item.id}
-                    onPress={() => handleAddToList(item.id, item.title)}
-                    style={[
-                      styles.userListItemBtn,
-                      {
-                        backgroundColor: isDefaultList
-                          ? `${colors.primary}12`
-                          : colors.secondary,
-                        borderColor: isDefaultList
-                          ? `${colors.primary}45`
-                          : colors.border,
-                      },
-                    ]}
-                    activeOpacity={0.7}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 6,
-                        }}
-                      >
-                        <Text
-                          style={[
-                            styles.userListItemTitle,
-                            { color: colors.foreground },
-                          ]}
+              {isLoadingLists && userLists.length === 0 ? (
+                <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                </View>
+              ) : (
+                userLists.map((item) => {
+                  const isDefaultList =
+                    item.id === 'want-to-listen' || item.isDefault;
+                  const isSavingThisList = savingListId === item.id;
+                  const isBusy = Boolean(savingListId) || isCreatingList;
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      onPress={() => handleAddToList(item.id, item.title)}
+                      disabled={isBusy}
+                      style={[
+                        styles.userListItemBtn,
+                        {
+                          backgroundColor: isDefaultList
+                            ? `${colors.primary}12`
+                            : colors.secondary,
+                          borderColor: isDefaultList
+                            ? `${colors.primary}45`
+                            : colors.border,
+                          opacity: isBusy && !isSavingThisList ? 0.6 : 1,
+                        },
+                      ]}
+                      activeOpacity={0.7}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                          }}
                         >
-                          {item.title}
-                        </Text>
-                        {isDefaultList && (
-                          <View
-                            style={{
-                              backgroundColor: `${colors.primary}22`,
-                              paddingHorizontal: 6,
-                              paddingVertical: 1,
-                              borderRadius: 6,
-                            }}
+                          <Text
+                            style={[
+                              styles.userListItemTitle,
+                              { color: colors.foreground },
+                            ]}
                           >
-                            <Text
+                            {item.title}
+                          </Text>
+                          {isDefaultList && (
+                            <View
                               style={{
-                                fontSize: 9.5,
-                                fontWeight: '900',
-                                color: colors.primary,
+                                backgroundColor: `${colors.primary}22`,
+                                paddingHorizontal: 6,
+                                paddingVertical: 1,
+                                borderRadius: 6,
                               }}
                             >
-                              Padrão
-                            </Text>
-                          </View>
-                        )}
+                              <Text
+                                style={{
+                                  fontSize: 9.5,
+                                  fontWeight: '900',
+                                  color: colors.primary,
+                                }}
+                              >
+                                Padrão
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text
+                          style={[
+                            styles.userListItemSub,
+                            { color: colors.mutedForeground },
+                          ]}
+                        >
+                          {item.count} {item.count === 1 ? 'álbum' : 'álbuns'} • {item.description}
+                        </Text>
                       </View>
-                      <Text
-                        style={[
-                          styles.userListItemSub,
-                          { color: colors.mutedForeground },
-                        ]}
-                      >
-                        {item.count} {item.count === 1 ? 'álbum' : 'álbuns'} • {item.description}
-                      </Text>
-                    </View>
-                    <Plus
-                      size={16}
-                      color={
-                        isDefaultList
-                          ? colors.primary
-                          : colors.mutedForeground
-                      }
-                    />
-                  </TouchableOpacity>
-                );
-              })}
+                      {isSavingThisList ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                      ) : (
+                        <Plus
+                          size={16}
+                          color={
+                            isDefaultList
+                              ? colors.primary
+                              : colors.mutedForeground
+                          }
+                        />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })
+              )}
             </ScrollView>
           </View>
         </View>
@@ -2407,7 +2477,7 @@ export default function AlbumDetailScreen() {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
                       <Star size={13} color={colors.amber} fill={colors.amber} />
                       <Text style={{ fontSize: 13, fontWeight: '900', color: colors.amber }}>
-                        {Number(currentUserReview?.rating).toFixed(1)}/10
+                        {formatRating(currentUserReview?.rating)}/10
                       </Text>
                     </View>
                   </View>

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
+import { formatRating } from '@/utils/rating';
 import {
   Headphones,
   Search,
@@ -182,7 +183,7 @@ export default function TopAlbunsScreen() {
                       color: colors.primary,
                     }}
                   >
-                    ★ {album.communityRating.toFixed(1)}
+                    ★ {formatRating(album.communityRating)}
                   </Text>
                 </View>
               </View>

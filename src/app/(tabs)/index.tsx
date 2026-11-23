@@ -3,6 +3,7 @@ import { MobileHeader } from '@/components/MobileHeader';
 import { useActivityCardMode } from '@/hooks/use-activity-card-mode';
 import { useHeaderVisibility } from '@/context/HeaderVisibilityContext';
 import { useAppTheme } from '@/context/ThemeContext';
+import { formatRating } from '@/utils/rating';
 import { useAuth } from '@/context/AuthContext';
 import {
   consumeTimelineIntroOnce,
@@ -13,6 +14,7 @@ import {
   getFeedPostsFromSupabase,
   toggleFeedPostLikeInSupabase,
   addFeedPostCommentInSupabase,
+  deleteFeedPostCommentInSupabase,
 } from '@/services/catalog.service';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
@@ -26,13 +28,17 @@ import {
   Share2,
   Sparkles,
   Star,
+  Trash2,
   UserCheck,
   X,
 } from 'lucide-react-native';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   RefreshControl,
   ScrollView,
   Share,
@@ -47,7 +53,7 @@ interface FeedCommentInputProps {
   postId: string;
   avatarUrl?: string;
   colors: any;
-  onAddComment: (postId: string, text: string) => void;
+  onAddComment: (postId: string, text: string) => Promise<boolean>;
   onFocusChange?: (focused: boolean) => void;
 }
 
@@ -59,12 +65,20 @@ function FeedCommentInput({
   onFocusChange,
 }: FeedCommentInputProps) {
   const [text, setText] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    onAddComment(postId, trimmed);
-    setText('');
+    if (!trimmed || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const ok = await onAddComment(postId, trimmed);
+      if (ok) {
+        setText('');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -79,6 +93,7 @@ function FeedCommentInput({
         placeholderTextColor={colors.mutedForeground}
         value={text}
         onChangeText={setText}
+        editable={!isSubmitting}
         onFocus={() => onFocusChange?.(true)}
         onBlur={() => onFocusChange?.(false)}
         returnKeyType="send"
@@ -89,19 +104,27 @@ function FeedCommentInput({
             backgroundColor: colors.background,
             borderColor: colors.border,
             color: colors.foreground,
+            opacity: isSubmitting ? 0.7 : 1,
           },
         ]}
       />
       <TouchableOpacity
         style={[
           styles.sendBtn,
-          { backgroundColor: text.trim() ? colors.primary : `${colors.primary}66` },
+          {
+            backgroundColor:
+              text.trim() && !isSubmitting ? colors.primary : `${colors.primary}66`,
+          },
         ]}
         onPress={handleSend}
         activeOpacity={0.85}
-        disabled={!text.trim()}
+        disabled={!text.trim() || isSubmitting}
       >
-        <Send size={15} color="#fff" />
+        {isSubmitting ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Send size={15} color="#fff" />
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -123,6 +146,7 @@ export default function HomeScreen() {
   const [activeCommentSection, setActiveCommentSection] = useState<{
     [key: string]: boolean;
   }>({});
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
 
   const loadFeed = useCallback(async () => {
     const posts = await getFeedPostsFromSupabase(user?.id);
@@ -237,12 +261,12 @@ export default function HomeScreen() {
     setActiveCommentSection((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleAddComment = async (id: string, commentText: string) => {
+  const handleAddComment = async (id: string, commentText: string): Promise<boolean> => {
     const text = commentText.trim();
-    if (!text) return;
+    if (!text) return false;
     if (!user) {
       router.push('/login' as any);
-      return;
+      return false;
     }
 
     const authorName = authProfile?.full_name || authProfile?.username || 'Usuário';
@@ -268,7 +292,57 @@ export default function HomeScreen() {
         )
       );
       setActiveCommentSection((prev) => ({ ...prev, [id]: true }));
+      return true;
     }
+    return false;
+  };
+
+  const executeDeleteComment = async (postId: string, commentId: string) => {
+    if (deletingCommentId) return;
+    setDeletingCommentId(commentId);
+    try {
+      const ok = await deleteFeedPostCommentInSupabase(commentId);
+      if (ok) {
+        setFeedItems((prev) =>
+          prev.map((item) =>
+            item.id === postId
+              ? {
+                  ...item,
+                  comments: item.comments.filter((c) => c.id !== commentId),
+                }
+              : item
+          )
+        );
+      } else {
+        Alert.alert(
+          'Erro ao excluir comentário',
+          'Não foi possível excluir este comentário. Tente novamente.'
+        );
+      }
+    } finally {
+      setDeletingCommentId(null);
+    }
+  };
+
+  const handleDeleteComment = (postId: string, commentId: string) => {
+    if (deletingCommentId) return;
+    const message = 'Tem certeza que deseja excluir este comentário?';
+    if (Platform.OS === 'web') {
+      const confirmed = typeof window !== 'undefined' && window.confirm(message);
+      if (confirmed) {
+        executeDeleteComment(postId, commentId);
+      }
+      return;
+    }
+
+    Alert.alert('Excluir comentário', message, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Excluir',
+        style: 'destructive',
+        onPress: () => executeDeleteComment(postId, commentId),
+      },
+    ]);
   };
 
   const getActivityActionText = (item: FeedPostItem) => {
@@ -591,7 +665,7 @@ export default function HomeScreen() {
                                 { color: getScoreColor(item.rating) },
                               ]}
                             >
-                              {item.rating.toFixed(1)}
+                              {formatRating(item.rating)}
                             </Text>
                           </View>
                         )}
@@ -648,7 +722,7 @@ export default function HomeScreen() {
                             { color: colors.foreground },
                           ]}
                         >
-                          {item.rating.toFixed(1)}
+                          {formatRating(item.rating)}
                         </Text>
                         <Text
                           style={[
@@ -892,56 +966,90 @@ export default function HomeScreen() {
                         Seja o primeiro a comentar nesta publicação!
                       </Text>
                     ) : (
-                      item.comments.map((comment) => (
-                        <View
-                          key={comment.id}
-                          style={[
-                            styles.commentItem,
-                            {
-                              backgroundColor: colors.secondary,
-                              borderColor: colors.border,
-                            },
-                          ]}
-                        >
-                          <CoverImage
-                            uri={comment.avatar}
-                            style={styles.commentAvatar}
-                            fallbackType="artist"
-                          />
-                          <View style={{ flex: 1 }}>
-                            <View style={styles.commentHeader}>
+                      item.comments.map((comment) => {
+                        const isPostOwner = Boolean(
+                          user &&
+                            ((item.userId && item.userId === user.id) ||
+                              (authProfile?.username &&
+                                item.friendUsername.toLowerCase() ===
+                                  authProfile.username.toLowerCase()))
+                        );
+                        const isCommentAuthor = Boolean(
+                          user && comment.userId && comment.userId === user.id
+                        );
+                        const canDeleteComment = isPostOwner || isCommentAuthor;
+                        const isDeletingThis = deletingCommentId === comment.id;
+
+                        return (
+                          <View
+                            key={comment.id}
+                            style={[
+                              styles.commentItem,
+                              {
+                                backgroundColor: colors.secondary,
+                                borderColor: colors.border,
+                              },
+                            ]}
+                          >
+                            <CoverImage
+                              uri={comment.avatar}
+                              style={styles.commentAvatar}
+                              fallbackType="artist"
+                            />
+                            <View style={{ flex: 1 }}>
+                              <View style={styles.commentHeader}>
+                                <Text
+                                  style={{
+                                    fontSize: 12,
+                                    fontWeight: '800',
+                                    color: colors.foreground,
+                                    flex: 1,
+                                  }}
+                                  numberOfLines={1}
+                                >
+                                  {comment.author}
+                                </Text>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                  <Text
+                                    style={{
+                                      fontSize: 10,
+                                      color: colors.mutedForeground,
+                                    }}
+                                  >
+                                    {comment.time}
+                                  </Text>
+                                  {canDeleteComment && (
+                                    <TouchableOpacity
+                                      onPress={() => handleDeleteComment(item.id, comment.id)}
+                                      disabled={isDeletingThis}
+                                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                      style={{ opacity: isDeletingThis ? 0.6 : 1 }}
+                                      accessibilityLabel="Excluir comentário"
+                                    >
+                                      {isDeletingThis ? (
+                                        <ActivityIndicator size="small" color={colors.mutedForeground} />
+                                      ) : (
+                                        <Trash2 size={13} color={colors.mutedForeground} />
+                                      )}
+                                    </TouchableOpacity>
+                                  )}
+                                </View>
+                              </View>
                               <Text
                                 style={{
                                   fontSize: 12,
-                                  fontWeight: '800',
                                   color: colors.foreground,
+                                  opacity: 0.9,
+                                  marginTop: 3,
+                                  lineHeight: 17,
                                 }}
                               >
-                                {comment.author}
-                              </Text>
-                              <Text
-                                style={{
-                                  fontSize: 10,
-                                  color: colors.mutedForeground,
-                                }}
-                              >
-                                {comment.time}
+                                {comment.text}
                               </Text>
                             </View>
-                            <Text
-                              style={{
-                                fontSize: 12,
-                                color: colors.foreground,
-                                opacity: 0.9,
-                                marginTop: 3,
-                                lineHeight: 17,
-                              }}
-                            >
-                              {comment.text}
-                            </Text>
                           </View>
-                        </View>
-                      ))
+                        );
+                      })
                     )}
 
                     {/* Input de Comentário isolado com Avatar do Usuário Logado */}

@@ -3,6 +3,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { FeedStyleActivityCard } from '@/components/FeedStyleActivityCard';
 import { useActivityCardMode } from '@/hooks/use-activity-card-mode';
 import { useAppTheme } from '@/context/ThemeContext';
+import { formatRating } from '@/utils/rating';
 import { useAuth } from '@/context/AuthContext';
 import { subscribeAlbumsUpdated } from '@/services/musicBrainz.service';
 import {
@@ -602,7 +603,7 @@ export default function CommunityReviewsScreen() {
                         },
                       ]}
                     >
-                      {review.rating.toFixed(1)}/10
+                      {formatRating(review.rating)}/10
                     </Text>
                   </View>
                 </View>

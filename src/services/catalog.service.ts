@@ -1,13 +1,14 @@
 import { supabase } from './supabase';
 import { formatSocialDate } from '@/utils/date';
-import type {
-  CatalogAlbum,
-  CatalogArtist,
-  CatalogTrack,
-  AlbumUserReview,
-  FeedPostItem,
-  AlbumAward,
-  UserListRecord,
+import {
+  notifyCatalogUpdated,
+  type CatalogAlbum,
+  type CatalogArtist,
+  type CatalogTrack,
+  type AlbumUserReview,
+  type FeedPostItem,
+  type AlbumAward,
+  type UserListRecord,
 } from './musicBrainz.service';
 
 export interface GenreRecord {
@@ -590,7 +591,7 @@ export async function getFeedPostsFromSupabase(currentUserId?: string): Promise<
 
     const commentsByPost = new Map<
       string,
-      { id: string; author: string; avatar: string; text: string; time: string }[]
+      { id: string; userId?: string; author: string; avatar: string; text: string; time: string }[]
     >();
 
     if (!commentsRes.error && commentsRes.data) {
@@ -598,6 +599,7 @@ export async function getFeedPostsFromSupabase(currentUserId?: string): Promise<
         const list = commentsByPost.get(c.post_id) || [];
         list.push({
           id: String(c.id),
+          userId: c.user_id ? String(c.user_id) : undefined,
           author: c.author || 'Usuário',
           avatar: c.avatar || '',
           text: c.text || '',
@@ -625,6 +627,7 @@ export async function getFeedPostsFromSupabase(currentUserId?: string): Promise<
         sortTime,
         item: {
           id: String(p.id),
+          userId: p.user_id ? String(p.user_id) : undefined,
           activityType: p.activity_type || 'review',
           friendName: p.friend_name || 'Usuário',
           friendUsername: p.friend_username || 'user',
@@ -659,6 +662,7 @@ export async function getFeedPostsFromSupabase(currentUserId?: string): Promise<
         sortTime,
         item: {
           id: `review-feed-${reviewId}`,
+          userId: r.user_id ? String(r.user_id) : undefined,
           activityType: 'review',
           friendName: r.user_display_name || r.username || 'Usuário',
           friendUsername: r.username || 'user',
@@ -720,7 +724,7 @@ export async function addFeedPostCommentInSupabase(params: {
   author: string;
   avatar: string;
   text: string;
-}): Promise<{ id: string; author: string; avatar: string; text: string; time: string } | null> {
+}): Promise<{ id: string; userId?: string; author: string; avatar: string; text: string; time: string } | null> {
   try {
     const { data, error } = await supabase
       .from('feed_post_comments')
@@ -738,6 +742,7 @@ export async function addFeedPostCommentInSupabase(params: {
     if (error || !data) return null;
     return {
       id: String(data.id),
+      userId: data.user_id ? String(data.user_id) : params.userId,
       author: data.author,
       avatar: data.avatar || '',
       text: data.text,
@@ -745,6 +750,25 @@ export async function addFeedPostCommentInSupabase(params: {
     };
   } catch {
     return null;
+  }
+}
+
+export async function deleteFeedPostCommentInSupabase(
+  commentId: string
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('feed_post_comments')
+      .delete()
+      .eq('id', commentId)
+      .select('id');
+    if (error) {
+      console.warn('[CatalogService] Erro ao excluir comentário:', error);
+      return false;
+    }
+    return Array.isArray(data) && data.length > 0;
+  } catch {
+    return false;
   }
 }
 
@@ -1042,17 +1066,60 @@ export async function toggleFavoriteAlbumInSupabase(
   try {
     const exists = await isAlbumFavoritedInSupabase(userId, album.id);
     if (exists) {
-      await supabase
-        .from('user_favorite_albums')
-        .delete()
-        .eq('user_id', userId)
-        .eq('album_id', album.id);
+      await Promise.all([
+        supabase
+          .from('user_favorite_albums')
+          .delete()
+          .eq('user_id', userId)
+          .eq('album_id', album.id),
+        supabase
+          .from('feed_posts')
+          .delete()
+          .eq('user_id', userId)
+          .eq('album_id', album.id)
+          .eq('activity_type', 'favorite'),
+      ]);
+      notifyCatalogUpdated();
       return false;
     } else {
       await ensureAlbumExistsInSupabase(album);
       await supabase
         .from('user_favorite_albums')
         .insert({ user_id: userId, album_id: album.id });
+
+      try {
+        const { data: userProfile } = await supabase
+          .from('profiles')
+          .select('full_name, username, avatar_url')
+          .eq('id', userId)
+          .maybeSingle();
+
+        const basePayload = {
+          activity_type: 'favorite' as const,
+          user_id: userId,
+          friend_name: userProfile?.full_name || userProfile?.username || 'Usuário',
+          friend_username: userProfile?.username || 'user',
+          friend_avatar: userProfile?.avatar_url || '',
+          album_id: album.id,
+          album_title: album.title || 'Álbum',
+          artist_id: album.artist?.id?.trim() || null,
+          artist_name: album.artist?.name || 'Artista',
+          artist_genre: album.genreName || null,
+          album_cover: album.cover_xl || album.cover_big || album.cover_medium || '',
+          rating: Number(album.communityRating || 0),
+          comment: '',
+          time_ago: 'agora',
+        };
+
+        const { error: feedErr } = await supabase.from('feed_posts').insert(basePayload);
+        if (feedErr && feedErr.code === '23503' && basePayload.artist_id) {
+          await supabase.from('feed_posts').insert({ ...basePayload, artist_id: null });
+        }
+      } catch {
+        // non-blocking
+      }
+
+      notifyCatalogUpdated();
       return true;
     }
   } catch {
@@ -1105,11 +1172,20 @@ export async function toggleFollowArtistInSupabase(
 ): Promise<boolean> {
   try {
     if (currentlyFollowing) {
-      await supabase
-        .from('user_followed_artists')
-        .delete()
-        .eq('user_id', userId)
-        .eq('artist_id', artist.id);
+      await Promise.all([
+        supabase
+          .from('user_followed_artists')
+          .delete()
+          .eq('user_id', userId)
+          .eq('artist_id', artist.id),
+        supabase
+          .from('feed_posts')
+          .delete()
+          .eq('user_id', userId)
+          .eq('artist_id', artist.id)
+          .eq('activity_type', 'follow_idol'),
+      ]);
+      notifyCatalogUpdated();
       return false;
     } else {
       await ensureArtistExistsInSupabase({
@@ -1124,6 +1200,35 @@ export async function toggleFollowArtistInSupabase(
       await supabase
         .from('user_followed_artists')
         .insert({ user_id: userId, artist_id: artist.id });
+
+      try {
+        const { data: userProfile } = await supabase
+          .from('profiles')
+          .select('full_name, username, avatar_url')
+          .eq('id', userId)
+          .maybeSingle();
+
+        await supabase.from('feed_posts').insert({
+          activity_type: 'follow_idol' as const,
+          user_id: userId,
+          friend_name: userProfile?.full_name || userProfile?.username || 'Usuário',
+          friend_username: userProfile?.username || 'user',
+          friend_avatar: userProfile?.avatar_url || '',
+          album_id: null,
+          album_title: artist.name || 'Artista',
+          artist_id: artist.id,
+          artist_name: artist.name || 'Artista',
+          artist_genre: artist.genre || 'Artista',
+          album_cover: artist.imageUrl || '',
+          rating: 0,
+          comment: '',
+          time_ago: 'agora',
+        });
+      } catch {
+        // non-blocking
+      }
+
+      notifyCatalogUpdated();
       return true;
     }
   } catch {

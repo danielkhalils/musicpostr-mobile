@@ -16,7 +16,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { CoverImage } from '@/components/CoverImage';
 import { type CatalogArtist } from '@/services/musicBrainz.service';
 import { getUserFollowedArtists } from '@/services/profile.service';
-import { supabase } from '@/services/supabase';
+import { toggleFollowArtistInSupabase } from '@/services/catalog.service';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 42) / 2;
@@ -52,11 +52,7 @@ export default function IdolsScreen() {
   const handleUnfollow = async (artist: CatalogArtist) => {
     if (isVisiting) return;
     if (user) {
-      await supabase
-        .from('user_followed_artists')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('artist_id', artist.id);
+      await toggleFollowArtistInSupabase(user.id, artist, true);
     }
     setIdols((prev) => prev.filter((item) => item.id !== artist.id));
   };

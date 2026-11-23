@@ -5,6 +5,7 @@ import {
   type FavoriteAlbumRecord,
   type CatalogArtist,
   type UserListRecord,
+  notifyCatalogUpdated,
 } from './musicBrainz.service';
 
 export interface FriendProfileRecord {
@@ -288,6 +289,37 @@ export async function updateProfile(
       .single();
 
     if (error) throw error;
+
+    // Sincroniza nome, username e avatar nas publicações da timeline e avaliações
+    const hasIdentityUpdate =
+      updates.full_name !== undefined ||
+      updates.username !== undefined ||
+      updates.avatar_url !== undefined;
+
+    if (hasIdentityUpdate && data) {
+      const feedIdentityUpdates: Record<string, string> = {};
+      const reviewIdentityUpdates: Record<string, string> = {};
+
+      if (data.full_name !== undefined) {
+        feedIdentityUpdates.friend_name = data.full_name || data.username || 'Usuário';
+        reviewIdentityUpdates.user_display_name = data.full_name || data.username || 'Usuário';
+      }
+      if (data.username !== undefined) {
+        feedIdentityUpdates.friend_username = data.username || 'user';
+        reviewIdentityUpdates.username = data.username || 'user';
+      }
+      if (data.avatar_url !== undefined) {
+        feedIdentityUpdates.friend_avatar = data.avatar_url || '';
+        reviewIdentityUpdates.user_avatar = data.avatar_url || '';
+      }
+
+      await Promise.all([
+        supabase.from('feed_posts').update(feedIdentityUpdates).eq('user_id', userId),
+        supabase.from('album_reviews').update(reviewIdentityUpdates).eq('user_id', userId),
+      ]);
+      notifyCatalogUpdated();
+    }
+
     return { success: true, data };
   } catch (error: any) {
     console.warn('[ProfileService] Erro ao atualizar perfil:', error);
@@ -540,16 +572,41 @@ export async function getUserFriends(identifier: { userId?: string; username?: s
 }
 
 /**
- * Exclui uma avaliação feita pelo usuário no Supabase
+ * Exclui uma avaliação feita pelo usuário no Supabase e remove da timeline (feed_posts)
  */
 export async function deleteReviewFromSupabase(reviewId: string, userId?: string): Promise<boolean> {
   try {
+    const { data: reviewRow } = await supabase
+      .from('album_reviews')
+      .select('album_id, user_id')
+      .eq('id', reviewId)
+      .maybeSingle();
+
+    let feedQuery = supabase.from('feed_posts').delete().eq('review_id', reviewId);
+    if (userId) {
+      feedQuery = feedQuery.eq('user_id', userId);
+    }
+    await feedQuery;
+
+    // Fallback para posts antigos na timeline sem review_id vinculado
+    const effectiveUserId = userId || reviewRow?.user_id;
+    if (effectiveUserId && reviewRow?.album_id) {
+      await supabase
+        .from('feed_posts')
+        .delete()
+        .eq('user_id', effectiveUserId)
+        .eq('album_id', reviewRow.album_id)
+        .eq('activity_type', 'review');
+    }
+
     let query = supabase.from('album_reviews').delete().eq('id', reviewId);
     if (userId) {
       query = query.eq('user_id', userId);
     }
     const { error } = await query;
     if (error) throw error;
+
+    notifyCatalogUpdated();
     return true;
   } catch (error) {
     console.warn('[ProfileService] Erro ao excluir review do Supabase:', error);
