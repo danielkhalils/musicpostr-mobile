@@ -29,6 +29,7 @@ import {
   addAlbumToUserListInSupabase,
 } from '@/services/catalog.service';
 import {
+  deleteReviewFromSupabase,
   getUserFriends,
   getUserListsFromSupabase,
 } from '@/services/profile.service';
@@ -61,6 +62,7 @@ import {
   Award,
   MoreVertical,
   Share2,
+  Trash2,
   UserPlus,
   UserCheck,
 } from 'lucide-react-native';
@@ -83,6 +85,14 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const getScoreColor = (score: number) => {
+  if (score >= 8.5) return '#10b981';
+  if (score >= 7.0) return '#84cc16';
+  if (score >= 5.0) return '#eab308';
+  if (score >= 3.0) return '#f97316';
+  return '#ef4444';
+};
 
 const GEN_Z_PHRASES: Record<number, { text: string; color: string }> = {
   0: { text: 'Dê sua nota para o álbum...', color: '#a1a1aa' },
@@ -113,6 +123,7 @@ export default function AlbumDetailScreen() {
   const [reviewText, setReviewText] = useState<string>('');
   const [postSuccess, setPostSuccess] = useState<boolean>(false);
   const [isSubmittingReview, setIsSubmittingReview] = useState<boolean>(false);
+  const [isDeletingReview, setIsDeletingReview] = useState<boolean>(false);
 
   const [isCoverViewerOpen, setIsCoverViewerOpen] = useState<boolean>(false);
   const [coverSide, setCoverSide] = useState<'front' | 'back'>('front');
@@ -236,7 +247,10 @@ export default function AlbumDetailScreen() {
     if (!reviewText.trim() && rating === 0) return;
 
     const chosenRating = rating || 8;
-    const chosenReview = reviewText.trim() || 'Avaliação sem comentário escrito.';
+    const defaultPhrase =
+      GEN_Z_PHRASES[Math.floor(chosenRating)]?.text ||
+      'Avaliação sem comentário escrito.';
+    const chosenReview = reviewText.trim() || defaultPhrase;
 
     const fallbackUsername =
       authProfile?.username ||
@@ -281,12 +295,21 @@ export default function AlbumDetailScreen() {
         ).toFixed(1)
       );
 
+      const shouldMarkListened = !album.listenedByMe;
+      if (shouldMarkListened) {
+        await toggleListenedAlbumInSupabase(user.id, album, false);
+      }
+
       setSubmittedReviews(nextReviews);
       setAlbum({
         ...album,
         reviews: nextReviews,
         totalReviews: nextTotal,
         communityRating: nextAvg,
+        listenedByMe: true,
+        listenersCount: shouldMarkListened
+          ? album.listenersCount + 1
+          : album.listenersCount,
       });
       notifyCatalogUpdated();
 
@@ -297,6 +320,72 @@ export default function AlbumDetailScreen() {
     } finally {
       setIsSubmittingReview(false);
     }
+  };
+
+  const executeDeleteCurrentReview = async () => {
+    if (!album || !user || !currentUserReview || isDeletingReview) return;
+    setIsDeletingReview(true);
+    try {
+      const ok = await deleteReviewFromSupabase(currentUserReview.id, user.id);
+      if (!ok) {
+        Alert.alert(
+          'Erro ao excluir avaliação',
+          'Não foi possível excluir sua avaliação. Tente novamente.'
+        );
+        return;
+      }
+
+      const nextReviews = submittedReviews.filter(
+        (r) => String(r.id) !== String(currentUserReview.id)
+      );
+      const nextTotal = nextReviews.length;
+      const nextAvg =
+        nextTotal > 0
+          ? Number(
+              (
+                nextReviews.reduce((acc, r) => acc + Number(r.rating || 0), 0) /
+                nextTotal
+              ).toFixed(1)
+            )
+          : 0;
+
+      setSubmittedReviews(nextReviews);
+      setAlbum({
+        ...album,
+        reviews: nextReviews,
+        totalReviews: nextTotal,
+        communityRating: nextAvg,
+      });
+      setRating(0);
+      setReviewText('');
+      setPostSuccess(false);
+      setIsReviewModalOpen(false);
+    } finally {
+      setIsDeletingReview(false);
+    }
+  };
+
+  const handleDeleteCurrentReview = () => {
+    if (!currentUserReview || isDeletingReview || isSubmittingReview) return;
+    const message =
+      'Tem certeza que deseja excluir sua avaliação? Ela também será removida da timeline.';
+
+    if (Platform.OS === 'web') {
+      const confirmed = typeof window !== 'undefined' && window.confirm(message);
+      if (confirmed) {
+        executeDeleteCurrentReview();
+      }
+      return;
+    }
+
+    Alert.alert('Excluir avaliação', message, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Excluir',
+        style: 'destructive',
+        onPress: () => executeDeleteCurrentReview(),
+      },
+    ]);
   };
 
   const isFollowingArtist = useMemo(() => {
@@ -817,6 +906,7 @@ export default function AlbumDetailScreen() {
                 {[
                   {
                     key: 'friends',
+                    numericScore: friendsAverage,
                     score: friendsAverage !== null ? formatRating(friendsAverage) : '—',
                     label: 'NOTA DOS AMIGOS',
                     sub:
@@ -826,11 +916,17 @@ export default function AlbumDetailScreen() {
                   },
                   {
                     key: 'community',
+                    numericScore: album.totalReviews > 0 ? album.communityRating : null,
                     score: averageRating,
                     label: 'NOTA DA COMUNIDADE',
                     sub: `Baseada em ${album.totalReviews} avaliações da comunidade`,
                   },
-                ].map((slide) => (
+                ].map((slide) => {
+                  const circleColor =
+                    slide.numericScore !== null && slide.numericScore > 0
+                      ? getScoreColor(slide.numericScore)
+                      : colors.primary;
+                  return (
                   <View
                     key={slide.key}
                     style={[styles.musicpostrScoreSection, { width: scorePagerWidth }]}
@@ -840,8 +936,8 @@ export default function AlbumDetailScreen() {
                         styles.musicpostrCircle,
                         {
                           backgroundColor: colors.card,
-                          borderColor: colors.primary,
-                          shadowColor: colors.primary,
+                          borderColor: circleColor,
+                          shadowColor: circleColor,
                         },
                       ]}
                     >
@@ -858,7 +954,8 @@ export default function AlbumDetailScreen() {
                       </Text>
                     </View>
                   </View>
-                ))}
+                  );
+                })}
               </ScrollView>
               <View style={styles.heroPaginationDots}>
                 {[0, 1].map((i) => (
@@ -936,7 +1033,7 @@ export default function AlbumDetailScreen() {
                       { color: colors.foreground },
                     ]}
                   >
-                    {`"${currentUserReview.comment}"`}
+                    {currentUserReview.comment}
                   </Text>
                 </View>
 
@@ -1436,7 +1533,7 @@ export default function AlbumDetailScreen() {
                         lineHeight: 18,
                       }}
                     >
-                      {`"${rev.comment}"`}
+                      {rev.comment}
                     </Text>
 
                     <View style={{ marginTop: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1780,37 +1877,6 @@ export default function AlbumDetailScreen() {
             </View>
 
             {/* Atalho rápido para Favoritar dentro da Modal */}
-            <TouchableOpacity
-              onPress={handleToggleFavorite}
-              style={[
-                styles.modalFavoriteQuickRow,
-                {
-                  backgroundColor: album.isFavorite
-                    ? `${colors.rose}18`
-                    : colors.secondary,
-                  borderColor: album.isFavorite ? `${colors.rose}50` : colors.border,
-                },
-              ]}
-              activeOpacity={0.8}
-            >
-              <Heart
-                size={16}
-                color={album.isFavorite ? colors.rose : colors.foreground}
-                fill={album.isFavorite ? colors.rose : 'transparent'}
-              />
-              <Text
-                style={{
-                  fontSize: 13,
-                  fontWeight: '700',
-                  color: album.isFavorite ? colors.rose : colors.foreground,
-                }}
-              >
-                {album.isFavorite
-                  ? 'Álbum favoritado nos seus destaques'
-                  : 'Tocar para favoritar este álbum'}
-              </Text>
-            </TouchableOpacity>
-
             {/* Destaque da Nota Selecionada */}
             <View style={{ alignItems: 'center', marginVertical: 6 }}>
               <Text
@@ -1990,12 +2056,12 @@ export default function AlbumDetailScreen() {
 
             <TouchableOpacity
               onPress={handlePostReview}
-              disabled={isSubmittingReview}
+              disabled={isSubmittingReview || isDeletingReview}
               style={[
                 styles.submitReviewBtn,
                 {
                   backgroundColor: colors.primary,
-                  opacity: isSubmittingReview ? 0.7 : 1,
+                  opacity: isSubmittingReview || isDeletingReview ? 0.7 : 1,
                   flexDirection: 'row',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -2006,9 +2072,49 @@ export default function AlbumDetailScreen() {
             >
               {isSubmittingReview && <ActivityIndicator size="small" color="#fff" />}
               <Text style={styles.submitReviewBtnText}>
-                {isSubmittingReview ? 'Salvando avaliação...' : 'Publicar Avaliação'}
+                {isSubmittingReview
+                  ? 'Salvando avaliação...'
+                  : currentUserReview
+                    ? 'Salvar Alterações'
+                    : 'Publicar Avaliação'}
               </Text>
             </TouchableOpacity>
+
+            {Boolean(currentUserReview) && (
+              <TouchableOpacity
+                onPress={handleDeleteCurrentReview}
+                disabled={isDeletingReview || isSubmittingReview}
+                style={{
+                  marginTop: 4,
+                  paddingVertical: 12,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: `${colors.destructive}55`,
+                  backgroundColor: `${colors.destructive}14`,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  opacity: isDeletingReview || isSubmittingReview ? 0.65 : 1,
+                }}
+                activeOpacity={0.8}
+              >
+                {isDeletingReview ? (
+                  <ActivityIndicator size="small" color={colors.destructive} />
+                ) : (
+                  <Trash2 size={15} color={colors.destructive} />
+                )}
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: '800',
+                    color: colors.destructive,
+                  }}
+                >
+                  {isDeletingReview ? 'Excluindo...' : 'Excluir Avaliação'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </Modal>
@@ -2458,7 +2564,7 @@ export default function AlbumDetailScreen() {
             {Boolean(currentUserReview) && (
               <ScrollView
                 showsVerticalScrollIndicator={false}
-                style={{ maxHeight: 430, marginBottom: 8 }}
+                style={{ maxHeight: 540 }}
                 contentContainerStyle={{ paddingVertical: 4 }}
               >
                 <ShareableReviewCard
@@ -2475,48 +2581,6 @@ export default function AlbumDetailScreen() {
                 />
               </ScrollView>
             )}
-
-            <View style={{ gap: 10, marginTop: 4 }}>
-              {/* Botão Compartilhar nos Stories do Instagram */}
-              <TouchableOpacity
-                style={styles.instagramStoryBtn}
-                onPress={handleShareReviewInstagramStories}
-                activeOpacity={0.85}
-              >
-                <LinearGradient
-                  colors={['#833ab4', '#fd1d1d', '#fcb045']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.instagramStoryGradient}
-                >
-                  <SocialIcon name="instagram" size={20} color="#fff" />
-                  <View style={{ flex: 1, marginLeft: 10 }}>
-                    <Text style={styles.instagramStoryTitle}>
-                      Compartilhar nos Stories
-                    </Text>
-                    <Text style={styles.instagramStorySubtitle}>
-                      Instagram Stories
-                    </Text>
-                  </View>
-                  <ArrowRight size={16} color="#fff" />
-                </LinearGradient>
-              </TouchableOpacity>
-
-              {/* Botão Compartilhar em Outros Aplicativos */}
-              <TouchableOpacity
-                style={[
-                  styles.generalShareBtn,
-                  { backgroundColor: colors.secondary, borderColor: colors.border },
-                ]}
-                onPress={handleShareReviewGeneral}
-                activeOpacity={0.8}
-              >
-                <Share2 size={18} color={colors.foreground} />
-                <Text style={[styles.generalShareBtnText, { color: colors.foreground }]}>
-                  Outras opções de compartilhamento
-                </Text>
-              </TouchableOpacity>
-            </View>
           </View>
         </View>
       </Modal>

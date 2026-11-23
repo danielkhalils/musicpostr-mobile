@@ -1,9 +1,11 @@
 import { CoverImage } from '@/components/CoverImage';
 import { MobileHeader } from '@/components/MobileHeader';
+import { ShareableReviewCard } from '@/components/ShareableReviewCard';
 import { useActivityCardMode } from '@/hooks/use-activity-card-mode';
 import { useHeaderVisibility } from '@/context/HeaderVisibilityContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import { formatRating } from '@/utils/rating';
+import { INFINITE_PAGE_SIZE, isNearScrollBottom } from '@/utils/pagination';
 import { useAuth } from '@/context/AuthContext';
 import {
   consumeTimelineIntroOnce,
@@ -18,6 +20,7 @@ import {
 } from '@/services/catalog.service';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Clock,
   Disc,
@@ -35,12 +38,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
   RefreshControl,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -131,6 +134,7 @@ function FeedCommentInput({
 
 export default function HomeScreen() {
   const { colors, isDark } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const { user, profile: authProfile } = useAuth();
   const { setIsHeaderVisible } = useHeaderVisibility();
   const { mode: cardMode } = useActivityCardMode();
@@ -138,6 +142,8 @@ export default function HomeScreen() {
   const isTypingRef = useRef(false);
 
   const [feedItems, setFeedItems] = useState<FeedPostItem[]>([]);
+  const [visibleCount, setVisibleCount] = useState<number>(INFINITE_PAGE_SIZE);
+  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
   const [showTimelineIntro, setShowTimelineIntro] = useState<boolean>(() =>
     consumeTimelineIntroOnce()
   );
@@ -146,15 +152,21 @@ export default function HomeScreen() {
     [key: string]: boolean;
   }>({});
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
+  const [sharePostItem, setSharePostItem] = useState<FeedPostItem | null>(null);
 
   const loadFeed = useCallback(async () => {
-    const posts = await getFeedPostsFromSupabase(user?.id);
-    setFeedItems(posts);
+    try {
+      const posts = await getFeedPostsFromSupabase(user?.id);
+      setFeedItems(posts);
+    } finally {
+      setIsInitialLoading(false);
+    }
   }, [user?.id]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
+      setVisibleCount(INFINITE_PAGE_SIZE);
       await loadFeed();
     } catch {
       // ignore
@@ -162,6 +174,15 @@ export default function HomeScreen() {
       setRefreshing(false);
     }
   }, [loadFeed]);
+
+  const handleTimelineScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (visibleCount < feedItems.length && isNearScrollBottom(event)) {
+        setVisibleCount((prev) => Math.min(feedItems.length, prev + INFINITE_PAGE_SIZE));
+      }
+    },
+    [visibleCount, feedItems.length]
+  );
 
   useEffect(() => {
     loadFeed();
@@ -238,22 +259,8 @@ export default function HomeScreen() {
     }
   };
 
-  const handleSharePost = async (item: FeedPostItem) => {
-    try {
-      const actionDesc =
-        item.activityType === 'follow_idol'
-          ? `passou a seguir ${item.albumTitle}`
-          : item.activityType === 'favorite'
-            ? `favoritou o álbum "${item.albumTitle}" de ${item.artistName}`
-            : `avaliou "${item.albumTitle}" de ${item.artistName} com nota ${item.rating}/10`;
-
-      await Share.share({
-        title: `Publicação de ${item.friendName} no Musicpostr`,
-        message: `${item.friendName} (@${item.friendUsername}) ${actionDesc} no Musicpostr:\n"${item.comment}"`,
-      });
-    } catch {
-      // ignore
-    }
+  const handleSharePost = (item: FeedPostItem) => {
+    setSharePostItem(item);
   };
 
   const handleToggleCommentSection = (id: string) => {
@@ -439,7 +446,10 @@ export default function HomeScreen() {
         style={{ flex: 1 }}
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
-        onScroll={handleScroll}
+        onScroll={(e) => {
+          handleScroll(e);
+          handleTimelineScroll(e);
+        }}
         scrollEventThrottle={32}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -498,28 +508,79 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {feedItems.length === 0 ? (
+      {isInitialLoading && feedItems.length === 0 ? (
+        <View
+          style={{
+            flex: 1,
+            minHeight: 420,
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 10,
+          }}
+        >
+          <ActivityIndicator size="large" color={colors.foreground} />
+          <Text
+            style={{
+              fontSize: 13,
+              fontWeight: '700',
+              color: colors.mutedForeground,
+              textAlign: 'center',
+            }}
+          >
+            Carregando...
+          </Text>
+        </View>
+      ) : feedItems.length === 0 ? (
         <View
           style={[
             styles.emptyBox,
-            { backgroundColor: colors.card, borderColor: colors.border },
+            { backgroundColor: colors.card, borderColor: colors.border, gap: 10 },
           ]}
         >
-          <Disc size={44} color={colors.mutedForeground} />
+          <Disc size={44} color={colors.primary} />
+          <Text
+            style={{
+              fontSize: 16,
+              fontWeight: '900',
+              color: colors.foreground,
+              textAlign: 'center',
+            }}
+          >
+            Sua timeline ainda está vazia
+          </Text>
           <Text
             style={{
               fontSize: 13,
               color: colors.mutedForeground,
               textAlign: 'center',
+              lineHeight: 19,
             }}
           >
-            Nenhuma atividade encontrada. Avalie ou favorite álbuns para
-            movimentar sua timeline!
+            Que tal dar o primeiro play? Publique sua primeira avaliação de álbum e compartilhe seu gosto musical com a comunidade!
           </Text>
+          <TouchableOpacity
+            onPress={() => router.push('/(tabs)/artists' as any)}
+            activeOpacity={0.85}
+            style={{
+              marginTop: 6,
+              backgroundColor: colors.primary,
+              paddingHorizontal: 20,
+              paddingVertical: 11,
+              borderRadius: 999,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <Star size={15} color="#fff" fill="#fff" />
+            <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>
+              Avaliar meu primeiro álbum
+            </Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <View style={styles.feedList}>
-          {feedItems.map((item) => {
+          {feedItems.slice(0, visibleCount).map((item) => {
             const isIdolActivity = item.activityType === 'follow_idol';
             const isFavoriteActivity = item.activityType === 'favorite';
             const isCommentsOpen = Boolean(activeCommentSection[item.id]);
@@ -682,7 +743,7 @@ export default function HomeScreen() {
                           style={[styles.compactComment, { color: colors.foreground }]}
                           numberOfLines={2}
                         >
-                          {`"${item.comment}"`}
+                          {item.comment}
                         </Text>
                       )}
                     </View>
@@ -829,15 +890,23 @@ export default function HomeScreen() {
                     )}
                   </TouchableOpacity>
 
-                  {/* Botão Compartilhar */}
-                  <TouchableOpacity
-                    style={[styles.instagramActionBtn, { marginLeft: 'auto' }]}
-                    onPress={() => handleSharePost(item)}
-                    activeOpacity={0.7}
-                    accessibilityLabel="Compartilhar publicação"
-                  >
-                    <Share2 size={21} color={colors.foreground} />
-                  </TouchableOpacity>
+                  {/* Botão Compartilhar (apenas para publicações próprias) */}
+                  {Boolean(
+                    user &&
+                      ((item.userId && item.userId === user.id) ||
+                        (authProfile?.username &&
+                          item.friendUsername.toLowerCase() ===
+                            authProfile.username.toLowerCase()))
+                  ) && (
+                    <TouchableOpacity
+                      style={[styles.instagramActionBtn, { marginLeft: 'auto' }]}
+                      onPress={() => handleSharePost(item)}
+                      activeOpacity={0.7}
+                      accessibilityLabel="Compartilhar publicação"
+                    >
+                      <Share2 size={21} color={colors.foreground} />
+                    </TouchableOpacity>
+                  )}
                 </View>
 
                 {/* 4. CAPTION DO USUÁRIO ESTILO INSTAGRAM (exibido no modo completo; no compacto já aparece ao lado da capa) */}
@@ -1028,6 +1097,80 @@ export default function HomeScreen() {
         </View>
       )}
       </ScrollView>
+
+      {/* Modal de Compartilhamento de Card PNG (idêntica à modal da tela de álbum) */}
+      <Modal
+        visible={Boolean(sharePostItem)}
+        animationType="slide"
+        transparent
+        statusBarTranslucent
+        onRequestClose={() => setSharePostItem(null)}
+      >
+        <View style={styles.sheetModalOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setSharePostItem(null)}
+          />
+          <View
+            style={[
+              styles.sheetModalContent,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                paddingBottom: insets.bottom > 0 ? insets.bottom + 12 : 20,
+              },
+            ]}
+          >
+            <View style={styles.sheetModalDragIndicator} />
+
+            <View style={styles.sheetModalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.sheetModalTitle, { color: colors.foreground }]}>
+                  {sharePostItem?.activityType === 'review' || !sharePostItem?.activityType
+                    ? 'Compartilhar Nota'
+                    : 'Compartilhar Atividade'}
+                </Text>
+                {sharePostItem && (
+                  <Text
+                    style={{ fontSize: 12, color: colors.mutedForeground, marginTop: 2 }}
+                    numberOfLines={1}
+                  >
+                    {sharePostItem.activityType === 'follow_idol'
+                      ? sharePostItem.albumTitle
+                      : `${sharePostItem.albumTitle} • ${sharePostItem.artistName}`}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity
+                onPress={() => setSharePostItem(null)}
+                style={styles.sheetCloseBtn}
+                accessibilityLabel="Fechar"
+              >
+                <X size={18} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+
+            {sharePostItem && (
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                style={{ maxHeight: 540 }}
+                contentContainerStyle={{ paddingVertical: 4 }}
+              >
+                <ShareableReviewCard
+                  albumTitle={sharePostItem.albumTitle}
+                  artistName={sharePostItem.artistName}
+                  albumCover={sharePostItem.albumCover}
+                  rating={sharePostItem.rating}
+                  comment={sharePostItem.comment}
+                  username={sharePostItem.friendUsername}
+                  activityType={sharePostItem.activityType || 'review'}
+                />
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1396,5 +1539,51 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  sheetModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    justifyContent: 'flex-end',
+  },
+  sheetModalContent: {
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 0,
+    marginBottom: 0,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    gap: 14,
+  },
+  sheetModalDragIndicator: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    alignSelf: 'center',
+    marginBottom: 6,
+  },
+  sheetModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  sheetModalTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: -0.3,
+  },
+  sheetCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
 });

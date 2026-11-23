@@ -32,18 +32,23 @@ export default function ListsScreen() {
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [isSavingList, setIsSavingList] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
-      if (isVisiting && username) {
-        const data = await getUserListsFromSupabase({ username });
-        if (active) setLists(data);
-      } else if (user) {
-        const data = await getUserListsFromSupabase({ userId: user.id });
-        if (active) setLists(data);
-      } else {
-        setLists([]);
+      try {
+        if (isVisiting && username) {
+          const data = await getUserListsFromSupabase({ username });
+          if (active) setLists(data);
+        } else if (user) {
+          const data = await getUserListsFromSupabase({ userId: user.id });
+          if (active) setLists(data);
+        } else {
+          setLists([]);
+        }
+      } finally {
+        if (active) setIsLoading(false);
       }
     };
     load();
@@ -124,6 +129,11 @@ export default function ListsScreen() {
           }
         />
 
+        {isLoading && lists.length === 0 ? (
+          <View style={{ paddingVertical: 80, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator size="large" color={colors.foreground} />
+          </View>
+        ) : (
         <View style={{ gap: 12 }}>
           {lists.map((list) => (
             <TouchableOpacity
@@ -219,6 +229,7 @@ export default function ListsScreen() {
             </TouchableOpacity>
           ))}
         </View>
+        )}
       </ScrollView>
 
       <Modal

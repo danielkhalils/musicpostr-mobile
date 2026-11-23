@@ -1,15 +1,15 @@
-import { supabase } from './supabase';
 import { formatSocialDate } from '@/utils/date';
 import {
   notifyCatalogUpdated,
+  type AlbumAward,
+  type AlbumUserReview,
   type CatalogAlbum,
   type CatalogArtist,
   type CatalogTrack,
-  type AlbumUserReview,
   type FeedPostItem,
-  type AlbumAward,
   type UserListRecord,
 } from './musicBrainz.service';
+import { supabase } from './supabase';
 
 export interface GenreRecord {
   id: string;
@@ -84,7 +84,7 @@ export function mapDbArtistToCatalog(row: any): CatalogArtist {
     genre: row.genre || 'Artista',
     nbFans: Number(row.nb_fans || 0),
     country: row.country || '',
-    type: row.type || 'Person',
+    type: row.type || 'Artista',
   };
 }
 
@@ -169,6 +169,7 @@ export async function getTopRatedAlbumsFromSupabase(limit = 30): Promise<Catalog
     const { data, error } = await supabase
       .from('albums')
       .select('*')
+      .gt('total_reviews', 0)
       .order('community_rating', { ascending: false })
       .order('total_reviews', { ascending: false })
       .limit(limit);
@@ -340,6 +341,16 @@ export async function getAlbumFromSupabase(
         likes: Number(r.likes_count || 0),
         likedByMe: likedReviewIds.has(String(r.id)),
       }));
+
+      // Garante que a nota e o total da comunidade reflitam todas as avaliações reais (incluindo a do usuário)
+      if (album.reviews.length > 0) {
+        const sum = album.reviews.reduce((acc, rev) => acc + Number(rev.rating || 0), 0);
+        album.totalReviews = album.reviews.length;
+        album.communityRating = Number((sum / album.reviews.length).toFixed(1));
+      } else {
+        album.totalReviews = 0;
+        album.communityRating = 0;
+      }
     }
 
     if (!listenedRes.error && listenedRes.data) {
@@ -352,14 +363,123 @@ export async function getAlbumFromSupabase(
   }
 }
 
-export async function getAlbumAwardsFromSupabase(albumId: string): Promise<AlbumAward[]> {
+export async function getAlbumAwardsFromSupabase(
+  albumId: string,
+  albumTitle?: string,
+  artistName?: string
+): Promise<AlbumAward[]> {
   try {
+    let targetAlbumIds = [albumId];
+
     const { data, error } = await supabase
       .from('album_awards')
       .select('*')
       .eq('album_id', albumId)
       .order('year', { ascending: false });
+
+    if (!error && data && data.length > 0) {
+      return data.map((row: any) => ({
+        id: String(row.id),
+        ceremony: row.ceremony || 'grammy',
+        ceremonyName: row.ceremony_name || 'Premiação',
+        awardName: row.award_name || row.ceremony_name || '',
+        category: row.category || '',
+        year: String(row.year || ''),
+        isWinner: Boolean(row.is_winner),
+        result: row.is_winner ? 'winner' : 'nominee',
+        notes: row.notes || undefined,
+        description: row.description || undefined,
+        logoUrl: row.logo_url || undefined,
+      }));
+    }
+
+    // Fallback por título + artista (útil quando o álbum vem da API externa com ID diferente)
+    if (albumTitle) {
+      let albumQuery = supabase.from('albums').select('id').ilike('title', albumTitle.trim());
+      if (artistName) {
+        albumQuery = albumQuery.ilike('artist_name', artistName.trim());
+      }
+      const { data: matchedAlbums } = await albumQuery.limit(5);
+      if (matchedAlbums && matchedAlbums.length > 0) {
+        targetAlbumIds = matchedAlbums.map((a: any) => String(a.id));
+        const { data: fallbackData, error: fallbackErr } = await supabase
+          .from('album_awards')
+          .select('*')
+          .in('album_id', targetAlbumIds)
+          .order('year', { ascending: false });
+
+        if (!fallbackErr && fallbackData) {
+          return fallbackData.map((row: any) => ({
+            id: String(row.id),
+            ceremony: row.ceremony || 'grammy',
+            ceremonyName: row.ceremony_name || 'Premiação',
+            awardName: row.award_name || row.ceremony_name || '',
+            category: row.category || '',
+            year: String(row.year || ''),
+            isWinner: Boolean(row.is_winner),
+            result: row.is_winner ? 'winner' : 'nominee',
+            notes: row.notes || undefined,
+            description: row.description || undefined,
+            logoUrl: row.logo_url || undefined,
+          }));
+        }
+      }
+    }
+
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+export interface ArtistAwardRecord extends AlbumAward {
+  albumTitle?: string;
+}
+
+export async function getArtistAwardsFromSupabase(
+  artistId: string,
+  artistName?: string
+): Promise<ArtistAwardRecord[]> {
+  try {
+    const albumIdToTitle = new Map<string, string>();
+
+    const { data: byId } = await supabase
+      .from('albums')
+      .select('id, title')
+      .eq('artist_id', artistId);
+
+    if (byId) {
+      for (const a of byId as any[]) {
+        albumIdToTitle.set(String(a.id), String(a.title || ''));
+      }
+    }
+
+    if (artistName) {
+      const { data: byName } = await supabase
+        .from('albums')
+        .select('id, title')
+        .ilike('artist_name', artistName.trim());
+
+      if (byName) {
+        for (const a of byName as any[]) {
+          if (!albumIdToTitle.has(String(a.id))) {
+            albumIdToTitle.set(String(a.id), String(a.title || ''));
+          }
+        }
+      }
+    }
+
+    const albumIds = Array.from(albumIdToTitle.keys());
+    if (albumIds.length === 0) return [];
+
+    const { data, error } = await supabase
+      .from('album_awards')
+      .select('*')
+      .in('album_id', albumIds)
+      .order('year', { ascending: false });
+
     if (error || !data) return [];
+
     return data.map((row: any) => ({
       id: String(row.id),
       ceremony: row.ceremony || 'grammy',
@@ -372,6 +492,7 @@ export async function getAlbumAwardsFromSupabase(albumId: string): Promise<Album
       notes: row.notes || undefined,
       description: row.description || undefined,
       logoUrl: row.logo_url || undefined,
+      albumTitle: albumIdToTitle.get(String(row.album_id)) || undefined,
     }));
   } catch {
     return [];
@@ -464,7 +585,7 @@ export async function ensureArtistExistsInSupabase(artist: {
       banner_url: artist.banner_url || artist.image_url || '',
       genre: artist.genre || 'Artista',
       country: artist.country || '',
-      type: artist.type || 'Person',
+      type: artist.type || 'Artista',
     });
 
     if (error && error.code !== '23505') {
@@ -876,6 +997,37 @@ export async function toggleReviewLikeInSupabase(
   }
 }
 
+export async function syncAlbumCommunityRatingInSupabase(albumId: string): Promise<void> {
+  try {
+    const { data, error } = await supabase
+      .from('album_reviews')
+      .select('rating')
+      .eq('album_id', albumId);
+
+    if (error || !Array.isArray(data)) return;
+
+    const ratings = data
+      .map((row: any) => Number(row.rating))
+      .filter((val) => Number.isFinite(val) && val > 0);
+
+    const totalReviews = ratings.length;
+    const communityRating =
+      totalReviews > 0
+        ? Number((ratings.reduce((acc, r) => acc + r, 0) / totalReviews).toFixed(1))
+        : 0;
+
+    await supabase
+      .from('albums')
+      .update({
+        total_reviews: totalReviews,
+        community_rating: communityRating,
+      })
+      .eq('id', albumId);
+  } catch {
+    // non-blocking
+  }
+}
+
 export async function submitAlbumReviewToSupabase(params: {
   album: CatalogAlbum;
   userId: string;
@@ -951,6 +1103,9 @@ export async function submitAlbumReviewToSupabase(params: {
       console.warn('[CatalogService] Erro ao salvar album_reviews:', saveError);
       return { review: null, error: saveError?.message || 'Erro ao publicar avaliação.' };
     }
+
+    // Recalcula e persiste a nota e o total da comunidade na tabela `albums`
+    await syncAlbumCommunityRatingInSupabase(params.album.id);
 
     // Publica ou atualiza também na timeline (feed_posts) — garante aparição no início
     try {

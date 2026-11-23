@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   ScrollView,
@@ -29,18 +30,23 @@ export default function FavoritesScreen() {
   const insets = useSafeAreaInsets();
 
   const [favorites, setFavorites] = useState<FavoriteAlbumRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
-      if (isVisiting && username) {
-        const data = await getUserFavoriteAlbums({ username });
-        if (active) setFavorites(data);
-      } else if (user) {
-        const data = await getUserFavoriteAlbums({ userId: user.id });
-        if (active) setFavorites(data);
-      } else {
-        setFavorites([]);
+      try {
+        if (isVisiting && username) {
+          const data = await getUserFavoriteAlbums({ username });
+          if (active) setFavorites(data);
+        } else if (user) {
+          const data = await getUserFavoriteAlbums({ userId: user.id });
+          if (active) setFavorites(data);
+        } else {
+          setFavorites([]);
+        }
+      } finally {
+        if (active) setIsLoading(false);
       }
     };
     load();
@@ -70,7 +76,11 @@ export default function FavoritesScreen() {
           backLabel="Voltar ao Perfil"
         />
 
-        {favorites.length === 0 ? (
+        {isLoading && favorites.length === 0 ? (
+          <View style={{ paddingVertical: 80, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator size="large" color={colors.foreground} />
+          </View>
+        ) : favorites.length === 0 ? (
           <View style={styles.emptyBox}>
             <Disc size={44} color={colors.mutedForeground} />
             <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>

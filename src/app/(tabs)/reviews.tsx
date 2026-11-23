@@ -4,6 +4,7 @@ import { FeedStyleActivityCard } from '@/components/FeedStyleActivityCard';
 import { useActivityCardMode } from '@/hooks/use-activity-card-mode';
 import { useAppTheme } from '@/context/ThemeContext';
 import { formatRating } from '@/utils/rating';
+import { INFINITE_PAGE_SIZE, isNearScrollBottom } from '@/utils/pagination';
 import { useAuth } from '@/context/AuthContext';
 import { subscribeAlbumsUpdated } from '@/services/musicBrainz.service';
 import {
@@ -29,6 +30,8 @@ import {
 import React, { useEffect, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  ActivityIndicator,
+  RefreshControl,
   ScrollView,
   Share,
   StyleSheet,
@@ -171,6 +174,45 @@ export default function CommunityReviewsScreen() {
     return Array.from(map.values());
   }, [allReviews]);
 
+  const [refreshing, setRefreshing] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const data = await getCommunityReviewsFromSupabase(user?.id);
+      setAllReviews(data);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (allReviews.length > 0) {
+      setIsInitialLoading(false);
+    }
+  }, [allReviews.length]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setIsInitialLoading(false), 1200);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (isInitialLoading && allReviews.length === 0) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: colors.background,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <ActivityIndicator size="large" color={colors.foreground} />
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.background }}
@@ -180,6 +222,22 @@ export default function CommunityReviewsScreen() {
       ]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
+      onScroll={(e) => {
+        if (visibleCount < filteredReviews.length && isNearScrollBottom(e)) {
+          setVisibleCount((prev) =>
+            Math.min(filteredReviews.length, prev + INFINITE_PAGE_SIZE)
+          );
+        }
+      }}
+      scrollEventThrottle={100}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={colors.primary}
+          colors={[colors.primary]}
+        />
+      }
     >
       {/* Título Principal da Página */}
       <PageHeader title="Comunidades" />
@@ -612,7 +670,7 @@ export default function CommunityReviewsScreen() {
                 <Text
                   style={[styles.reviewCommentText, { color: colors.foreground }]}
                 >
-                  {`"${review.comment}"`}
+                  {review.comment}
                 </Text>
 
                 {/* Anexo do Álbum Avaliado */}

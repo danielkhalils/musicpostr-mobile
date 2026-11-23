@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   ScrollView,
@@ -29,18 +30,23 @@ export default function IdolsScreen() {
   const insets = useSafeAreaInsets();
 
   const [idols, setIdols] = useState<CatalogArtist[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
-      if (isVisiting && username) {
-        const data = await getUserFollowedArtists({ username });
-        if (active) setIdols(data);
-      } else if (user) {
-        const data = await getUserFollowedArtists({ userId: user.id });
-        if (active) setIdols(data);
-      } else {
-        setIdols([]);
+      try {
+        if (isVisiting && username) {
+          const data = await getUserFollowedArtists({ username });
+          if (active) setIdols(data);
+        } else if (user) {
+          const data = await getUserFollowedArtists({ userId: user.id });
+          if (active) setIdols(data);
+        } else {
+          setIdols([]);
+        }
+      } finally {
+        if (active) setIsLoading(false);
       }
     };
     load();
@@ -74,6 +80,11 @@ export default function IdolsScreen() {
           backLabel="Voltar ao Perfil"
         />
 
+        {isLoading && idols.length === 0 ? (
+          <View style={{ paddingVertical: 80, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator size="large" color={colors.foreground} />
+          </View>
+        ) : (
         <View style={styles.grid}>
           {idols.map((artist) => (
             <View
@@ -146,6 +157,7 @@ export default function IdolsScreen() {
             </View>
           ))}
         </View>
+        )}
       </ScrollView>
     </View>
   );

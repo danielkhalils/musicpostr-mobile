@@ -34,6 +34,7 @@ import {
   X,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
+import { INFINITE_PAGE_SIZE, isNearScrollBottom } from '@/utils/pagination';
 import { useAuth } from '@/context/AuthContext';
 import {
   pickAndUploadProfileMedia,
@@ -84,7 +85,9 @@ export function ProfileView({
 
   const [copied, setCopied] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [historyTab, setHistoryTab] = useState<ProfileHistoryTab>('all');
+  const [visibleHistoryCount, setVisibleHistoryCount] = useState(INFINITE_PAGE_SIZE);
   const [mediaPickerTarget, setMediaPickerTarget] = useState<ProfileMediaKind | null>(null);
   const [uploadingMedia, setUploadingMedia] = useState<ProfileMediaKind | null>(null);
   const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
@@ -156,6 +159,8 @@ export function ProfileView({
       }
     } catch (err) {
       console.warn('[ProfileView] Erro ao carregar perfil do Supabase:', err);
+    } finally {
+      setIsInitialLoading(false);
     }
   }, [isVisiting, visitingUsername, user, authProfile]);
 
@@ -324,11 +329,33 @@ export function ProfileView({
     }
   };
 
+  if (isInitialLoading && !customProfile) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: colors.background,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <ActivityIndicator size="large" color={colors.foreground} />
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.background }}
       contentContainerStyle={styles.container}
       showsVerticalScrollIndicator={false}
+      onScroll={(e) => {
+        const totalItems = reviews.length + favorites.length + idols.length;
+        if (visibleHistoryCount < totalItems && isNearScrollBottom(e)) {
+          setVisibleHistoryCount((prev) => prev + INFINITE_PAGE_SIZE);
+        }
+      }}
+      scrollEventThrottle={100}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
@@ -827,7 +854,7 @@ export function ProfileView({
       <View style={styles.feedHistoryContainer}>
         {/* 1. Álbuns Avaliados */}
         {(historyTab === 'all' || historyTab === 'reviews') &&
-          reviews.map((rev) =>
+          reviews.slice(0, visibleHistoryCount).map((rev) =>
             cardMode === 'full' ? (
               <FeedStyleActivityCard
                 key={`rev-${rev.id}`}
@@ -911,7 +938,7 @@ export function ProfileView({
                     ]}
                     numberOfLines={2}
                   >
-                    {`"${rev.comment}"`}
+                    {rev.comment}
                   </Text>
                 </View>
 
@@ -938,7 +965,7 @@ export function ProfileView({
 
         {/* 2. Álbuns Favoritados */}
         {(historyTab === 'all' || historyTab === 'favorites') &&
-          favorites.map((fav) =>
+          favorites.slice(0, visibleHistoryCount).map((fav) =>
             cardMode === 'full' ? (
               <FeedStyleActivityCard
                 key={`fav-${fav.id}`}
@@ -1017,7 +1044,7 @@ export function ProfileView({
 
         {/* 3. Artistas / Ídolos Seguidos */}
         {(historyTab === 'all' || historyTab === 'idols') &&
-          idols.map((artist) =>
+          idols.slice(0, visibleHistoryCount).map((artist) =>
             cardMode === 'full' ? (
               <FeedStyleActivityCard
                 key={`idol-${artist.id}`}

@@ -606,6 +606,34 @@ export async function deleteReviewFromSupabase(reviewId: string, userId?: string
     const { error } = await query;
     if (error) throw error;
 
+    // Recalcula a nota da comunidade após excluir a avaliação
+    if (reviewRow?.album_id) {
+      const { data: remaining } = await supabase
+        .from('album_reviews')
+        .select('rating')
+        .eq('album_id', reviewRow.album_id);
+
+      const ratings = Array.isArray(remaining)
+        ? remaining
+            .map((r: any) => Number(r.rating))
+            .filter((v) => Number.isFinite(v) && v > 0)
+        : [];
+
+      const totalReviews = ratings.length;
+      const communityRating =
+        totalReviews > 0
+          ? Number((ratings.reduce((acc, r) => acc + r, 0) / totalReviews).toFixed(1))
+          : 0;
+
+      await supabase
+        .from('albums')
+        .update({
+          total_reviews: totalReviews,
+          community_rating: communityRating,
+        })
+        .eq('id', reviewRow.album_id);
+    }
+
     notifyCatalogUpdated();
     return true;
   } catch (error) {

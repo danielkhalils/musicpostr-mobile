@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
+  ActivityIndicator,
+  RefreshControl,
   View,
   Text,
   ScrollView,
@@ -15,15 +17,15 @@ import {
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { formatRating } from '@/utils/rating';
+import { INFINITE_PAGE_SIZE, isNearScrollBottom } from '@/utils/pagination';
 import {
   type CatalogAlbum,
+  fetchPopularAlbumsFromApi,
   fetchNewReleasesFromMusicBrainz,
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
 import {
   getTopRatedAlbumsFromSupabase,
-  getPopularAlbumsFromSupabase,
-  getRecentAlbumsFromSupabase,
   getGenresFromSupabase,
 } from '@/services/catalog.service';
 import { CoverImage } from '@/components/CoverImage';
@@ -47,6 +49,9 @@ export default function RankingsScreen() {
     { name: 'Todos', emoji: '🌟' },
   ]);
   const [activeGenre, setActiveGenre] = useState<string>('Todos');
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
+  const [visibleCount, setVisibleCount] = useState<number>(INFINITE_PAGE_SIZE);
 
   useEffect(() => {
     if (
@@ -69,48 +74,46 @@ export default function RankingsScreen() {
     };
   }, []);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadRankings = async () => {
+  const loadRankings = useCallback(async () => {
+    try {
       if (filterMode === 'releases') {
-        const [dbRecent, mbFresh] = await Promise.all([
-          getRecentAlbumsFromSupabase(20),
-          fetchNewReleasesFromMusicBrainz(20).catch(() => []),
-        ]);
-        if (!isMounted) return;
-        const mergedMap = new Map<string, CatalogAlbum>();
-        for (const item of [...mbFresh, ...dbRecent]) {
-          if (!mergedMap.has(item.id)) mergedMap.set(item.id, item);
-        }
-        const merged = Array.from(mergedMap.values()).slice(0, 25);
-        setRankings(merged.map((item, idx) => ({ ...item, rank: idx + 1 })));
+        const mbFresh = await fetchNewReleasesFromMusicBrainz(25).catch(() => []);
+        setRankings(mbFresh.map((item, idx) => ({ ...item, rank: idx + 1 })));
       } else if (filterMode === 'popular') {
-        const popular = await getPopularAlbumsFromSupabase(30);
-        if (isMounted) {
-          setRankings(popular.map((item, idx) => ({ ...item, rank: idx + 1 })));
-        }
+        const popular = await fetchPopularAlbumsFromApi(25).catch(() => []);
+        setRankings(popular.map((item, idx) => ({ ...item, rank: idx + 1 })));
       } else {
         const topRated = await getTopRatedAlbumsFromSupabase(30);
-        if (isMounted) {
-          setRankings(topRated.map((item, idx) => ({ ...item, rank: idx + 1 })));
-        }
+        setRankings(topRated.map((item, idx) => ({ ...item, rank: idx + 1 })));
       }
-    };
+    } finally {
+      setIsInitialLoading(false);
+    }
+  }, [filterMode]);
 
+  useEffect(() => {
+    setIsInitialLoading(true);
     loadRankings();
 
     const unsubscribe = subscribeAlbumsUpdated(() => {
-      if (filterMode !== 'releases') {
+      if (filterMode === 'top-rated') {
         loadRankings();
       }
     });
 
     return () => {
-      isMounted = false;
       unsubscribe();
     };
-  }, [filterMode]);
+  }, [filterMode, loadRankings]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadRankings();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadRankings]);
 
   const filteredRankings =
     activeGenre === 'Todos'
@@ -120,6 +123,27 @@ export default function RankingsScreen() {
             (r.genreName ?? '').toLowerCase() === activeGenre.toLowerCase()
         );
 
+  useEffect(() => {
+    setVisibleCount(INFINITE_PAGE_SIZE);
+  }, [filterMode, activeGenre]);
+
+  const displayedRankings = filteredRankings.slice(0, visibleCount);
+
+  if (isInitialLoading && rankings.length === 0) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: colors.background,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <ActivityIndicator size="large" color={colors.foreground} />
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.background }}
@@ -128,6 +152,22 @@ export default function RankingsScreen() {
         { paddingTop: Math.max(insets.top, 16) },
       ]}
       showsVerticalScrollIndicator={false}
+      onScroll={(e) => {
+        if (visibleCount < filteredRankings.length && isNearScrollBottom(e)) {
+          setVisibleCount((prev) =>
+            Math.min(filteredRankings.length, prev + INFINITE_PAGE_SIZE)
+          );
+        }
+      }}
+      scrollEventThrottle={100}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={colors.primary}
+          colors={[colors.primary]}
+        />
+      }
     >
       {/* Título Principal da Página */}
       <PageHeader title="Rankings" />
@@ -359,7 +399,7 @@ export default function RankingsScreen() {
           },
         ]}
       >
-        {filteredRankings.map((item, index) => (
+        {displayedRankings.map((item, index) => (
           <TouchableOpacity
             key={item.id}
             style={[

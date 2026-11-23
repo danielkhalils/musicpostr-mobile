@@ -5,7 +5,6 @@ import {
 } from '@/services/artistImage.service';
 import {
   getCachedResolvedAlbumCover,
-  getFallbackImageUrl,
   isFallbackPlaceholderUrl,
   markCoverAsMissing,
   optimizeCoverUrl,
@@ -50,7 +49,7 @@ export function CoverImage({
   albumTitle,
   albumArtist,
 }: CoverImageProps) {
-  const [stage, setStage] = useState<'primary' | 'resolved' | 'fallback' | 'icon'>('primary');
+  const [stage, setStage] = useState<'primary' | 'resolved' | 'icon'>('primary');
   const { colors } = useAppTheme();
 
   const [artistPhoto, setArtistPhoto] = useState<string | null | undefined>(() =>
@@ -112,11 +111,6 @@ export function CoverImage({
     ? optimizeCoverUrl(resolvedAlbumCover, targetSize)
     : null;
 
-  const fallbackUri = getFallbackImageUrl(
-    primaryUri || albumTitle || fallbackType,
-    fallbackType
-  );
-
   useEffect(() => {
     if (artistName || fallbackType === 'artist') {
       setStage(primaryUri ? 'primary' : 'icon');
@@ -125,7 +119,7 @@ export function CoverImage({
     } else if (optimizedResolvedAlbumCover) {
       setStage('resolved');
     } else {
-      setStage(primaryUri ? 'primary' : 'fallback');
+      setStage('icon');
     }
   }, [primaryUri, primaryIsPlaceholder, optimizedResolvedAlbumCover, artistName, fallbackType]);
 
@@ -170,7 +164,21 @@ export function CoverImage({
       ? primaryUri
       : stage === 'resolved' && optimizedResolvedAlbumCover
         ? optimizedResolvedAlbumCover
-        : fallbackUri;
+        : null;
+
+  if (!activeUri) {
+    return renderIconBox(
+      fallbackType === 'artist' || artistName ? (
+        <Image
+          source={MUSICPOSTR_STAR_ICON}
+          style={{ width: '60%', height: '60%' }}
+          contentFit="contain"
+        />
+      ) : (
+        <Disc size={28} color={colors.primary} />
+      )
+    );
+  }
 
   return (
     <Image
@@ -195,14 +203,12 @@ export function CoverImage({
                 setResolvedAlbumCover(found);
                 setStage('resolved');
               } else {
-                setStage('fallback');
+                setStage('icon');
               }
             });
             return;
           }
-          setStage('fallback');
-        } else if (stage === 'resolved') {
-          setStage('fallback');
+          setStage('icon');
         } else {
           setStage('icon');
         }

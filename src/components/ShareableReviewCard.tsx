@@ -79,7 +79,7 @@ export function ShareableReviewCard({
         </View>
         {comment ? (
           <Text style={styles.comment} numberOfLines={3}>
-            &ldquo;{comment}&rdquo;
+            {comment}
           </Text>
         ) : null}
         <Text style={styles.author}>@{username}</Text>

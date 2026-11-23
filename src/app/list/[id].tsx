@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   ScrollView,
@@ -27,6 +28,7 @@ export default function ListDetailScreen() {
   const insets = useSafeAreaInsets();
 
   const [list, setList] = useState<UserListRecord | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -80,6 +82,7 @@ export default function ListDetailScreen() {
         isDefault: Boolean(listData.is_default),
         albums,
       });
+      setIsLoading(false);
     };
 
     loadList();
@@ -90,6 +93,21 @@ export default function ListDetailScreen() {
 
   const isDefaultList = list?.id === 'want-to-listen' || list?.isDefault;
   const albums = list?.albums || [];
+
+  if (isLoading && !list) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: colors.background,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <ActivityIndicator size="large" color={colors.foreground} />
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>

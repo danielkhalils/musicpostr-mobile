@@ -38,16 +38,21 @@ export default function MyReviewsScreen() {
   const { mode: cardMode } = useActivityCardMode();
   const [reviews, setReviews] = useState<MyReviewRecord[]>([]);
   const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
-      if (!user) {
-        setReviews([]);
-        return;
+      try {
+        if (!user) {
+          setReviews([]);
+          return;
+        }
+        const data = await getUserReviews({ userId: user.id });
+        if (active) setReviews(data);
+      } finally {
+        if (active) setIsLoading(false);
       }
-      const data = await getUserReviews({ userId: user.id });
-      if (active) setReviews(data);
     };
     load();
     const unsubscribe = subscribeAlbumsUpdated(() => {
@@ -118,7 +123,11 @@ export default function MyReviewsScreen() {
           backLabel="Voltar ao Perfil"
         />
 
-        {reviews.length === 0 ? (
+        {isLoading && reviews.length === 0 ? (
+          <View style={{ paddingVertical: 80, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator size="large" color={colors.foreground} />
+          </View>
+        ) : reviews.length === 0 ? (
           <View style={styles.emptyBox}>
             <Music size={42} color={colors.mutedForeground} />
             <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>
@@ -217,7 +226,7 @@ export default function MyReviewsScreen() {
                     { color: colors.foreground },
                   ]}
                 >
-                  {`"${rev.comment}"`}
+                  {rev.comment}
                 </Text>
 
                 <View

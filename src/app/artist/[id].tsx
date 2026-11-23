@@ -43,12 +43,15 @@ import {
   type CatalogArtist,
   fetchArtistBioFromWikipedia,
   fetchArtistDetailsFromMusicBrainz,
+  fetchSimilarArtistsFromApi,
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
 import {
   getArtistFromSupabase,
+  getArtistAwardsFromSupabase,
   getFollowedArtistIdsFromSupabase,
   toggleFollowArtistInSupabase,
+  type ArtistAwardRecord,
 } from '@/services/catalog.service';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -86,6 +89,34 @@ export default function ArtistDetailScreen() {
   const [visibleAlbumsCount, setVisibleAlbumsCount] = useState(10);
   const [visibleEpsCount, setVisibleEpsCount] = useState(10);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
+  const [artistAwards, setArtistAwards] = useState<ArtistAwardRecord[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    if (!id) {
+      setArtistAwards([]);
+      return;
+    }
+    getArtistAwardsFromSupabase(id, artistName || undefined).then((list) => {
+      if (active) setArtistAwards(list);
+    });
+    return () => {
+      active = false;
+    };
+  }, [id, artistName]);
+
+  useEffect(() => {
+    let active = true;
+    if (!artistName || relatedArtists.length > 0) return;
+    fetchSimilarArtistsFromApi(artistName, 10).then((similar) => {
+      if (active && similar.length > 0) {
+        setRelatedArtists(similar);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [artistName, relatedArtists.length]);
 
   useEffect(() => {
     let active = true;
@@ -226,7 +257,7 @@ export default function ArtistDetailScreen() {
         setRelatedArtists(dbData.related);
         setArtistInfo({
           bio: hasDbBio ? dbData.bio : '',
-          label: dbData.labelName || 'Independente',
+          label: dbData.labelName || '',
           activeYears: dbData.activeYears || '',
           type: dbData.artist.type || '',
           source: 'Catálogo Musicpostr & MusicBrainz',
@@ -251,7 +282,7 @@ export default function ArtistDetailScreen() {
           if (mbDetails.country) setArtistCountry(mbDetails.country);
           setArtistInfo({
             bio: '',
-            label: 'Não informada',
+            label: mbDetails.label || 'Não informada',
             activeYears: mbDetails.activeYears || '',
             type: mbDetails.type || '',
             source: 'MusicBrainz',
@@ -268,7 +299,11 @@ export default function ArtistDetailScreen() {
           }
           setArtistInfo((prev) => ({
             ...prev,
-            activeYears: prev.activeYears || mbDetails.activeYears || '',
+            label:
+              prev.label && prev.label !== 'Independente' && prev.label !== 'Não informada'
+                ? prev.label
+                : mbDetails.label || prev.label || 'Não informada',
+            activeYears: mbDetails.activeYears || prev.activeYears || '',
             type: prev.type || mbDetails.type || '',
           }));
         }
@@ -556,32 +591,6 @@ export default function ArtistDetailScreen() {
                   {isFollowing ? 'Seguindo' : 'Seguir'}
                 </Text>
               </TouchableOpacity>
-
-              {Boolean(artistCountry) && (
-                <View
-                  style={[
-                    styles.countryBadge,
-                    !isDark && {
-                      backgroundColor: 'rgba(0, 0, 0, 0.06)',
-                      borderColor: 'rgba(0, 0, 0, 0.12)',
-                    },
-                  ]}
-                >
-                  <Globe
-                    size={11}
-                    color={isDark ? 'rgba(255, 255, 255, 0.85)' : colors.mutedForeground}
-                  />
-                  <Text
-                    style={{
-                      fontSize: 11,
-                      fontWeight: '700',
-                      color: isDark ? 'rgba(255, 255, 255, 0.9)' : colors.foreground,
-                    }}
-                  >
-                    {artistCountry}
-                  </Text>
-                </View>
-              )}
             </View>
           </View>
         </View>
@@ -651,6 +660,72 @@ export default function ArtistDetailScreen() {
               </Text>
             </View>
           </View>
+
+          {/* Biografia Resumida do Artista */}
+          {(isSyncingBio || Boolean(artistInfo.bio)) && (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => setIsInfoModalOpen(true)}
+              style={{
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                borderWidth: 1,
+                borderRadius: 16,
+                padding: 14,
+                gap: 6,
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Info size={15} color={colors.primary} />
+                  <Text
+                    style={{
+                      fontSize: 13.5,
+                      fontWeight: '800',
+                      color: colors.foreground,
+                    }}
+                  >
+                    Sobre {artistName}
+                  </Text>
+                </View>
+                <Text
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: '700',
+                    color: colors.primary,
+                  }}
+                >
+                  Ver mais
+                </Text>
+              </View>
+
+              {isSyncingBio && !artistInfo.bio ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}>
+                  <ActivityIndicator size="small" color={colors.foreground} />
+                  <Text style={{ fontSize: 12.5, color: colors.mutedForeground }}>
+                    Carregando biografia...
+                  </Text>
+                </View>
+              ) : (
+                <Text
+                  style={{
+                    fontSize: 12.5,
+                    lineHeight: 19,
+                    color: colors.mutedForeground,
+                  }}
+                  numberOfLines={4}
+                >
+                  {artistInfo.bio}
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
 
           {/* Seção de Álbuns */}
           {albums.length > 0 && (
@@ -846,15 +921,113 @@ export default function ArtistDetailScreen() {
             </View>
           )}
 
-          {/* Seção de Artistas Relacionados */}
+          {/* Seção de Indicações e Premiações */}
+          {artistAwards.length > 0 && (
+            <View style={styles.sectionBlock}>
+              <View style={styles.sectionHeaderRow}>
+                <Award size={20} color={colors.amber} />
+                <Text
+                  style={[styles.sectionTitle, { color: colors.foreground }]}
+                >
+                  Indicações e Premiações ({artistAwards.length})
+                </Text>
+              </View>
+
+              <View style={{ gap: 10 }}>
+                {artistAwards.map((aw) => {
+                  const isWinner = Boolean(aw.isWinner);
+                  return (
+                    <View
+                      key={aw.id}
+                      style={{
+                        backgroundColor: colors.card,
+                        borderColor: isWinner ? `${colors.amber}55` : colors.border,
+                        borderWidth: 1,
+                        borderRadius: 14,
+                        padding: 12,
+                        gap: 4,
+                      }}
+                    >
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 8,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 12.5,
+                            fontWeight: '800',
+                            color: colors.foreground,
+                            flex: 1,
+                          }}
+                          numberOfLines={1}
+                        >
+                          {aw.ceremonyName} {aw.year ? `• ${aw.year}` : ''}
+                        </Text>
+                        <View
+                          style={{
+                            paddingHorizontal: 8,
+                            paddingVertical: 2,
+                            borderRadius: 999,
+                            backgroundColor: isWinner
+                              ? `${colors.amber}22`
+                              : `${colors.mutedForeground}22`,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 10,
+                              fontWeight: '800',
+                              color: isWinner ? colors.amber : colors.mutedForeground,
+                            }}
+                          >
+                            {isWinner ? 'Vencedor' : 'Indicado'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          color: colors.foreground,
+                          opacity: 0.9,
+                        }}
+                      >
+                        {aw.category}
+                      </Text>
+
+                      {Boolean(aw.albumTitle) && (
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            color: colors.mutedForeground,
+                            fontWeight: '600',
+                          }}
+                          numberOfLines={1}
+                        >
+                          Álbum: {aw.albumTitle}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
+          {/* Seção de Artistas Parecidos */}
           {relatedArtists.length > 0 && (
             <View style={styles.sectionBlock}>
               <View style={styles.sectionHeaderRow}>
                 <Users size={20} color={colors.primary} />
                 <Text
-                  style={[styles.sectionTitle, { color: colors.foreground }]}
+                  style={[styles.sectionTitle, { color: colors.foreground, flex: 1 }]}
+                  numberOfLines={1}
                 >
-                  Artistas Relacionados
+                  Artistas parecidos com {artistName}
                 </Text>
               </View>
 
@@ -1038,7 +1211,7 @@ export default function ArtistDetailScreen() {
                     ]}
                     numberOfLines={1}
                   >
-                    {artistCountry || 'Internacional'}
+                    {artistCountry || 'Não informado'}
                   </Text>
                 </View>
               </View>

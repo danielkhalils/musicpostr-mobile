@@ -1,9 +1,9 @@
 import {
-  getReleaseGroupCoverUrl,
-  getReleaseCoverUrl,
   getFallbackImageUrl,
+  getReleaseCoverUrl,
+  getReleaseGroupCoverUrl,
 } from './coverArt.service';
-import { Storage, AppEvents } from './storage';
+import { AppEvents, Storage } from './storage';
 
 export { getFallbackImageUrl };
 
@@ -386,6 +386,50 @@ export function mapReleaseGroupToCatalogAlbum(rg: any): CatalogAlbum {
   };
 }
 
+const apiAlbumCache = new Map<string, CatalogAlbum>();
+
+export async function fetchPopularAlbumsFromApi(limit = 25): Promise<CatalogAlbum[]> {
+  try {
+    const res = await fetch(`https://api.deezer.com/chart/0/albums?limit=${limit}`);
+    if (!res.ok) return [];
+    const json = await res.json();
+    const list: any[] = Array.isArray(json?.data) ? json.data : [];
+
+    const mapped: CatalogAlbum[] = list
+      .filter((item) => item && item.id && item.title)
+      .map((item) => ({
+        id: `dz-album-${item.id}`,
+        title: String(item.title),
+        cover_xl: item.cover_xl || item.cover_big || item.cover_medium || '',
+        cover_big: item.cover_big || item.cover_medium || item.cover_xl || '',
+        cover_medium: item.cover_medium || item.cover_big || item.cover_xl || '',
+        cover_small: item.cover_small || item.cover_medium || '',
+        artist: {
+          id: item.artist?.id ? `dz-artist-${item.artist.id}` : '',
+          name: item.artist?.name || 'Artista',
+        },
+        release_date: item.release_date || '',
+        record_type: item.record_type === 'ep' ? 'ep' : 'album',
+        genreName: 'Popular',
+        label: 'Oficial',
+        communityRating: 0,
+        totalReviews: 0,
+        listenersCount: Number(item.position ? (limit + 1 - item.position) * 1000 : 0),
+        listenedByMe: false,
+        isFavorite: false,
+        tracks: { data: [] },
+        reviews: [],
+      }));
+
+    for (const alb of mapped) {
+      apiAlbumCache.set(alb.id, alb);
+    }
+    return mapped;
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchNewReleasesFromMusicBrainz(limit = 12): Promise<CatalogAlbum[]> {
   const currentYear = new Date().getFullYear();
   const minYear = Math.max(2024, currentYear - 2);
@@ -513,13 +557,55 @@ export async function searchArtistsInMusicBrainz(
     'artista desconhecido',
   ]);
 
-  const validArtists = data.artists.filter((artist: any) => {
-    const name = (artist.name || '').toLowerCase().trim();
-    if (!name || name.startsWith('[') || blockedNames.has(name)) return false;
-    return true;
-  });
+  const normalizeName = (raw: string) =>
+    raw
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
 
-  const formatted: CatalogArtist[] = validArtists.map((artist: any) => {
+  const normQuery = normalizeName(trimmed);
+
+  // Ordena priorizando correspondência exata + score + metadados oficiais (tags/país/tipo)
+  const rankedArtists = [...data.artists]
+    .filter((artist: any) => {
+      const name = (artist.name || '').toLowerCase().trim();
+      if (!name || name.startsWith('[') || blockedNames.has(name)) return false;
+      return true;
+    })
+    .sort((a: any, b: any) => {
+      const normA = normalizeName(String(a.name || ''));
+      const normB = normalizeName(String(b.name || ''));
+      const exactA = normA === normQuery ? 1 : 0;
+      const exactB = normB === normQuery ? 1 : 0;
+      if (exactA !== exactB) return exactB - exactA;
+
+      const scoreA = Number(a.score || 0);
+      const scoreB = Number(b.score || 0);
+      if (scoreA !== scoreB) return scoreB - scoreA;
+
+      const metaA =
+        (Array.isArray(a.tags) ? a.tags.length : 0) +
+        (a.country ? 2 : 0) +
+        (a.type ? 1 : 0);
+      const metaB =
+        (Array.isArray(b.tags) ? b.tags.length : 0) +
+        (b.country ? 2 : 0) +
+        (b.type ? 1 : 0);
+      return metaB - metaA;
+    });
+
+  // Deduplica por nome normalizado para não retornar o mesmo artista repetido
+  const seenNames = new Set<string>();
+  const uniqueArtists: any[] = [];
+  for (const artist of rankedArtists) {
+    const key = normalizeName(String(artist.name || ''));
+    if (!key || seenNames.has(key)) continue;
+    seenNames.add(key);
+    uniqueArtists.push(artist);
+  }
+
+  const formatted: CatalogArtist[] = uniqueArtists.map((artist: any) => {
     const genre =
       artist.tags && artist.tags.length > 0
         ? artist.tags
@@ -531,7 +617,7 @@ export async function searchArtistsInMusicBrainz(
     return {
       id: String(artist.id),
       name: artist.name,
-      imageUrl: getFallbackImageUrl(artist.id || artist.name, 'artist'),
+      imageUrl: '',
       genre,
       country: artist.country || artist.area?.name || '',
       nbFans: 0,
@@ -541,7 +627,7 @@ export async function searchArtistsInMusicBrainz(
 
   return {
     artists: formatted,
-    total: typeof data.count === 'number' ? data.count : formatted.length,
+    total: formatted.length,
   };
 }
 
@@ -594,6 +680,7 @@ export interface MusicBrainzArtistDetails {
   bannerUrl: string;
   genre: string;
   country: string;
+  label?: string;
   activeYears: string;
   type: string;
   disambiguation: string;
@@ -618,7 +705,7 @@ function formatLifeSpan(lifeSpan?: { begin?: string | null; end?: string | null;
 
 function translateArtistType(rawType?: string | null): string {
   switch ((rawType || '').toLowerCase()) {
-    case 'person':
+    case 'artist':
       return 'Artista Solo';
     case 'group':
       return 'Banda / Grupo';
@@ -643,9 +730,262 @@ const EXCLUDED_STUDIO_SECONDARY_TYPES = new Set([
   'dj-mix',
 ]);
 
+const COUNTRY_CODE_PT: Record<string, string> = {
+  US: 'Estados Unidos',
+  GB: 'Reino Unido',
+  BR: 'Brasil',
+  CA: 'Canadá',
+  AU: 'Austrália',
+  KR: 'Coreia do Sul',
+  JP: 'Japão',
+  FR: 'França',
+  DE: 'Alemanha',
+  ES: 'Espanha',
+  MX: 'México',
+  CO: 'Colômbia',
+  AR: 'Argentina',
+  IT: 'Itália',
+  SE: 'Suécia',
+  IE: 'Irlanda',
+  NZ: 'Nova Zelândia',
+  PR: 'Porto Rico',
+  PT: 'Portugal',
+  JM: 'Jamaica',
+  BB: 'Barbados',
+  NG: 'Nigéria',
+  ZA: 'África do Sul',
+  NL: 'Países Baixos',
+  BE: 'Bélgica',
+  NO: 'Noruega',
+  DK: 'Dinamarca',
+  IS: 'Islândia',
+  CH: 'Suíça',
+  AT: 'Áustria',
+  CL: 'Chile',
+  PE: 'Peru',
+  UY: 'Uruguai',
+};
+
+function normalizeCountryName(areaName?: string, countryCode?: string): string {
+  const code = String(countryCode || '').toUpperCase().trim();
+  if (code && COUNTRY_CODE_PT[code]) {
+    return COUNTRY_CODE_PT[code];
+  }
+  const area = String(areaName || '').trim();
+  if (area.toLowerCase() === 'united states') return 'Estados Unidos';
+  if (area.toLowerCase() === 'united kingdom') return 'Reino Unido';
+  if (area.toLowerCase() === 'brazil') return 'Brasil';
+  if (area.toLowerCase() === 'canada') return 'Canadá';
+  if (area.toLowerCase() === 'australia') return 'Austrália';
+  if (area.toLowerCase() === 'south korea') return 'Coreia do Sul';
+  if (area.toLowerCase() === 'japan') return 'Japão';
+  if (area.toLowerCase() === 'france') return 'França';
+  if (area.toLowerCase() === 'germany') return 'Alemanha';
+  if (area.toLowerCase() === 'spain') return 'Espanha';
+  if (area.toLowerCase() === 'italy') return 'Itália';
+  if (area.toLowerCase() === 'sweden') return 'Suécia';
+  if (area.toLowerCase() === 'ireland') return 'Irlanda';
+  return area || code || '';
+}
+
+async function fetchOfficialArtistLabelFromDeezer(artistName: string): Promise<string> {
+  const q = artistName.trim();
+  if (!q) return '';
+  try {
+    const searchRes = await fetch(
+      `https://api.deezer.com/search/album?q=${encodeURIComponent(`artist:"${q}"`)}&limit=1`
+    );
+    if (!searchRes.ok) return '';
+    const searchJson = await searchRes.json();
+    const firstAlbum = Array.isArray(searchJson?.data) ? searchJson.data[0] : null;
+    if (!firstAlbum?.id) return '';
+
+    const albRes = await fetch(
+      `https://api.deezer.com/album/${encodeURIComponent(String(firstAlbum.id))}`
+    );
+    if (!albRes.ok) return '';
+    const albJson = await albRes.json();
+    return typeof albJson?.label === 'string' ? albJson.label.trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+function deriveAnnualActivePeriod(
+  lifeSpan: any,
+  artistType: string | undefined,
+  releases: CatalogAlbum[]
+): string {
+  const years = releases
+    .map((r) => Number(String(r.release_date || '').slice(0, 4)))
+    .filter((y) => Number.isFinite(y) && y >= 1950 && y <= new Date().getFullYear());
+  const earliestReleaseYear = years.length > 0 ? Math.min(...years) : null;
+
+  const isPerson = String(artistType || '').toLowerCase() === 'Artista';
+  const beginYear = lifeSpan?.begin ? Number(String(lifeSpan.begin).slice(0, 4)) : null;
+  const endYear = lifeSpan?.end ? Number(String(lifeSpan.end).slice(0, 4)) : null;
+  const ended = Boolean(lifeSpan?.ended);
+
+  // Para artistas solo (Artista), o life-span.begin do MusicBrainz é a data de nascimento;
+  // priorizamos o ano do primeiro lançamento oficial para o período de atividade anual.
+  const startYear =
+    isPerson && earliestReleaseYear
+      ? earliestReleaseYear
+      : beginYear || earliestReleaseYear;
+
+  if (!startYear) return '';
+  if (ended && endYear) return `${startYear} – ${endYear}`;
+  return `${startYear} – presente`;
+}
+
+export async function fetchSimilarArtistsFromApi(
+  artistName: string,
+  limit = 10
+): Promise<CatalogArtist[]> {
+  const q = artistName.trim();
+  if (!q) return [];
+  try {
+    const searchRes = await fetch(
+      `https://api.deezer.com/search/artist?q=${encodeURIComponent(q)}&limit=1`
+    );
+    if (!searchRes.ok) return [];
+    const searchJson = await searchRes.json();
+    const firstArtist = Array.isArray(searchJson?.data) ? searchJson.data[0] : null;
+    if (!firstArtist?.id) return [];
+
+    const relRes = await fetch(
+      `https://api.deezer.com/artist/${encodeURIComponent(String(firstArtist.id))}/related?limit=${limit}`
+    );
+    if (!relRes.ok) return [];
+    const relJson = await relRes.json();
+    const list: any[] = Array.isArray(relJson?.data) ? relJson.data : [];
+
+    const seen = new Set<string>();
+    const results: CatalogArtist[] = [];
+    for (const item of list) {
+      const name = String(item?.name || '').trim();
+      const norm = name.toLowerCase();
+      if (!name || seen.has(norm)) continue;
+      seen.add(norm);
+      results.push({
+        id: `dz-artist-${item.id}`,
+        name,
+        imageUrl: item.picture_xl || item.picture_big || item.picture_medium || '',
+        genre: 'Artista',
+        nbFans: Number(item.nb_fan || 0),
+        country: '',
+        type: 'Artista',
+      });
+    }
+    return results;
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchArtistDetailsFromMusicBrainz(
   artistId: string
 ): Promise<MusicBrainzArtistDetails | null> {
+  // Suporte direto a artistas vindos da API do Deezer (ex.: Artistas parecidos / Populares)
+  if (artistId.startsWith('dz-artist-')) {
+    const dzId = artistId.replace('dz-artist-', '');
+    try {
+      const [artRes, albRes] = await Promise.all([
+        fetch(`https://api.deezer.com/artist/${encodeURIComponent(dzId)}`),
+        fetch(`https://api.deezer.com/artist/${encodeURIComponent(dzId)}/albums?limit=40`),
+      ]);
+      if (artRes.ok) {
+        const art = await artRes.json();
+        if (art && art.id && !art.error) {
+          const albJson = albRes.ok ? await albRes.json() : { data: [] };
+          const rawAlbs: any[] = Array.isArray(albJson?.data) ? albJson.data : [];
+          const mappedAlbs: CatalogAlbum[] = rawAlbs
+            .filter((a) => a && a.id && a.title && (a.record_type === 'album' || a.record_type === 'ep'))
+            .map((a) => {
+              const alb: CatalogAlbum = {
+                id: `dz-album-${a.id}`,
+                title: String(a.title),
+                cover_xl: a.cover_xl || a.cover_big || a.cover_medium || '',
+                cover_big: a.cover_big || a.cover_medium || a.cover_xl || '',
+                cover_medium: a.cover_medium || a.cover_big || a.cover_xl || '',
+                cover_small: a.cover_small || a.cover_medium || '',
+                artist: { id: artistId, name: String(art.name || 'Artista') },
+                release_date: a.release_date || '',
+                record_type: a.record_type === 'ep' ? 'ep' : 'album',
+                genreName: 'Música',
+                label: 'Oficial',
+                communityRating: 0,
+                totalReviews: 0,
+                listenersCount: Number(a.fans || 0),
+                listenedByMe: false,
+                isFavorite: false,
+                tracks: { data: [] },
+                reviews: [],
+              };
+              apiAlbumCache.set(alb.id, alb);
+              return alb;
+            })
+            .sort((a, b) => String(b.release_date || '').localeCompare(String(a.release_date || '')));
+
+          // Enriquecimento de metadados oficiais via MusicBrainz (país, gênero, atividade, tipo)
+          let enrichedGenre = 'Artista';
+          let enrichedCountry = '';
+          let enrichedActiveYears = '';
+          let enrichedType = 'Artista';
+          let enrichedDisambiguation = '';
+
+          try {
+            const mbSearch = await mbFetchJson(
+              `artist?query=${encodeURIComponent(`artist:"${String(art.name || '')}"`)}&limit=1&fmt=json`
+            );
+            const mbArtist = Array.isArray(mbSearch?.artists) ? mbSearch.artists[0] : null;
+            if (mbArtist) {
+              if (Array.isArray(mbArtist.tags) && mbArtist.tags.length > 0) {
+                enrichedGenre = mbArtist.tags
+                  .slice(0, 3)
+                  .map((t: any) =>
+                    String(t.name || '')
+                      .split(' ')
+                      .map((w: string) => (w ? w[0].toUpperCase() + w.slice(1) : ''))
+                      .join(' ')
+                  )
+                  .join(' • ');
+              }
+              enrichedCountry = mbArtist.area?.name || mbArtist['begin-area']?.name || mbArtist.country || '';
+              enrichedActiveYears = formatLifeSpan(mbArtist['life-span']);
+              enrichedType = translateArtistType(mbArtist.type);
+              enrichedDisambiguation = mbArtist.disambiguation || '';
+            }
+          } catch {
+            // non-blocking
+          }
+
+          const officialAlbums = mappedAlbs.filter((a) => a.record_type === 'album');
+          const officialEps = mappedAlbs.filter((a) => a.record_type === 'ep');
+          const dzLabel = await fetchOfficialArtistLabelFromDeezer(String(art.name || ''));
+
+          return {
+            id: artistId,
+            name: String(art.name || 'Artista'),
+            bannerUrl: art.picture_xl || art.picture_big || art.picture_medium || '',
+            genre: enrichedGenre,
+            country: normalizeCountryName(enrichedCountry, ''),
+            label: dzLabel || undefined,
+            activeYears:
+              deriveAnnualActivePeriod(null, undefined, [...officialAlbums, ...officialEps]) ||
+              enrichedActiveYears,
+            type: enrichedType,
+            disambiguation: enrichedDisambiguation,
+            albums: officialAlbums,
+            epsAndSingles: officialEps,
+          };
+        }
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
   const artistData = await mbFetchJson(
     `artist/${artistId}?inc=release-groups+tags+genres+url-rels&fmt=json`
   );
@@ -658,10 +998,7 @@ export async function fetchArtistDetailsFromMusicBrainz(
   const beginArea = artistData['begin-area']?.name || '';
   const mainArea = artistData.area?.name || '';
   const countryCode = artistData.country || '';
-  const country =
-    beginArea && mainArea && beginArea !== mainArea
-      ? `${beginArea}, ${mainArea}`
-      : mainArea || beginArea || countryCode || '';
+  const country = normalizeCountryName(mainArea || beginArea, countryCode);
 
   const rawGenres: { name: string; count?: number }[] = Array.isArray(artistData.genres)
     ? artistData.genres
@@ -725,11 +1062,11 @@ export async function fetchArtistDetailsFromMusicBrainz(
       : [];
     const primaryType = String(rg['primary-type'] || '').toLowerCase();
 
-    // Remove compilações, entrevistas, audiobooks e gravações ao vivo da discografia principal
-    if (
-      primaryType === 'album' &&
-      secondaryTypes.some((s) => EXCLUDED_STUDIO_SECONDARY_TYPES.has(s))
-    ) {
+    // Mantém apenas álbuns oficiais e EPs oficiais (sem compilações, ao vivo, remixes, bootlegs, etc.)
+    if (primaryType !== 'album' && primaryType !== 'ep') {
+      continue;
+    }
+    if (secondaryTypes.length > 0) {
       continue;
     }
 
@@ -759,15 +1096,18 @@ export async function fetchArtistDetailsFromMusicBrainz(
     .sort((a, b) => String(b.release_date || '').localeCompare(String(a.release_date || '')));
 
   const albums = allReleases.filter((item) => item.record_type === 'album');
-  const epsAndSingles = allReleases.filter(
-    (item) => item.record_type === 'ep' || item.record_type === 'single'
-  );
+  const epsAndSingles = allReleases.filter((item) => item.record_type === 'ep');
 
   const bannerUrl =
     albums[0]?.cover_xl ||
     albums[0]?.cover_medium ||
     epsAndSingles[0]?.cover_medium ||
-    getFallbackImageUrl(artistId || artistName, 'artist');
+    '';
+
+  const officialLabel = await fetchOfficialArtistLabelFromDeezer(artistName);
+  const annualActiveYears =
+    deriveAnnualActivePeriod(artistData['life-span'], artistData.type, allReleases) ||
+    activeYears;
 
   return {
     id: artistId,
@@ -775,7 +1115,8 @@ export async function fetchArtistDetailsFromMusicBrainz(
     bannerUrl,
     genre,
     country,
-    activeYears,
+    label: officialLabel || undefined,
+    activeYears: annualActiveYears,
     type,
     disambiguation,
     wikipediaUrl,
@@ -785,7 +1126,7 @@ export async function fetchArtistDetailsFromMusicBrainz(
   };
 }
 
-const BIO_CACHE_PREFIX = 'musicpostr_artist_bio_v1_';
+const BIO_CACHE_PREFIX = 'musicpostr_artist_bio_v2_';
 const BIO_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 dias
 const bioMemoryCache = new Map<string, { bio: string; source: string } | null>();
 const inflightBioRequests = new Map<string, Promise<{ bio: string; source: string } | null>>();
@@ -793,11 +1134,14 @@ const inflightBioRequests = new Map<string, Promise<{ bio: string; source: strin
 async function fetchWikiSummary(lang: 'pt' | 'en', pageTitle: string): Promise<string | null> {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6000);
+    const timer = setTimeout(() => controller.abort(), 6500);
     const res = await fetch(
       `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageTitle)}`,
       {
-        headers: { Accept: 'application/json' },
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'MusicpostrMobile/1.0 (https://musicpostr.app)',
+        },
         signal: controller.signal,
       }
     );
@@ -807,6 +1151,41 @@ async function fetchWikiSummary(lang: 'pt' | 'en', pageTitle: string): Promise<s
     if (data?.type === 'disambiguation') return null;
     const extract = typeof data?.extract === 'string' ? data.extract.trim() : '';
     return extract.length >= 40 ? extract : null;
+  } catch {
+    return null;
+  }
+}
+
+async function searchWikiMusicArticle(
+  lang: 'pt' | 'en',
+  artistName: string
+): Promise<string | null> {
+  try {
+    const suffix = lang === 'pt' ? 'cantor OR banda OR músico' : 'singer OR band OR musician';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6500);
+    const res = await fetch(
+      `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(
+        `"${artistName}" (${suffix})`
+      )}&srlimit=3&format=json&origin=*`,
+      {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'MusicpostrMobile/1.0 (https://musicpostr.app)',
+        },
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const hits: any[] = Array.isArray(data?.query?.search) ? data.query.search : [];
+    for (const hit of hits) {
+      if (!hit?.title) continue;
+      const summary = await fetchWikiSummary(lang, String(hit.title));
+      if (summary) return summary;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -914,21 +1293,33 @@ export async function fetchArtistBioFromWikipedia(
       if (ptDirect && musicRegex.test(ptDirect)) {
         result = { bio: ptDirect, source: 'Wikipedia (PT) & MusicBrainz' };
       } else {
-        const enDirect = await fetchWikiSummary('en', artistName.trim());
-        if (enDirect && musicRegex.test(enDirect)) {
-          result = { bio: enDirect, source: 'Wikipedia (EN) & MusicBrainz' };
+        const ptSearch = await searchWikiMusicArticle('pt', artistName.trim());
+        if (ptSearch) {
+          result = { bio: ptSearch, source: 'Wikipedia (PT)' };
+        } else {
+          const enDirect = await fetchWikiSummary('en', artistName.trim());
+          if (enDirect && musicRegex.test(enDirect)) {
+            result = { bio: enDirect, source: 'Wikipedia (EN) & MusicBrainz' };
+          } else {
+            const enSearch = await searchWikiMusicArticle('en', artistName.trim());
+            if (enSearch) {
+              result = { bio: enSearch, source: 'Wikipedia (EN)' };
+            }
+          }
         }
       }
     }
 
-    bioMemoryCache.set(key, result);
-    try {
-      Storage.setItem(
-        BIO_CACHE_PREFIX + key,
-        JSON.stringify({ value: result, cachedAt: Date.now() })
-      );
-    } catch {
-      // ignore
+    if (result) {
+      bioMemoryCache.set(key, result);
+      try {
+        Storage.setItem(
+          BIO_CACHE_PREFIX + key,
+          JSON.stringify({ value: result, cachedAt: Date.now() })
+        );
+      } catch {
+        // ignore
+      }
     }
     return result;
   })();
@@ -944,6 +1335,60 @@ export async function fetchArtistBioFromWikipedia(
 export async function fetchAlbumDetailsFromMusicBrainz(
   albumId: string
 ): Promise<CatalogAlbum | null> {
+  // Suporte direto a álbuns vindos da API do Deezer (ex.: aba Populares do Ranking)
+  if (albumId.startsWith('dz-album-')) {
+    const dzId = albumId.replace('dz-album-', '');
+    try {
+      const res = await fetch(`https://api.deezer.com/album/${encodeURIComponent(dzId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.id && !data.error) {
+          const tracksData = Array.isArray(data.tracks?.data)
+            ? data.tracks.data.map((t: any) => ({
+                id: `dz-track-${t.id}`,
+                title: String(t.title || 'Faixa'),
+                duration: Number(t.duration || 0),
+              }))
+            : [];
+
+          const genreName =
+            Array.isArray(data.genres?.data) && data.genres.data[0]?.name
+              ? String(data.genres.data[0].name)
+              : 'Música';
+
+          const albumResult: CatalogAlbum = {
+            id: albumId,
+            title: String(data.title || 'Álbum'),
+            cover_xl: data.cover_xl || data.cover_big || data.cover_medium || '',
+            cover_big: data.cover_big || data.cover_medium || data.cover_xl || '',
+            cover_medium: data.cover_medium || data.cover_big || data.cover_xl || '',
+            cover_small: data.cover_small || data.cover_medium || '',
+            artist: {
+              id: data.artist?.id ? `dz-artist-${data.artist.id}` : '',
+              name: data.artist?.name || 'Artista',
+            },
+            release_date: data.release_date || '',
+            record_type: data.record_type === 'ep' ? 'ep' : 'album',
+            genreName,
+            label: data.label || 'Oficial',
+            communityRating: 0,
+            totalReviews: 0,
+            listenersCount: Number(data.fans || 0),
+            listenedByMe: false,
+            isFavorite: false,
+            tracks: { data: tracksData },
+            reviews: [],
+          };
+          apiAlbumCache.set(albumId, albumResult);
+          return albumResult;
+        }
+      }
+    } catch {
+      // fallback para cache em memória
+    }
+    return apiAlbumCache.get(albumId) || null;
+  }
+
   let releaseGroupId = albumId;
   let targetReleaseId = '';
   let title = '';
@@ -1025,7 +1470,7 @@ export async function fetchAlbumDetailsFromMusicBrainz(
   }
 
   if (!title) {
-    return null;
+    return apiAlbumCache.get(albumId) || null;
   }
 
   return {

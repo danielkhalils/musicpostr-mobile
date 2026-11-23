@@ -3,6 +3,7 @@ import {
   View,
   Text,
   ScrollView,
+  RefreshControl,
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
@@ -98,6 +99,7 @@ export default function GlobalSearchScreen() {
       setArtists(dbArtists);
       setReleases(dbAlbums);
       setTracks(dbTracks);
+      setIsInitialLoading(false);
     };
     loadCatalog();
     return () => {
@@ -281,6 +283,43 @@ export default function GlobalSearchScreen() {
         : releases
       : filteredAlbums;
 
+  const [refreshing, setRefreshing] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const [dbArtists, dbAlbums, dbTracks] = await Promise.all([
+        getFeaturedArtistsFromSupabase(24),
+        getPopularAlbumsFromSupabase(24),
+        getTopTracksFromSupabase(20),
+      ]);
+      setInitialArtists(dbArtists);
+      setInitialReleases(dbAlbums);
+      setInitialTracks(dbTracks);
+      setArtists(dbArtists);
+      setReleases(dbAlbums);
+      setTracks(dbTracks);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  if (isInitialLoading && artists.length === 0 && releases.length === 0) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: colors.background,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <ActivityIndicator size="large" color={colors.foreground} />
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.background }}
@@ -290,6 +329,14 @@ export default function GlobalSearchScreen() {
       ]}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={colors.primary}
+          colors={[colors.primary]}
+        />
+      }
     >
       {/* Título Principal da Página */}
       <PageHeader title="Pesquisar" />
