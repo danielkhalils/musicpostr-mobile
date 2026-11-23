@@ -45,7 +45,8 @@
           "photosPermission": "O Musicpostr precisa acessar sua galeria para você escolher fotos de avatar e capa do perfil.",
           "cameraPermission": "O Musicpostr precisa acessar sua câmera para você tirar fotos de avatar e capa do perfil."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

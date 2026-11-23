@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import { View, Text, StyleSheet, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
 import { Image } from 'expo-image';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useHeaderVisibility } from '@/context/HeaderVisibilityContext';
@@ -45,11 +44,7 @@ export function MobileHeader() {
       ]}
     >
       <View style={styles.headerRow}>
-        <TouchableOpacity
-          style={styles.brandRow}
-          onPress={() => router.push('/(tabs)/index' as any)}
-          activeOpacity={0.8}
-        >
+        <View style={styles.brandRow}>
           <Image
             source={require('@/assets/icon_transparent_96x96.png')}
             style={styles.brandLogoImg}
@@ -58,7 +53,7 @@ export function MobileHeader() {
           <Text style={[styles.brandText, { color: colors.foreground }]}>
             MUSICPOSTR
           </Text>
-        </TouchableOpacity>
+        </View>
       </View>
     </Animated.View>
   );

@@ -33,6 +33,7 @@ import {
   getUserListsFromSupabase,
 } from '@/services/profile.service';
 import { SocialIcon } from '@/components/SocialIcon';
+import { ShareableReviewCard } from '@/components/ShareableReviewCard';
 import { safeGoBack } from '@/utils/navigation';
 import { formatRating } from '@/utils/rating';
 import { BlurView } from 'expo-blur';
@@ -2453,51 +2454,26 @@ export default function AlbumDetailScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Preview do Card para Compartilhamento */}
+            {/* Card Compartilhável (PNG via react-native-view-shot + expo-sharing) */}
             {Boolean(currentUserReview) && (
-              <View
-                style={[
-                  styles.sharePreviewCard,
-                  { backgroundColor: colors.secondary, borderColor: `${colors.primary}40` },
-                ]}
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                style={{ maxHeight: 430, marginBottom: 8 }}
+                contentContainerStyle={{ paddingVertical: 4 }}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <CoverImage
-                    uri={activeCoverUrl}
-                    style={{ width: 56, height: 56, borderRadius: 10 }}
-                    quality="medium"
-                  />
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Text style={{ fontSize: 14, fontWeight: '800', color: colors.foreground }} numberOfLines={1}>
-                      {album.title}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: colors.mutedForeground }} numberOfLines={1}>
-                      {artistName}
-                    </Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                      <Star size={13} color={colors.amber} fill={colors.amber} />
-                      <Text style={{ fontSize: 13, fontWeight: '900', color: colors.amber }}>
-                        {formatRating(currentUserReview?.rating)}/10
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-                {Boolean(currentUserReview?.comment) && (
-                  <Text
-                    style={{
-                      fontSize: 12,
-                      color: colors.foreground,
-                      fontStyle: 'italic',
-                      opacity: 0.9,
-                      marginTop: 8,
-                      lineHeight: 16,
-                    }}
-                    numberOfLines={2}
-                  >
-                    &ldquo;{currentUserReview?.comment}&rdquo;
-                  </Text>
-                )}
-              </View>
+                <ShareableReviewCard
+                  albumTitle={album.title}
+                  artistName={artistName}
+                  albumCover={activeCoverUrl}
+                  rating={Number(currentUserReview?.rating || 0)}
+                  comment={currentUserReview?.comment}
+                  username={
+                    authProfile?.username ||
+                    user?.email?.split('@')[0] ||
+                    'musicpostr'
+                  }
+                />
+              </ScrollView>
             )}
 
             <View style={{ gap: 10, marginTop: 4 }}>
