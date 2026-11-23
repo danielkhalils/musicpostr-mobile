@@ -19,7 +19,6 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import {
-  Award,
   Clock,
   Disc,
   Heart,
@@ -670,12 +669,14 @@ export default function HomeScreen() {
                           </View>
                         )}
                       </View>
-                      <Text
-                        style={[styles.compactArtist, { color: colors.mutedForeground }]}
-                        numberOfLines={1}
-                      >
-                        {item.artistName}
-                      </Text>
+                      {!isIdolActivity && (
+                        <Text
+                          style={[styles.compactArtist, { color: colors.mutedForeground }]}
+                          numberOfLines={1}
+                        >
+                          {item.artistName}
+                        </Text>
+                      )}
                       {Boolean(item.comment) && (
                         <Text
                           style={[styles.compactComment, { color: colors.foreground }]}
@@ -703,7 +704,7 @@ export default function HomeScreen() {
                     />
 
                     {/* Círculo de Nota de Destaque Estilo Musicpostr / Tela de Álbuns */}
-                    {!isIdolActivity && item.rating > 0 ? (
+                    {!isIdolActivity && !isFavoriteActivity && item.rating > 0 ? (
                       <View
                         style={[
                           styles.musicpostrHeroBadge,
@@ -733,52 +734,6 @@ export default function HomeScreen() {
                           NOTA
                         </Text>
                       </View>
-                    ) : isIdolActivity ? (
-                      <View
-                        style={[
-                          styles.musicpostrHeroBadge,
-                          {
-                            backgroundColor: isDark
-                              ? 'rgba(18, 18, 20, 0.94)'
-                              : 'rgba(255, 255, 255, 0.96)',
-                            borderColor: '#a855f7',
-                            shadowColor: '#a855f7',
-                          },
-                        ]}
-                      >
-                        <Award size={22} color="#a855f7" />
-                        <Text
-                          style={[
-                            styles.musicpostrScoreLabel,
-                            { color: '#a855f7' },
-                          ]}
-                        >
-                          ÍDOLO
-                        </Text>
-                      </View>
-                    ) : isFavoriteActivity ? (
-                      <View
-                        style={[
-                          styles.musicpostrHeroBadge,
-                          {
-                            backgroundColor: isDark
-                              ? 'rgba(18, 18, 20, 0.94)'
-                              : 'rgba(255, 255, 255, 0.96)',
-                            borderColor: colors.rose,
-                            shadowColor: colors.rose,
-                          },
-                        ]}
-                      >
-                        <Heart size={20} color={colors.rose} fill={colors.rose} />
-                        <Text
-                          style={[
-                            styles.musicpostrScoreLabel,
-                            { color: colors.rose },
-                          ]}
-                        >
-                          FAVORITO
-                        </Text>
-                      </View>
                     ) : null}
 
                     {/* Gradiente Inferior com Título do Álbum e Artista */}
@@ -801,9 +756,11 @@ export default function HomeScreen() {
                         <Text style={styles.heroMediaTitle} numberOfLines={1}>
                           {item.albumTitle}
                         </Text>
-                        <Text style={styles.heroMediaArtist} numberOfLines={1}>
-                          {item.artistName}
-                        </Text>
+                        {!isIdolActivity && (
+                          <Text style={styles.heroMediaArtist} numberOfLines={1}>
+                            {item.artistName}
+                          </Text>
+                        )}
                       </View>
                     </LinearGradient>
                   </TouchableOpacity>

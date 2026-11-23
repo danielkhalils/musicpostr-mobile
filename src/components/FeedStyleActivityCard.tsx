@@ -2,7 +2,6 @@ import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  Award,
   Clock,
   Disc,
   Heart,
@@ -216,7 +215,7 @@ export function FeedStyleActivityCard({
           quality="high"
         />
 
-        {!isIdol && rating > 0 ? (
+        {activityType === 'review' && rating > 0 ? (
           <View
             style={[
               styles.heroScoreBadge,
@@ -236,38 +235,6 @@ export function FeedStyleActivityCard({
               NOTA
             </Text>
           </View>
-        ) : isIdol ? (
-          <View
-            style={[
-              styles.heroScoreBadge,
-              {
-                backgroundColor: isDark
-                  ? 'rgba(18, 18, 20, 0.94)'
-                  : 'rgba(255, 255, 255, 0.96)',
-                borderColor: '#a855f7',
-                shadowColor: '#a855f7',
-              },
-            ]}
-          >
-            <Award size={20} color="#a855f7" />
-            <Text style={[styles.heroScoreLabel, { color: '#a855f7' }]}>ÍDOLO</Text>
-          </View>
-        ) : isFavorite ? (
-          <View
-            style={[
-              styles.heroScoreBadge,
-              {
-                backgroundColor: isDark
-                  ? 'rgba(18, 18, 20, 0.94)'
-                  : 'rgba(255, 255, 255, 0.96)',
-                borderColor: colors.rose,
-                shadowColor: colors.rose,
-              },
-            ]}
-          >
-            <Heart size={18} color={colors.rose} fill={colors.rose} />
-            <Text style={[styles.heroScoreLabel, { color: colors.rose }]}>FAVORITO</Text>
-          </View>
         ) : null}
 
         <LinearGradient
@@ -285,9 +252,11 @@ export function FeedStyleActivityCard({
             <Text style={styles.heroMediaTitle} numberOfLines={1}>
               {title}
             </Text>
-            <Text style={styles.heroMediaArtist} numberOfLines={1}>
-              {subtitle}
-            </Text>
+            {!isIdol && (
+              <Text style={styles.heroMediaArtist} numberOfLines={1}>
+                {subtitle}
+              </Text>
+            )}
           </View>
         </LinearGradient>
       </TouchableOpacity>
