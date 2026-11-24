@@ -49,11 +49,14 @@ function RootNavigator() {
           headerShown: false,
           contentStyle: { backgroundColor: colors.background },
           animation: 'slide_from_right',
+          animationDuration: 220,
+          gestureEnabled: true,
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="album/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="artist/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="label/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="top-albuns" options={{ headerShown: false }} />
         <Stack.Screen name="my-reviews" options={{ headerShown: false }} />
         <Stack.Screen name="favorites" options={{ headerShown: false }} />
@@ -64,11 +67,19 @@ function RootNavigator() {
         <Stack.Screen name="user/[username]" options={{ headerShown: false }} />
         <Stack.Screen
           name="login"
-          options={{ headerShown: false, presentation: 'modal' }}
+          options={{
+            headerShown: false,
+            presentation: 'modal',
+            animation: 'fade_from_bottom',
+          }}
         />
         <Stack.Screen
           name="register"
-          options={{ headerShown: false, presentation: 'modal' }}
+          options={{
+            headerShown: false,
+            presentation: 'modal',
+            animation: 'fade_from_bottom',
+          }}
         />
       </Stack>
     </>

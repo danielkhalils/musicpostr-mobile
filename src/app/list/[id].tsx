@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
+import { INFINITE_PAGE_SIZE, isNearScrollBottom } from '@/utils/pagination';
 import {
   ListMusic,
   Disc,
@@ -29,6 +30,7 @@ export default function ListDetailScreen() {
 
   const [list, setList] = useState<UserListRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [visibleCount, setVisibleCount] = useState(INFINITE_PAGE_SIZE);
 
   useEffect(() => {
     let active = true;
@@ -104,7 +106,7 @@ export default function ListDetailScreen() {
           justifyContent: 'center',
         }}
       >
-        <ActivityIndicator size="large" color={colors.foreground} />
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
@@ -118,6 +120,12 @@ export default function ListDetailScreen() {
           { paddingTop: Math.max(insets.top, 16) },
         ]}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={32}
+        onScroll={(e) => {
+          if (visibleCount < albums.length && isNearScrollBottom(e)) {
+            setVisibleCount((prev) => Math.min(albums.length, prev + INFINITE_PAGE_SIZE));
+          }
+        }}
       >
         <PageHeader
           title={list?.title || 'Lista'}
@@ -255,7 +263,7 @@ export default function ListDetailScreen() {
           </View>
         ) : (
           <View style={styles.albumsList}>
-            {albums.map((alb) => (
+            {albums.slice(0, visibleCount).map((alb) => (
               <TouchableOpacity
                 key={alb.id}
                 style={[

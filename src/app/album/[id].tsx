@@ -1,4 +1,5 @@
 import { CoverImage } from '@/components/CoverImage';
+import { AwardLogo } from '@/components/AwardLogo';
 import { MobileHeader } from '@/components/MobileHeader';
 import { StreamingIcon } from '@/components/StreamingIcon';
 import { useAppTheme } from '@/context/ThemeContext';
@@ -116,6 +117,7 @@ export default function AlbumDetailScreen() {
 
   const [album, setAlbum] = useState<CatalogAlbum | null>(null);
   const [awards, setAwards] = useState<AlbumAward[]>([]);
+  const [isLoadingAwards, setIsLoadingAwards] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isLoadingTracks, setIsLoadingTracks] = useState<boolean>(false);
 
@@ -236,6 +238,31 @@ export default function AlbumDetailScreen() {
       isMounted = false;
     };
   }, [id, user]);
+
+  // Busca premiações e indicações oficiais do álbum (Supabase + Wikidata + Wikipedia)
+  // assim que o título e o artista do álbum estiverem carregados
+  useEffect(() => {
+    let active = true;
+    if (!id || !album?.title) return;
+
+    setIsLoadingAwards(true);
+    getAlbumAwardsFromSupabase(
+      id,
+      album.title,
+      album.artist?.name,
+      album.release_date
+    )
+      .then((resolvedAwards) => {
+        if (active) setAwards(resolvedAwards);
+      })
+      .finally(() => {
+        if (active) setIsLoadingAwards(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [id, album?.title, album?.artist?.name, album?.release_date]);
 
   const handlePostReview = async () => {
     if (!album || isSubmittingReview) return;
@@ -1274,7 +1301,14 @@ export default function AlbumDetailScreen() {
             Reconhecimento oficial e cerimônias de premiação da indústria da música.
           </Text>
 
-          {awards.length === 0 ? (
+          {isLoadingAwards && awards.length === 0 ? (
+            <View style={styles.emptyAwardsBox}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={{ fontSize: 12.5, color: colors.mutedForeground, textAlign: 'center' }}>
+                Consultando premiações e indicações oficiais...
+              </Text>
+            </View>
+          ) : awards.length === 0 ? (
             <View style={styles.emptyAwardsBox}>
               <Award size={26} color={colors.mutedForeground} style={{ opacity: 0.5 }} />
               <Text style={{ fontSize: 13, color: colors.mutedForeground, textAlign: 'center' }}>
@@ -1296,14 +1330,12 @@ export default function AlbumDetailScreen() {
                       },
                     ]}
                   >
-                    <View style={styles.awardLogoWrapper}>
-                      <CoverImage
-                        uri={aw.logoUrl}
-                        style={styles.awardLogoImage}
-                        contentFit="contain"
-                        quality="high"
-                      />
-                    </View>
+                    <AwardLogo
+                      ceremonyName={aw.awardName || aw.ceremonyName || aw.category}
+                      logoUrl={aw.logoUrl}
+                      size={44}
+                      isWinner={isWinner}
+                    />
                     <View style={{ flex: 1, gap: 2 }}>
                       <View
                         style={{

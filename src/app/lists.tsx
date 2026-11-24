@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
+import { INFINITE_PAGE_SIZE, isNearScrollBottom } from '@/utils/pagination';
 import { Plus, X } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -33,6 +34,7 @@ export default function ListsScreen() {
   const [newDesc, setNewDesc] = useState('');
   const [isSavingList, setIsSavingList] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [visibleCount, setVisibleCount] = useState(INFINITE_PAGE_SIZE);
 
   useEffect(() => {
     let active = true;
@@ -105,6 +107,12 @@ export default function ListsScreen() {
           { paddingTop: Math.max(insets.top, 16) },
         ]}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={32}
+        onScroll={(e) => {
+          if (visibleCount < lists.length && isNearScrollBottom(e)) {
+            setVisibleCount((prev) => Math.min(lists.length, prev + INFINITE_PAGE_SIZE));
+          }
+        }}
       >
         <PageHeader
           title={isVisiting ? `Listas de @${username}` : 'Listas'}
@@ -130,12 +138,12 @@ export default function ListsScreen() {
         />
 
         {isLoading && lists.length === 0 ? (
-          <View style={{ paddingVertical: 80, alignItems: 'center', justifyContent: 'center' }}>
-            <ActivityIndicator size="large" color={colors.foreground} />
+          <View style={{ flex: 1, minHeight: 420, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator size="large" color={colors.primary} />
           </View>
         ) : (
         <View style={{ gap: 12 }}>
-          {lists.map((list) => (
+          {lists.slice(0, visibleCount).map((list) => (
             <TouchableOpacity
               key={list.id}
               style={[

@@ -1,5 +1,6 @@
 import { CoverImage } from '@/components/CoverImage';
 import { MobileHeader } from '@/components/MobileHeader';
+import { ScreenLoader } from '@/components/ScreenLoader';
 import { ShareableReviewCard } from '@/components/ShareableReviewCard';
 import { useActivityCardMode } from '@/hooks/use-activity-card-mode';
 import { useHeaderVisibility } from '@/context/HeaderVisibilityContext';
@@ -439,6 +440,15 @@ export default function HomeScreen() {
     return '#ef4444';
   };
 
+  if (isInitialLoading && feedItems.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <MobileHeader />
+        <ScreenLoader />
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <MobileHeader />
@@ -508,29 +518,7 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {isInitialLoading && feedItems.length === 0 ? (
-        <View
-          style={{
-            flex: 1,
-            minHeight: 420,
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 10,
-          }}
-        >
-          <ActivityIndicator size="large" color={colors.foreground} />
-          <Text
-            style={{
-              fontSize: 13,
-              fontWeight: '700',
-              color: colors.mutedForeground,
-              textAlign: 'center',
-            }}
-          >
-            Carregando...
-          </Text>
-        </View>
-      ) : feedItems.length === 0 ? (
+      {feedItems.length === 0 ? (
         <View
           style={[
             styles.emptyBox,
@@ -800,11 +788,12 @@ export default function HomeScreen() {
                     {/* Gradiente Inferior com Título do Álbum e Artista */}
                     <LinearGradient
                       colors={[
-                        'transparent',
-                        'rgba(0, 0, 0, 0.35)',
-                        'rgba(0, 0, 0, 0.88)',
+                        'rgba(0, 0, 0, 0)',
+                        'rgba(0, 0, 0, 0)',
+                        'rgba(0, 0, 0, 0.4)',
+                        'rgba(0, 0, 0, 0.9)',
                       ]}
-                      locations={[0, 0.45, 1]}
+                      locations={[0, 0.45, 0.72, 1]}
                       style={styles.heroGradientOverlay}
                     >
                       <View style={styles.heroMediaInfo}>
@@ -1284,7 +1273,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 15,
     gap: 12,
-    elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 12,
@@ -1366,9 +1354,14 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: 'hidden',
     position: 'relative',
-    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    backgroundColor: '#09090b',
   },
   heroMediaImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     width: '100%',
     height: '100%',
   },
@@ -1402,12 +1395,14 @@ const styles = StyleSheet.create({
   },
   heroGradientOverlay: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 75,
+    top: 0,
+    left: -1,
+    right: -1,
+    bottom: -2,
     justifyContent: 'flex-end',
-    padding: 10,
+    paddingHorizontal: 11,
+    paddingTop: 10,
+    paddingBottom: 12,
   },
   heroMediaInfo: {
     gap: 2,

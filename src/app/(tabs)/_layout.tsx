@@ -139,6 +139,8 @@ export default function TabsLayout() {
         tabBar={(props) => <FloatingTabsBar {...props} />}
         screenOptions={{
           headerShown: false,
+          animation: "fade",
+          lazy: true,
           sceneStyle: { backgroundColor: colors.background },
         }}
       >

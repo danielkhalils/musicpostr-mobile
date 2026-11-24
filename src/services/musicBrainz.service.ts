@@ -788,24 +788,56 @@ function normalizeCountryName(areaName?: string, countryCode?: string): string {
   return area || code || '';
 }
 
-async function fetchOfficialArtistLabelFromDeezer(artistName: string): Promise<string> {
+export async function fetchOfficialArtistLabelFromDeezer(artistName: string): Promise<string> {
   const q = artistName.trim();
   if (!q) return '';
   try {
-    const searchRes = await fetch(
-      `https://api.deezer.com/search/album?q=${encodeURIComponent(`artist:"${q}"`)}&limit=1`
+    // 1. Localiza o perfil oficial exato do artista no Deezer
+    const artistRes = await fetch(
+      `https://api.deezer.com/search/artist?q=${encodeURIComponent(q)}&limit=10`
     );
-    if (!searchRes.ok) return '';
-    const searchJson = await searchRes.json();
-    const firstAlbum = Array.isArray(searchJson?.data) ? searchJson.data[0] : null;
-    if (!firstAlbum?.id) return '';
+    if (!artistRes.ok) return '';
+    const artistJson = await artistRes.json();
+    const candidates: any[] = Array.isArray(artistJson?.data) ? artistJson.data : [];
+    const exactArtist =
+      candidates.find((c) => String(c?.name || '').trim().toLowerCase() === q.toLowerCase()) ||
+      candidates[0];
+    if (!exactArtist?.id) return '';
 
-    const albRes = await fetch(
-      `https://api.deezer.com/album/${encodeURIComponent(String(firstAlbum.id))}`
+    // 2. Busca os álbuns oficiais do próprio artista e ordena pelo lançamento mais recente
+    const albumsRes = await fetch(
+      `https://api.deezer.com/artist/${encodeURIComponent(String(exactArtist.id))}/albums?limit=25`
     );
-    if (!albRes.ok) return '';
-    const albJson = await albRes.json();
-    return typeof albJson?.label === 'string' ? albJson.label.trim() : '';
+    if (!albumsRes.ok) return '';
+    const albumsJson = await albumsRes.json();
+    const rawAlbums: any[] = Array.isArray(albumsJson?.data) ? albumsJson.data : [];
+    if (rawAlbums.length === 0) return '';
+
+    const studioAlbums = rawAlbums.filter((a) => a?.record_type === 'album');
+    const pool = (studioAlbums.length > 0 ? studioAlbums : rawAlbums)
+      .slice()
+      .sort((a, b) => String(b?.release_date || '').localeCompare(String(a?.release_date || '')));
+
+    for (const candidateAlbum of pool.slice(0, 3)) {
+      if (!candidateAlbum?.id) continue;
+      const albRes = await fetch(
+        `https://api.deezer.com/album/${encodeURIComponent(String(candidateAlbum.id))}`
+      );
+      if (!albRes.ok) continue;
+      const albJson = await albRes.json();
+      const rawLabel = typeof albJson?.label === 'string' ? albJson.label.trim() : '';
+      if (
+        rawLabel &&
+        !/^(self-released|independente|not on label|unknown)$/i.test(rawLabel)
+      ) {
+        const cleaned = rawLabel
+          .split(/\s*[,;|]\s*|\s+under\s+exclusive\s+license\s+|\s+a\s+division\s+of\s+/i)[0]
+          .replace(/^[℗©(P)(C)\s0-9-]+/i, '')
+          .trim();
+        return cleaned || rawLabel;
+      }
+    }
+    return '';
   } catch {
     return '';
   }
@@ -886,9 +918,31 @@ export async function fetchSimilarArtistsFromApi(
 export async function fetchArtistDetailsFromMusicBrainz(
   artistId: string
 ): Promise<MusicBrainzArtistDetails | null> {
-  // Suporte direto a artistas vindos da API do Deezer (ex.: Artistas parecidos / Populares)
-  if (artistId.startsWith('dz-artist-')) {
-    const dzId = artistId.replace('dz-artist-', '');
+  let effectiveArtistId = artistId;
+  if (effectiveArtistId.startsWith('dz-name-')) {
+    const rawName = decodeURIComponent(effectiveArtistId.replace('dz-name-', '')).trim();
+    try {
+      const searchRes = await fetch(
+        `https://api.deezer.com/search/artist?q=${encodeURIComponent(rawName)}&limit=5`
+      );
+      if (searchRes.ok) {
+        const searchJson = await searchRes.json();
+        const items: any[] = Array.isArray(searchJson?.data) ? searchJson.data : [];
+        const exact =
+          items.find((it) => String(it?.name || '').toLowerCase() === rawName.toLowerCase()) ||
+          items[0];
+        if (exact?.id) {
+          effectiveArtistId = `dz-artist-${exact.id}`;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Suporte direto a artistas vindos da API do Deezer (ex.: Artistas parecidos / Populares / Gravadoras)
+  if (effectiveArtistId.startsWith('dz-artist-')) {
+    const dzId = effectiveArtistId.replace('dz-artist-', '');
     try {
       const [artRes, albRes] = await Promise.all([
         fetch(`https://api.deezer.com/artist/${encodeURIComponent(dzId)}`),

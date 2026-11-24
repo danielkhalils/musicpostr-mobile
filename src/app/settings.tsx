@@ -1,81 +1,83 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { PageHeader } from '@/components/PageHeader';
 import {
-  View,
-  Text,
-  ScrollView,
-  TextInput,
-  TouchableOpacity,
-  ActivityIndicator,
-  StyleSheet,
-  Alert,
-  BackHandler,
-  Platform,
-} from 'react-native';
-import { Image } from 'expo-image';
-import Constants from 'expo-constants';
-import * as Device from 'expo-device';
-import { safeGoBack } from '@/utils/navigation';
-import { router } from 'expo-router';
-import {
-  User,
-  Shield,
-  Lock,
-  Bell,
-  Info,
-  Globe,
-  Save,
-  Moon,
-  Sun,
-  LogOut,
-  UserPlus,
-  Search,
-  X,
-  Sliders,
-  EyeOff,
-  Smartphone,
-  Database,
-  Trash2,
-  Download,
-  HelpCircle,
-  FileText,
-  AlertTriangle,
-  Plus,
-  Music,
-  Palette,
-  KeyRound,
-  UserX,
-  MessageSquareOff,
-  CheckCircle2,
-  ChevronRight,
-  Camera,
-  Image as ImageIcon,
-} from 'lucide-react-native';
-import { useAppTheme } from '@/context/ThemeContext';
+  SettingsChoiceGroup,
+  SettingsDivider,
+  SettingsInputField,
+  SettingsMenuRow,
+  SettingsSectionCard,
+  SettingsSubHeader,
+  SettingsToggleRow,
+} from '@/components/settings/SettingsPrimitives';
 import { useAuth } from '@/context/AuthContext';
+import { useAppTheme } from '@/context/ThemeContext';
 import {
   pickAndUploadProfileMedia,
   type ImageSourceMode,
   type ProfileMediaKind,
 } from '@/services/profileMedia.service';
-import { supabase } from '@/services/supabase';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PageHeader } from '@/components/PageHeader';
 import {
+  clearTemporaryCache,
   DEFAULT_EXTENDED_SETTINGS,
-  type ExtendedSettings,
   loadExtendedSettings,
   saveExtendedSettings,
-  clearTemporaryCache,
+  type ExtendedSettings,
 } from '@/services/settings.service';
+import { supabase } from '@/services/supabase';
+import { safeGoBack } from '@/utils/navigation';
+import Constants from 'expo-constants';
+import * as Device from 'expo-device';
+import { Image } from 'expo-image';
+import { router } from 'expo-router';
 import {
-  SettingsSectionCard,
-  SettingsSubHeader,
-  SettingsMenuRow,
-  SettingsToggleRow,
-  SettingsChoiceGroup,
-  SettingsInputField,
-  SettingsDivider,
-} from '@/components/settings/SettingsPrimitives';
+  AlertTriangle,
+  Bell,
+  Camera,
+  CheckCircle2,
+  ChevronRight,
+  Database,
+  Download,
+  EyeOff,
+  FileText,
+  Globe,
+  HelpCircle,
+  Image as ImageIcon,
+  Info,
+  KeyRound,
+  Lock,
+  LogOut,
+  MessageSquareOff,
+  Moon,
+  Music,
+  Palette,
+  Plus,
+  Save,
+  Search,
+  Shield,
+  Sliders,
+  Smartphone,
+  Sun,
+  Trash2,
+  User,
+  UserPlus,
+  UserX,
+  X,
+} from 'lucide-react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  BackHandler,
+  Easing,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type SettingsSection =
   | 'hub'
@@ -257,16 +259,46 @@ export default function SettingsScreen() {
     };
   }, [user?.id]);
 
-  // Rola para o topo ao trocar de sub-seção
+  const [sectionOpacity] = useState(() => new Animated.Value(1));
+  const [sectionTranslateX] = useState(() => new Animated.Value(0));
+  const [transitionDirection, setTransitionDirection] = useState<1 | -1>(1);
+  const isFirstSectionRender = useRef(true);
+
+  // Rola para o topo e anima a transição suave ao trocar de sub-seção
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
-  }, [activeSection]);
+
+    if (isFirstSectionRender.current) {
+      isFirstSectionRender.current = false;
+      return;
+    }
+
+    sectionOpacity.setValue(0);
+    sectionTranslateX.setValue(transitionDirection * 24);
+
+    Animated.parallel([
+      Animated.timing(sectionOpacity, {
+        toValue: 1,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(sectionTranslateX, {
+        toValue: 0,
+        duration: 240,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [activeSection, transitionDirection, sectionOpacity, sectionTranslateX]);
 
   // Botão voltar do Android retorna ao hub quando estiver em uma sub-seção
   useEffect(() => {
     if (Platform.OS !== 'android') return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (activeSection !== 'hub') {
+        setTransitionDirection(-1);
+        setErrorMessage(null);
         setActiveSection('hub');
         return true;
       }
@@ -276,6 +308,7 @@ export default function SettingsScreen() {
   }, [activeSection]);
 
   const openSection = (section: SettingsSection) => {
+    setTransitionDirection(section === 'hub' ? -1 : 1);
     setErrorMessage(null);
     setActiveSection(section);
   };
@@ -727,7 +760,7 @@ export default function SettingsScreen() {
                 @{username || 'sem-username'} • {email || 'Não autenticado'}
               </Text>
               <Text style={{ fontSize: 11, color: colors.primary, fontWeight: '700', marginTop: 2 }}>
-                Editar perfil público e redes sociais
+                Editar informações do perfil
               </Text>
             </View>
             <ChevronRight size={18} color={colors.mutedForeground} />
@@ -743,7 +776,9 @@ export default function SettingsScreen() {
           </SettingsSectionCard>
         ) : (
           groups.map((grp) => {
-            const items = filteredHubItems.filter((i) => i.group === grp.key);
+            const items = filteredHubItems.filter(
+              (i) => i.group === grp.key && (Boolean(searchQuery) || i.id !== 'profile')
+            );
             if (items.length === 0) return null;
             return (
               <View key={grp.key} style={{ gap: 8 }}>
@@ -2116,27 +2151,35 @@ export default function SettingsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScrollView
-        ref={scrollRef}
-        style={{ flex: 1 }}
-        contentContainerStyle={[
-          styles.container,
-          { paddingTop: Math.max(insets.top, 16) },
-        ]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+      <Animated.View
+        style={{
+          flex: 1,
+          opacity: sectionOpacity,
+          transform: [{ translateX: sectionTranslateX }],
+        }}
       >
-        {activeSection === 'hub' && renderHub()}
-        {activeSection === 'profile' && renderProfileSection()}
-        {activeSection === 'account' && renderAccountSection()}
-        {activeSection === 'security' && renderSecuritySection()}
-        {activeSection === 'privacy' && renderPrivacySection()}
-        {activeSection === 'moderation' && renderModerationSection()}
-        {activeSection === 'notifications' && renderNotificationsSection()}
-        {activeSection === 'content' && renderContentSection()}
-        {activeSection === 'appearance' && renderAppearanceSection()}
-        {activeSection === 'data_about' && renderDataAboutSection()}
-      </ScrollView>
+        <ScrollView
+          ref={scrollRef}
+          style={{ flex: 1 }}
+          contentContainerStyle={[
+            styles.container,
+            { paddingTop: Math.max(insets.top, 16) },
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {activeSection === 'hub' && renderHub()}
+          {activeSection === 'profile' && renderProfileSection()}
+          {activeSection === 'account' && renderAccountSection()}
+          {activeSection === 'security' && renderSecuritySection()}
+          {activeSection === 'privacy' && renderPrivacySection()}
+          {activeSection === 'moderation' && renderModerationSection()}
+          {activeSection === 'notifications' && renderNotificationsSection()}
+          {activeSection === 'content' && renderContentSection()}
+          {activeSection === 'appearance' && renderAppearanceSection()}
+          {activeSection === 'data_about' && renderDataAboutSection()}
+        </ScrollView>
+      </Animated.View>
     </View>
   );
 }

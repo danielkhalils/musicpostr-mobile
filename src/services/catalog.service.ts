@@ -1,5 +1,9 @@
 import { formatSocialDate } from '@/utils/date';
 import {
+  fetchAlbumAwardsFromApi,
+  fetchArtistAwardsFromWikidata,
+} from './awards.service';
+import {
   notifyCatalogUpdated,
   type AlbumAward,
   type AlbumUserReview,
@@ -9,6 +13,7 @@ import {
   type FeedPostItem,
   type UserListRecord,
 } from './musicBrainz.service';
+import { fetchLiveRecordLabelDetails } from './recordLabel.service';
 import { supabase } from './supabase';
 
 export interface GenreRecord {
@@ -21,6 +26,19 @@ export interface RecordLabelRecord {
   id: string;
   name: string;
   desc: string;
+}
+
+export interface RecordLabelFullDetails {
+  id: string;
+  name: string;
+  desc: string;
+  founded: string;
+  headquarters: string;
+  parentGroup: string;
+  genres: string[];
+  bio: string;
+  artists: CatalogArtist[];
+  albums: CatalogAlbum[];
 }
 
 export interface CommunityReviewItem {
@@ -111,20 +129,86 @@ export function mapDbTrackToCatalog(row: any): CatalogTrack {
 // GÊNEROS & GRAVADORAS
 // ============================================================================
 
+const DEFAULT_GENRES: GenreRecord[] = [
+  { id: 'pop', name: 'Pop', emoji: '✨' },
+  { id: 'rock', name: 'Rock', emoji: '🎸' },
+  { id: 'hip-hop', name: 'Hip-Hop', emoji: '🎤' },
+  { id: 'rap', name: 'Rap', emoji: '🔥' },
+  { id: 'rnb', name: 'R&B', emoji: '💜' },
+  { id: 'indie', name: 'Indie', emoji: '🌙' },
+  { id: 'electronic', name: 'Eletrônica', emoji: '🎛️' },
+  { id: 'mpb', name: 'MPB', emoji: '🇧🇷' },
+  { id: 'samba', name: 'Samba', emoji: '🥁' },
+  { id: 'bossa-nova', name: 'Bossa Nova', emoji: '🌴' },
+  { id: 'funk', name: 'Funk', emoji: '🔊' },
+  { id: 'sertanejo', name: 'Sertanejo', emoji: '🤠' },
+  { id: 'jazz', name: 'Jazz', emoji: '🎷' },
+  { id: 'soul', name: 'Soul', emoji: '🎙️' },
+  { id: 'metal', name: 'Metal', emoji: '🤘' },
+  { id: 'punk', name: 'Punk', emoji: '⚡' },
+  { id: 'alternative', name: 'Alternativo', emoji: '🎧' },
+  { id: 'k-pop', name: 'K-Pop', emoji: '💫' },
+  { id: 'reggae', name: 'Reggae', emoji: '🟢' },
+  { id: 'latin', name: 'Latina', emoji: '💃' },
+  { id: 'folk', name: 'Folk', emoji: '🪕' },
+  { id: 'blues', name: 'Blues', emoji: '🎺' },
+  { id: 'classical', name: 'Clássica', emoji: '🎻' },
+  { id: 'country', name: 'Country', emoji: '🪕' },
+];
+
+const DEFAULT_RECORD_LABELS: RecordLabelRecord[] = [
+  { id: 'universal', name: 'Universal Music Group', desc: 'Major Global • Pop, Hip-Hop & Rock' },
+  { id: 'sony', name: 'Sony Music', desc: 'Major Global • Catálogo Mundial' },
+  { id: 'warner', name: 'Warner Music Group', desc: 'Major Global • Rock, Pop & R&B' },
+  { id: 'atlantic', name: 'Atlantic Records', desc: 'Warner • Pop, R&B & Hip-Hop' },
+  { id: 'republic', name: 'Republic Records', desc: 'Universal • Pop & Mainstream' },
+  { id: 'interscope', name: 'Interscope Records', desc: 'Universal • Hip-Hop, Pop & Alt' },
+  { id: 'columbia', name: 'Columbia Records', desc: 'Sony • Pop, Rock & Soul' },
+  { id: 'rca', name: 'RCA Records', desc: 'Sony • Pop, R&B & Indie' },
+  { id: 'capitol', name: 'Capitol Records', desc: 'Universal • Clássicos & Pop' },
+  { id: 'def-jam', name: 'Def Jam Recordings', desc: 'Universal • Hip-Hop & R&B' },
+  { id: 'island', name: 'Island Records', desc: 'Universal • Reggae, Rock & Pop' },
+  { id: 'virgin', name: 'Virgin Music', desc: 'Universal • Pop & Eletrônica' },
+  { id: 'parlophone', name: 'Parlophone', desc: 'Warner • Britpop & Rock' },
+  { id: 'polydor', name: 'Polydor Records', desc: 'Universal • UK Pop & Rock' },
+  { id: 'epic', name: 'Epic Records', desc: 'Sony • Pop, Hip-Hop & R&B' },
+  { id: 'elektra', name: 'Elektra Records', desc: 'Warner • Rock & Alternativo' },
+  { id: 'roc-nation', name: 'Roc Nation', desc: 'Hip-Hop, R&B & Pop' },
+  { id: 'tde', name: 'Top Dawg Entertainment', desc: 'Hip-Hop & R&B Independente' },
+  { id: 'ovo', name: 'OVO Sound', desc: 'Hip-Hop & R&B Contemporâneo' },
+  { id: 'xo', name: 'XO Records', desc: 'R&B Alternativo & Pop' },
+  { id: 'cactus-jack', name: 'Cactus Jack', desc: 'Trap & Hip-Hop' },
+  { id: 'aftermath', name: 'Aftermath Entertainment', desc: 'Hip-Hop Clássico & West Coast' },
+  { id: 'motown', name: 'Motown Records', desc: 'Soul, R&B & Funk Histórico' },
+  { id: 'blue-note', name: 'Blue Note Records', desc: 'Jazz Clássico & Contemporâneo' },
+  { id: 'sub-pop', name: 'Sub Pop', desc: 'Indie Rock & Grunge' },
+  { id: 'xl', name: 'XL Recordings', desc: 'Indie, Eletrônica & Pop UK' },
+  { id: '4ad', name: '4AD', desc: 'Dream Pop & Pós-Punk' },
+  { id: 'warp', name: 'Warp Records', desc: 'Eletrônica & Experimental' },
+  { id: 'ninja-tune', name: 'Ninja Tune', desc: 'Eletrônica, Beats & Jazz' },
+  { id: 'domino', name: 'Domino Recording Co.', desc: 'Indie Rock & Alternativo' },
+  { id: 'matador', name: 'Matador Records', desc: 'Indie & Rock Alternativo' },
+  { id: 'som-livre', name: 'Som Livre', desc: 'Brasil • MPB, Pop & Sertanejo' },
+  { id: 'deck', name: 'Deckdisc', desc: 'Brasil • Rock & MPB' },
+  { id: 'kondzilla', name: 'KondZilla', desc: 'Brasil • Funk & Urbano' },
+  { id: 'biscoito-fino', name: 'Biscoito Fino', desc: 'Brasil • MPB & Samba' },
+  { id: 'hybe', name: 'HYBE Labels', desc: 'K-Pop & Pop Global' },
+];
+
 export async function getGenresFromSupabase(): Promise<GenreRecord[]> {
   try {
     const { data, error } = await supabase
       .from('genres')
       .select('id, name, emoji')
       .order('display_order', { ascending: true });
-    if (error || !data) return [];
+    if (error || !data || data.length === 0) return DEFAULT_GENRES;
     return data.map((g: any) => ({
       id: String(g.id),
       name: g.name,
       emoji: g.emoji || '🎵',
     }));
   } catch {
-    return [];
+    return DEFAULT_GENRES;
   }
 }
 
@@ -134,15 +218,511 @@ export async function getRecordLabelsFromSupabase(): Promise<RecordLabelRecord[]
       .from('record_labels')
       .select('id, name, description')
       .order('name', { ascending: true });
-    if (error || !data) return [];
-    return data.map((l: any) => ({
-      id: String(l.id),
-      name: l.name,
-      desc: l.description || '',
-    }));
+    if (error || !data || data.length === 0) return DEFAULT_RECORD_LABELS;
+    const seen = new Set<string>();
+    const merged: RecordLabelRecord[] = [];
+    for (const l of data as any[]) {
+      const key = String(l.name || '').toLowerCase().trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      merged.push({
+        id: String(l.id),
+        name: l.name,
+        desc: l.description || '',
+      });
+    }
+    for (const fallback of DEFAULT_RECORD_LABELS) {
+      const key = fallback.name.toLowerCase().trim();
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(fallback);
+      }
+    }
+    return merged;
   } catch {
-    return [];
+    return DEFAULT_RECORD_LABELS;
   }
+}
+
+interface CuratedLabelMeta {
+  id: string;
+  name: string;
+  desc: string;
+  founded: string;
+  headquarters: string;
+  parentGroup: string;
+  genres: string[];
+  bio: string;
+  roster: { name: string; genre: string; country: string }[];
+  matchKeywords: string[];
+}
+
+const CURATED_LABEL_META: CuratedLabelMeta[] = [
+  {
+    id: 'universal',
+    name: 'Universal Music Group',
+    desc: 'Major Global • Pop, Hip-Hop & Rock',
+    founded: '1934',
+    headquarters: 'Santa Monica, Califórnia, EUA',
+    parentGroup: 'Universal Music Group N.V.',
+    genres: ['Pop', 'Hip-Hop', 'Rock', 'R&B', 'Latina'],
+    bio: 'A Universal Music Group (UMG) é a maior companhia fonográfica do mundo, reunindo selos históricos como Republic, Interscope, Capitol, Def Jam, Island e Polydor, além de distribuir alguns dos artistas mais influentes da música contemporânea.',
+    roster: [
+      { name: 'Taylor Swift', genre: 'Pop • Country', country: 'Estados Unidos' },
+      { name: 'The Weeknd', genre: 'R&B • Pop', country: 'Canadá' },
+      { name: 'Kendrick Lamar', genre: 'Hip-Hop • Rap', country: 'Estados Unidos' },
+      { name: 'Billie Eilish', genre: 'Pop • Alternativo', country: 'Estados Unidos' },
+      { name: 'Lady Gaga', genre: 'Pop • Dance', country: 'Estados Unidos' },
+      { name: 'Drake', genre: 'Hip-Hop • R&B', country: 'Canadá' },
+      { name: 'Ariana Grande', genre: 'Pop • R&B', country: 'Estados Unidos' },
+      { name: 'Post Malone', genre: 'Pop • Hip-Hop', country: 'Estados Unidos' },
+      { name: 'Lana Del Rey', genre: 'Indie Pop • Alternativo', country: 'Estados Unidos' },
+      { name: 'Sabrina Carpenter', genre: 'Pop', country: 'Estados Unidos' },
+    ],
+    matchKeywords: ['universal', 'umg'],
+  },
+  {
+    id: 'sony',
+    name: 'Sony Music',
+    desc: 'Major Global • Catálogo Mundial',
+    founded: '1929',
+    headquarters: 'Nova York, EUA',
+    parentGroup: 'Sony Group Corporation',
+    genres: ['Pop', 'Rock', 'R&B', 'Hip-Hop', 'MPB'],
+    bio: 'A Sony Music Entertainment é uma das três grandes majors globais da indústria musical, controlando gravadoras lendárias como Columbia Records, RCA Records e Epic Records, com forte atuação mundial e no Brasil.',
+    roster: [
+      { name: 'Beyoncé', genre: 'R&B • Pop', country: 'Estados Unidos' },
+      { name: 'Adele', genre: 'Pop • Soul', country: 'Reino Unido' },
+      { name: 'Harry Styles', genre: 'Pop • Rock', country: 'Reino Unido' },
+      { name: 'SZA', genre: 'R&B • Neo-Soul', country: 'Estados Unidos' },
+      { name: 'Travis Scott', genre: 'Hip-Hop • Trap', country: 'Estados Unidos' },
+      { name: 'Doja Cat', genre: 'Pop • Rap', country: 'Estados Unidos' },
+      { name: 'Tyler, The Creator', genre: 'Hip-Hop • Alternativo', country: 'Estados Unidos' },
+      { name: 'Foo Fighters', genre: 'Rock • Alternativo', country: 'Estados Unidos' },
+      { name: 'Rosalía', genre: 'Pop • Flamenco', country: 'Espanha' },
+      { name: 'Miley Cyrus', genre: 'Pop • Rock', country: 'Estados Unidos' },
+    ],
+    matchKeywords: ['sony', 'sme'],
+  },
+  {
+    id: 'warner',
+    name: 'Warner Music Group',
+    desc: 'Major Global • Rock, Pop & R&B',
+    founded: '1958',
+    headquarters: 'Nova York, EUA',
+    parentGroup: 'Warner Music Group Corp.',
+    genres: ['Pop', 'Rock', 'Hip-Hop', 'Eletrônica', 'Alternativo'],
+    bio: 'O Warner Music Group (WMG) é um conglomerado fonográfico global que abriga selos icônicos como Atlantic Records, Warner Records, Parlophone e Elektra Records.',
+    roster: [
+      { name: 'Dua Lipa', genre: 'Pop • Dance', country: 'Reino Unido' },
+      { name: 'Ed Sheeran', genre: 'Pop • Folk', country: 'Reino Unido' },
+      { name: 'Coldplay', genre: 'Rock • Pop', country: 'Reino Unido' },
+      { name: 'Bruno Mars', genre: 'Pop • R&B • Funk', country: 'Estados Unidos' },
+      { name: 'Charli xcx', genre: 'Hyperpop • Pop', country: 'Reino Unido' },
+      { name: 'Linkin Park', genre: 'Rock • Alternativo', country: 'Estados Unidos' },
+      { name: 'Green Day', genre: 'Punk Rock', country: 'Estados Unidos' },
+      { name: 'Red Hot Chili Peppers', genre: 'Rock • Funk Rock', country: 'Estados Unidos' },
+      { name: 'Gorillaz', genre: 'Alternativo • Eletrônica', country: 'Reino Unido' },
+      { name: 'Paramore', genre: 'Rock • Pop Punk', country: 'Estados Unidos' },
+    ],
+    matchKeywords: ['warner', 'wmg', 'wea'],
+  },
+  {
+    id: 'atlantic',
+    name: 'Atlantic Records',
+    desc: 'Warner • Pop, R&B & Hip-Hop',
+    founded: '1947',
+    headquarters: 'Nova York, EUA',
+    parentGroup: 'Warner Music Group',
+    genres: ['R&B', 'Hip-Hop', 'Pop', 'Soul', 'Rock'],
+    bio: 'Fundada em 1947 por Ahmet Ertegun e Herb Abramson, a Atlantic Records construiu a história do R&B, Soul e Rock e hoje lidera paradas globais com estrelas do Pop e Hip-Hop.',
+    roster: [
+      { name: 'Bruno Mars', genre: 'Pop • R&B', country: 'Estados Unidos' },
+      { name: 'Ed Sheeran', genre: 'Pop', country: 'Reino Unido' },
+      { name: 'Charli xcx', genre: 'Pop • Eletrônica', country: 'Reino Unido' },
+      { name: 'Cardi B', genre: 'Hip-Hop • Rap', country: 'Estados Unidos' },
+      { name: 'Lizzo', genre: 'Pop • R&B', country: 'Estados Unidos' },
+      { name: 'Coldplay', genre: 'Rock • Pop', country: 'Reino Unido' },
+      { name: 'Burna Boy', genre: 'Afrobeats', country: 'Nigéria' },
+      { name: 'Paramore', genre: 'Rock • Alternativo', country: 'Estados Unidos' },
+    ],
+    matchKeywords: ['atlantic'],
+  },
+  {
+    id: 'republic',
+    name: 'Republic Records',
+    desc: 'Universal • Pop & Mainstream',
+    founded: '1995',
+    headquarters: 'Nova York, EUA',
+    parentGroup: 'Universal Music Group',
+    genres: ['Pop', 'Hip-Hop', 'R&B', 'Rock'],
+    bio: 'Fundada pelos irmãos Monte e Avery Lipman, a Republic Records é uma das gravadoras de maior desempenho comercial do século XXI, lar de grandes nomes do Pop e Hip-Hop mundial.',
+    roster: [
+      { name: 'Taylor Swift', genre: 'Pop', country: 'Estados Unidos' },
+      { name: 'The Weeknd', genre: 'R&B • Pop', country: 'Canadá' },
+      { name: 'Ariana Grande', genre: 'Pop • R&B', country: 'Estados Unidos' },
+      { name: 'Drake', genre: 'Hip-Hop', country: 'Canadá' },
+      { name: 'Post Malone', genre: 'Pop • Hip-Hop', country: 'Estados Unidos' },
+      { name: 'Lorde', genre: 'Indie Pop', country: 'Nova Zelândia' },
+      { name: 'Nicki Minaj', genre: 'Hip-Hop • Rap', country: 'Estados Unidos' },
+      { name: 'Florence + The Machine', genre: 'Indie Rock', country: 'Reino Unido' },
+    ],
+    matchKeywords: ['republic'],
+  },
+  {
+    id: 'interscope',
+    name: 'Interscope Records',
+    desc: 'Universal • Hip-Hop, Pop & Alt',
+    founded: '1990',
+    headquarters: 'Santa Monica, Califórnia, EUA',
+    parentGroup: 'Universal Music Group',
+    genres: ['Hip-Hop', 'Pop', 'Alternativo', 'Rock'],
+    bio: 'Fundada por Jimmy Iovine e Ted Field em 1990, a Interscope Records revolucionou o Hip-Hop, o Pop alternativo e o Rock moderno, abrigando selos como Aftermath e Darkroom.',
+    roster: [
+      { name: 'Billie Eilish', genre: 'Pop • Alternativo', country: 'Estados Unidos' },
+      { name: 'Kendrick Lamar', genre: 'Hip-Hop', country: 'Estados Unidos' },
+      { name: 'Lady Gaga', genre: 'Pop', country: 'Estados Unidos' },
+      { name: 'Lana Del Rey', genre: 'Alternativo • Indie Pop', country: 'Estados Unidos' },
+      { name: 'Eminem', genre: 'Hip-Hop • Rap', country: 'Estados Unidos' },
+      { name: 'Olivia Rodrigo', genre: 'Pop • Rock', country: 'Estados Unidos' },
+      { name: 'BLACKPINK', genre: 'K-Pop • Pop', country: 'Coreia do Sul' },
+      { name: 'Imagine Dragons', genre: 'Pop Rock', country: 'Estados Unidos' },
+    ],
+    matchKeywords: ['interscope', 'geffen', 'a&m'],
+  },
+  {
+    id: 'columbia',
+    name: 'Columbia Records',
+    desc: 'Sony • Pop, Rock & Soul',
+    founded: '1887',
+    headquarters: 'Nova York, EUA',
+    parentGroup: 'Sony Music Entertainment',
+    genres: ['Pop', 'Rock', 'R&B', 'Hip-Hop', 'Soul'],
+    bio: 'A Columbia Records é a marca fonográfica mais antiga ainda em atividade no mundo, fundada em 1887, responsável por lançamentos históricos do Jazz, Rock, Soul e Pop moderno.',
+    roster: [
+      { name: 'Beyoncé', genre: 'R&B • Pop', country: 'Estados Unidos' },
+      { name: 'Adele', genre: 'Pop • Soul', country: 'Reino Unido' },
+      { name: 'Harry Styles', genre: 'Pop • Rock', country: 'Reino Unido' },
+      { name: 'Tyler, The Creator', genre: 'Hip-Hop', country: 'Estados Unidos' },
+      { name: 'Rosalía', genre: 'Pop • Alternativo', country: 'Espanha' },
+      { name: 'Miley Cyrus', genre: 'Pop • Rock', country: 'Estados Unidos' },
+      { name: 'AC/DC', genre: 'Hard Rock', country: 'Austrália' },
+      { name: 'Bob Dylan', genre: 'Folk • Rock', country: 'Estados Unidos' },
+    ],
+    matchKeywords: ['columbia'],
+  },
+  {
+    id: 'rca',
+    name: 'RCA Records',
+    desc: 'Sony • Pop, R&B & Indie',
+    founded: '1901',
+    headquarters: 'Nova York, EUA',
+    parentGroup: 'Sony Music Entertainment',
+    genres: ['R&B', 'Pop', 'Hip-Hop', 'Rock'],
+    bio: 'Com mais de um século de história, a RCA Records é um dos principais selos da Sony Music, reconhecida por seu elenco de vanguarda no R&B contemporâneo, Pop e Indie Rock.',
+    roster: [
+      { name: 'SZA', genre: 'R&B • Soul', country: 'Estados Unidos' },
+      { name: 'Doja Cat', genre: 'Pop • Hip-Hop', country: 'Estados Unidos' },
+      { name: 'Foo Fighters', genre: 'Rock', country: 'Estados Unidos' },
+      { name: 'The Strokes', genre: 'Indie Rock', country: 'Estados Unidos' },
+      { name: 'A$AP Rocky', genre: 'Hip-Hop', country: 'Estados Unidos' },
+      { name: 'Childish Gambino', genre: 'R&B • Hip-Hop', country: 'Estados Unidos' },
+      { name: 'Alicia Keys', genre: 'R&B • Soul', country: 'Estados Unidos' },
+      { name: 'Steve Lacy', genre: 'R&B • Indie', country: 'Estados Unidos' },
+    ],
+    matchKeywords: ['rca'],
+  },
+  {
+    id: 'capitol',
+    name: 'Capitol Records',
+    desc: 'Universal • Clássicos & Pop',
+    founded: '1942',
+    headquarters: 'Los Angeles, Califórnia, EUA',
+    parentGroup: 'Universal Music Group',
+    genres: ['Pop', 'Rock', 'Hip-Hop'],
+    bio: 'Sediada na icônica CapitolRecords Tower em Hollywood desde 1956, a Capitol Records foi a primeira grande gravadora da Costa Oeste dos EUA.',
+    roster: [
+      { name: 'Katy Perry', genre: 'Pop', country: 'Estados Unidos' },
+      { name: 'Sam Smith', genre: 'Pop • Soul', country: 'Reino Unido' },
+      { name: 'Paul McCartney', genre: 'Rock • Pop', country: 'Reino Unido' },
+      { name: 'The Beatles', genre: 'Rock', country: 'Reino Unido' },
+      { name: 'Troye Sivan', genre: 'Pop', country: 'Austrália' },
+      { name: 'Doechii', genre: 'Hip-Hop • R&B', country: 'Estados Unidos' },
+      { name: 'Ice Spice', genre: 'Hip-Hop', country: 'Estados Unidos' },
+    ],
+    matchKeywords: ['capitol'],
+  },
+  {
+    id: 'def-jam',
+    name: 'Def Jam Recordings',
+    desc: 'Universal • Hip-Hop & R&B',
+    founded: '1984',
+    headquarters: 'Nova York, EUA',
+    parentGroup: 'Universal Music Group',
+    genres: ['Hip-Hop', 'Rap', 'R&B'],
+    bio: 'Fundada por Rick Rubin e Russell Simmons em 1984, a Def Jam Recordings é o selo mais emblemático da história do Hip-Hop e do R&B urbano.',
+    roster: [
+      { name: 'Rihanna', genre: 'Pop • R&B', country: 'Barbados' },
+      { name: 'Justin Bieber', genre: 'Pop • R&B', country: 'Canadá' },
+      { name: 'Kanye West', genre: 'Hip-Hop', country: 'Estados Unidos' },
+      { name: 'JAY-Z', genre: 'Hip-Hop', country: 'Estados Unidos' },
+      { name: 'Frank Ocean', genre: 'R&B • Alternativo', country: 'Estados Unidos' },
+      { name: 'Pusha T', genre: 'Hip-Hop', country: 'Estados Unidos' },
+      { name: 'Jhené Aiko', genre: 'R&B', country: 'Estados Unidos' },
+    ],
+    matchKeywords: ['def jam'],
+  },
+  {
+    id: 'island',
+    name: 'Island Records',
+    desc: 'Universal • Reggae, Rock & Pop',
+    founded: '1959',
+    headquarters: 'Londres, Reino Unido / Nova York, EUA',
+    parentGroup: 'Universal Music Group',
+    genres: ['Pop', 'Rock', 'Reggae', 'Alternativo'],
+    bio: 'Fundada na Jamaica por Chris Blackwell em 1959, a Island Records apresentou o Reggae de Bob Marley ao mundo e tornou-se uma potência do Pop e Rock global.',
+    roster: [
+      { name: 'Sabrina Carpenter', genre: 'Pop', country: 'Estados Unidos' },
+      { name: 'Chappell Roan', genre: 'Pop', country: 'Estados Unidos' },
+      { name: 'Shawn Mendes', genre: 'Pop', country: 'Canadá' },
+      { name: 'Bob Marley & The Wailers', genre: 'Reggae', country: 'Jamaica' },
+      { name: 'U2', genre: 'Rock', country: 'Irlanda' },
+      { name: 'Demi Lovato', genre: 'Pop • Rock', country: 'Estados Unidos' },
+      { name: 'Hozier', genre: 'Indie Rock • Soul', country: 'Irlanda' },
+    ],
+    matchKeywords: ['island'],
+  },
+  {
+    id: 'epic',
+    name: 'Epic Records',
+    desc: 'Sony • Pop, Hip-Hop & R&B',
+    founded: '1953',
+    headquarters: 'Nova York, EUA',
+    parentGroup: 'Sony Music Entertainment',
+    genres: ['Pop', 'Hip-Hop', 'R&B', 'Rock'],
+    bio: 'Criada pela CBS em 1953, a Epic Records consolidou-se como casa de superestrelas globais, de Michael Jackson e Sade a Travis Scott e Future.',
+    roster: [
+      { name: 'Travis Scott', genre: 'Hip-Hop • Trap', country: 'Estados Unidos' },
+      { name: 'Future', genre: 'Hip-Hop • Trap', country: 'Estados Unidos' },
+      { name: '21 Savage', genre: 'Hip-Hop', country: 'Reino Unido' },
+      { name: 'Michael Jackson', genre: 'Pop • R&B', country: 'Estados Unidos' },
+      { name: 'Sade', genre: 'Soul • R&B', country: 'Reino Unido' },
+      { name: 'Camila Cabello', genre: 'Pop', country: 'Estados Unidos' },
+      { name: 'Tyla', genre: 'Afrobeats • Pop', country: 'África do Sul' },
+    ],
+    matchKeywords: ['epic'],
+  },
+  {
+    id: 'roc-nation',
+    name: 'Roc Nation',
+    desc: 'Hip-Hop, R&B & Pop',
+    founded: '2008',
+    headquarters: 'Nova York, EUA',
+    parentGroup: 'Roc Nation LLC / Universal',
+    genres: ['Hip-Hop', 'R&B', 'Pop'],
+    bio: 'Fundada por JAY-Z em 2008, a Roc Nation atua como gravadora e companhia global de entretenimento, representando grandes nomes do Hip-Hop e R&B.',
+    roster: [
+      { name: 'JAY-Z', genre: 'Hip-Hop', country: 'Estados Unidos' },
+      { name: 'Rihanna', genre: 'Pop • R&B', country: 'Barbados' },
+      { name: 'J. Cole', genre: 'Hip-Hop', country: 'Estados Unidos' },
+      { name: 'Megan Thee Stallion', genre: 'Hip-Hop', country: 'Estados Unidos' },
+      { name: 'Alicia Keys', genre: 'R&B • Soul', country: 'Estados Unidos' },
+    ],
+    matchKeywords: ['roc nation'],
+  },
+  {
+    id: 'tde',
+    name: 'Top Dawg Entertainment',
+    desc: 'Hip-Hop & R&B Independente',
+    founded: '2004',
+    headquarters: 'Carson, Califórnia, EUA',
+    parentGroup: 'Independente',
+    genres: ['Hip-Hop', 'R&B', 'Neo-Soul'],
+    bio: 'Fundada por Anthony "Top Dawg" Tiffith na Califórnia, a TDE moldou o som do Hip-Hop e R&B contemporâneo com foco lírico e artístico.',
+    roster: [
+      { name: 'SZA', genre: 'R&B', country: 'Estados Unidos' },
+      { name: 'Kendrick Lamar', genre: 'Hip-Hop', country: 'Estados Unidos' },
+      { name: 'ScHoolboy Q', genre: 'Hip-Hop', country: 'Estados Unidos' },
+      { name: 'Doechii', genre: 'Hip-Hop • R&B', country: 'Estados Unidos' },
+      { name: 'Jay Rock', genre: 'Hip-Hop', country: 'Estados Unidos' },
+      { name: 'Ab-Soul', genre: 'Hip-Hop', country: 'Estados Unidos' },
+    ],
+    matchKeywords: ['top dawg', 'tde'],
+  },
+  {
+    id: 'ovo',
+    name: 'OVO Sound',
+    desc: 'Hip-Hop & R&B Contemporâneo',
+    founded: '2012',
+    headquarters: 'Toronto, Canadá',
+    parentGroup: 'OVO / Universal / Warner',
+    genres: ['Hip-Hop', 'R&B'],
+    bio: 'Fundada em Toronto por Drake, Oliver El-Khatib e Noah "40" Shebib, a OVO Sound é referência no R&B atmosférico e Hip-Hop canadense.',
+    roster: [
+      { name: 'Drake', genre: 'Hip-Hop • R&B', country: 'Canadá' },
+      { name: 'PARTYNEXTDOOR', genre: 'R&B', country: 'Canadá' },
+      { name: 'Majid Jordan', genre: 'R&B • Synthpop', country: 'Canadá' },
+      { name: 'dvsn', genre: 'R&B', country: 'Canadá' },
+    ],
+    matchKeywords: ['ovo'],
+  },
+  {
+    id: 'xo',
+    name: 'XO Records',
+    desc: 'R&B Alternativo & Pop',
+    founded: '2011',
+    headquarters: 'Toronto, Canadá',
+    parentGroup: 'Republic Records / Universal',
+    genres: ['R&B', 'Pop', 'Hip-Hop'],
+    bio: 'Selo fundado por The Weeknd, Amir "Cash" Esmailian e Wassim "Sal" Slaiby em Toronto, responsável pela estética dark R&B e Synth-Pop global.',
+    roster: [
+      { name: 'The Weeknd', genre: 'R&B • Pop', country: 'Canadá' },
+      { name: 'Nav', genre: 'Hip-Hop', country: 'Canadá' },
+      { name: 'Belly', genre: 'Hip-Hop', country: 'Canadá' },
+      { name: 'Black Atlass', genre: 'R&B', country: 'Canadá' },
+    ],
+    matchKeywords: ['xo records', 'xo'],
+  },
+  {
+    id: 'xl',
+    name: 'XL Recordings',
+    desc: 'Indie, Eletrônica & Pop UK',
+    founded: '1989',
+    headquarters: 'Londres, Reino Unido',
+    parentGroup: 'Beggars Group',
+    genres: ['Indie', 'Alternativo', 'Eletrônica', 'Pop'],
+    bio: 'Uma das gravadoras independentes mais prestigiadas do mundo, sediada em Londres, responsável por álbuns históricos de Adele, Radiohead, The Prodigy e FKA twigs.',
+    roster: [
+      { name: 'Radiohead', genre: 'Rock Alternativo', country: 'Reino Unido' },
+      { name: 'Adele', genre: 'Pop • Soul', country: 'Reino Unido' },
+      { name: 'Arca', genre: 'Eletrônica • Experimental', country: 'Venezuela' },
+      { name: 'FKA twigs', genre: 'Alternativo • Eletrônica', country: 'Reino Unido' },
+      { name: 'Fontaines D.C.', genre: 'Post-Punk • Indie', country: 'Irlanda' },
+      { name: 'Jungle', genre: 'Neo-Soul • Eletrônica', country: 'Reino Unido' },
+      { name: 'The xx', genre: 'Indie Pop', country: 'Reino Unido' },
+    ],
+    matchKeywords: ['xl recordings', 'xl'],
+  },
+  {
+    id: 'som-livre',
+    name: 'Som Livre',
+    desc: 'Brasil • MPB, Pop & Sertanejo',
+    founded: '1969',
+    headquarters: 'Rio de Janeiro, Brasil',
+    parentGroup: 'Sony Music Entertainment',
+    genres: ['MPB', 'Sertanejo', 'Samba', 'Pop', 'Funk'],
+    bio: 'Fundada em 1969 no Rio de Janeiro e hoje integrante da Sony Music, a Som Livre é uma das gravadoras mais importantes da história da música brasileira.',
+    roster: [
+      { name: 'Marília Mendonça', genre: 'Sertanejo', country: 'Brasil' },
+      { name: 'Jorge & Mateus', genre: 'Sertanejo', country: 'Brasil' },
+      { name: 'Luan Santana', genre: 'Sertanejo • Pop', country: 'Brasil' },
+      { name: 'Djavan', genre: 'MPB', country: 'Brasil' },
+      { name: 'Caetano Veloso', genre: 'MPB', country: 'Brasil' },
+      { name: 'Ludmilla', genre: 'Pop • Pagode • Funk', country: 'Brasil' },
+    ],
+    matchKeywords: ['som livre'],
+  },
+  {
+    id: 'deck',
+    name: 'Deckdisc',
+    desc: 'Brasil • Rock & MPB',
+    founded: '1998',
+    headquarters: 'Rio de Janeiro, Brasil',
+    parentGroup: 'Independente (Brasil)',
+    genres: ['Rock', 'MPB', 'Alternativo'],
+    bio: 'Fundada por João Augusto no Rio de Janeiro em 1998, a Deck (Deckdisc) é a maior gravadora independente de Rock e MPB do Brasil.',
+    roster: [
+      { name: 'Pitty', genre: 'Rock', country: 'Brasil' },
+      { name: 'NX Zero', genre: 'Rock • Emo', country: 'Brasil' },
+      { name: 'Dead Fish', genre: 'Hardcore • Punk', country: 'Brasil' },
+      { name: 'Alceu Valença', genre: 'MPB', country: 'Brasil' },
+      { name: 'Falamansa', genre: 'Forró • MPB', country: 'Brasil' },
+    ],
+    matchKeywords: ['deckdisc', 'deck'],
+  },
+  {
+    id: 'hybe',
+    name: 'HYBE Labels',
+    desc: 'K-Pop & Pop Global',
+    founded: '2005',
+    headquarters: 'Seul, Coreia do Sul',
+    parentGroup: 'HYBE Corporation',
+    genres: ['K-Pop', 'Pop', 'R&B', 'Hip-Hop'],
+    bio: 'Originalmente fundada como Big Hit Entertainment por Bang Si-hyuk em Seul, a HYBE reúne selos como BIGHIT MUSIC, ADOR, PLEDIS e SOURCE MUSIC.',
+    roster: [
+      { name: 'BTS', genre: 'K-Pop • Pop', country: 'Coreia do Sul' },
+      { name: 'NewJeans', genre: 'K-Pop • R&B', country: 'Coreia do Sul' },
+      { name: 'SEVENTEEN', genre: 'K-Pop', country: 'Coreia do Sul' },
+      { name: 'LE SSERAFIM', genre: 'K-Pop', country: 'Coreia do Sul' },
+      { name: 'TOMORROW X TOGETHER', genre: 'K-Pop', country: 'Coreia do Sul' },
+      { name: 'Jung Kook', genre: 'Pop • K-Pop', country: 'Coreia do Sul' },
+    ],
+    matchKeywords: ['hybe', 'bighit', 'big hit', 'ador'],
+  },
+];
+
+export async function updateArtistLabelInSupabase(
+  artistId: string,
+  labelName: string
+): Promise<void> {
+  const clean = labelName.trim();
+  if (!artistId || !clean || clean === 'Não informada' || clean === 'Independente' || clean === 'Oficial') {
+    return;
+  }
+  try {
+    await supabase.from('artists').update({ label_name: clean }).eq('id', artistId);
+  } catch {
+    // non-blocking
+  }
+}
+
+export async function getRecordLabelDetails(
+  labelIdOrName: string
+): Promise<RecordLabelFullDetails> {
+  const raw = decodeURIComponent(labelIdOrName || '').trim();
+  const norm = raw.toLowerCase();
+
+  const curated =
+    CURATED_LABEL_META.find(
+      (c) =>
+        c.id.toLowerCase() === norm ||
+        c.name.toLowerCase() === norm ||
+        c.matchKeywords.some((kw) => norm.includes(kw))
+    ) || null;
+
+  const fallbackRecord =
+    DEFAULT_RECORD_LABELS.find(
+      (d) =>
+        d.id.toLowerCase() === norm ||
+        d.name.toLowerCase() === norm ||
+        norm.includes(d.name.toLowerCase()) ||
+        d.name.toLowerCase().includes(norm)
+    ) || null;
+
+  const canonicalName = curated?.name || fallbackRecord?.name || raw || 'Gravadora';
+  const live = await fetchLiveRecordLabelDetails(canonicalName);
+
+  return {
+    id: curated?.id || fallbackRecord?.id || live.id,
+    name: live.name || canonicalName,
+    desc: curated?.desc || fallbackRecord?.desc || live.desc,
+    founded:
+      live.founded && live.founded !== 'Selo Ativo'
+        ? live.founded
+        : curated?.founded || 'Selo Ativo',
+    headquarters:
+      live.headquarters && live.headquarters !== 'Internacional'
+        ? live.headquarters
+        : curated?.headquarters || 'Internacional',
+    parentGroup: curated?.parentGroup || live.parentGroup || canonicalName,
+    genres:
+      curated?.genres && curated.genres.length > 0
+        ? curated.genres
+        : ['Pop', 'Rock', 'Hip-Hop', 'R&B'],
+    bio: live.bio || curated?.bio || '',
+    artists: live.artists,
+    albums: live.albums,
+  };
 }
 
 // ============================================================================
@@ -366,8 +946,10 @@ export async function getAlbumFromSupabase(
 export async function getAlbumAwardsFromSupabase(
   albumId: string,
   albumTitle?: string,
-  artistName?: string
+  artistName?: string,
+  releaseDate?: string
 ): Promise<AlbumAward[]> {
+  const dbResults: AlbumAward[] = [];
   try {
     let targetAlbumIds = [albumId];
 
@@ -378,23 +960,23 @@ export async function getAlbumAwardsFromSupabase(
       .order('year', { ascending: false });
 
     if (!error && data && data.length > 0) {
-      return data.map((row: any) => ({
-        id: String(row.id),
-        ceremony: row.ceremony || 'grammy',
-        ceremonyName: row.ceremony_name || 'Premiação',
-        awardName: row.award_name || row.ceremony_name || '',
-        category: row.category || '',
-        year: String(row.year || ''),
-        isWinner: Boolean(row.is_winner),
-        result: row.is_winner ? 'winner' : 'nominee',
-        notes: row.notes || undefined,
-        description: row.description || undefined,
-        logoUrl: row.logo_url || undefined,
-      }));
-    }
-
-    // Fallback por título + artista (útil quando o álbum vem da API externa com ID diferente)
-    if (albumTitle) {
+      for (const row of data as any[]) {
+        dbResults.push({
+          id: String(row.id),
+          ceremony: row.ceremony || 'grammy',
+          ceremonyName: row.ceremony_name || 'Premiação',
+          awardName: row.award_name || row.ceremony_name || '',
+          category: row.category || '',
+          year: String(row.year || ''),
+          isWinner: Boolean(row.is_winner),
+          result: row.is_winner ? 'winner' : 'nominee',
+          notes: row.notes || undefined,
+          description: row.description || undefined,
+          logoUrl: row.logo_url || undefined,
+        });
+      }
+    } else if (albumTitle) {
+      // Fallback por título + artista no Supabase
       let albumQuery = supabase.from('albums').select('id').ilike('title', albumTitle.trim());
       if (artistName) {
         albumQuery = albumQuery.ilike('artist_name', artistName.trim());
@@ -409,27 +991,52 @@ export async function getAlbumAwardsFromSupabase(
           .order('year', { ascending: false });
 
         if (!fallbackErr && fallbackData) {
-          return fallbackData.map((row: any) => ({
-            id: String(row.id),
-            ceremony: row.ceremony || 'grammy',
-            ceremonyName: row.ceremony_name || 'Premiação',
-            awardName: row.award_name || row.ceremony_name || '',
-            category: row.category || '',
-            year: String(row.year || ''),
-            isWinner: Boolean(row.is_winner),
-            result: row.is_winner ? 'winner' : 'nominee',
-            notes: row.notes || undefined,
-            description: row.description || undefined,
-            logoUrl: row.logo_url || undefined,
-          }));
+          for (const row of fallbackData as any[]) {
+            dbResults.push({
+              id: String(row.id),
+              ceremony: row.ceremony || 'grammy',
+              ceremonyName: row.ceremony_name || 'Premiação',
+              awardName: row.award_name || row.ceremony_name || '',
+              category: row.category || '',
+              year: String(row.year || ''),
+              isWinner: Boolean(row.is_winner),
+              result: row.is_winner ? 'winner' : 'nominee',
+              notes: row.notes || undefined,
+              description: row.description || undefined,
+              logoUrl: row.logo_url || undefined,
+            });
+          }
         }
       }
     }
-
-    return [];
   } catch {
-    return [];
+    // ignore
   }
+
+  // Enriquece com premiações e indicações oficiais do álbum via API (Wikidata + Wikipedia)
+  if (albumTitle && albumTitle.trim()) {
+    try {
+      const apiAwards = await fetchAlbumAwardsFromApi(
+        albumTitle.trim(),
+        artistName?.trim(),
+        releaseDate
+      );
+      const seen = new Set(
+        dbResults.map((a) => `${(a.awardName || a.ceremonyName).toLowerCase()}::${a.category.toLowerCase()}`)
+      );
+      for (const aw of apiAwards) {
+        const key = `${(aw.awardName || aw.ceremonyName).toLowerCase()}::${aw.category.toLowerCase()}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          dbResults.push(aw);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return dbResults;
 }
 
 export interface ArtistAwardRecord extends AlbumAward {
@@ -440,6 +1047,7 @@ export async function getArtistAwardsFromSupabase(
   artistId: string,
   artistName?: string
 ): Promise<ArtistAwardRecord[]> {
+  const dbAwards: ArtistAwardRecord[] = [];
   try {
     const albumIdToTitle = new Map<string, string>();
 
@@ -470,33 +1078,56 @@ export async function getArtistAwardsFromSupabase(
     }
 
     const albumIds = Array.from(albumIdToTitle.keys());
-    if (albumIds.length === 0) return [];
+    if (albumIds.length > 0) {
+      const { data, error } = await supabase
+        .from('album_awards')
+        .select('*')
+        .in('album_id', albumIds)
+        .order('year', { ascending: false });
 
-    const { data, error } = await supabase
-      .from('album_awards')
-      .select('*')
-      .in('album_id', albumIds)
-      .order('year', { ascending: false });
-
-    if (error || !data) return [];
-
-    return data.map((row: any) => ({
-      id: String(row.id),
-      ceremony: row.ceremony || 'grammy',
-      ceremonyName: row.ceremony_name || 'Premiação',
-      awardName: row.award_name || row.ceremony_name || '',
-      category: row.category || '',
-      year: String(row.year || ''),
-      isWinner: Boolean(row.is_winner),
-      result: row.is_winner ? 'winner' : 'nominee',
-      notes: row.notes || undefined,
-      description: row.description || undefined,
-      logoUrl: row.logo_url || undefined,
-      albumTitle: albumIdToTitle.get(String(row.album_id)) || undefined,
-    }));
+      if (!error && data) {
+        for (const row of data as any[]) {
+          dbAwards.push({
+            id: String(row.id),
+            ceremony: row.ceremony || 'grammy',
+            ceremonyName: row.ceremony_name || 'Premiação',
+            awardName: row.award_name || row.ceremony_name || '',
+            category: row.category || '',
+            year: String(row.year || ''),
+            isWinner: Boolean(row.is_winner),
+            result: row.is_winner ? 'winner' : 'nominee',
+            notes: row.notes || undefined,
+            description: row.description || undefined,
+            logoUrl: row.logo_url || undefined,
+            albumTitle: albumIdToTitle.get(String(row.album_id)) || undefined,
+          });
+        }
+      }
+    }
   } catch {
-    return [];
+    // ignore
   }
+
+  // Enriquece com todas as premiações e indicações oficiais do artista no Wikidata (P166 / P1411)
+  if (artistName && artistName.trim()) {
+    try {
+      const wikiAwards = await fetchArtistAwardsFromWikidata(artistName.trim());
+      const seen = new Set(
+        dbAwards.map((a) => `${a.category.toLowerCase()}::${a.year}`)
+      );
+      for (const wa of wikiAwards) {
+        const key = `${wa.category.toLowerCase()}::${wa.year}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          dbAwards.push(wa);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return dbAwards;
 }
 
 export async function getArtistFromSupabase(artistId: string): Promise<{

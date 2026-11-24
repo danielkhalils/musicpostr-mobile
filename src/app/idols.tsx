@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
+import { INFINITE_PAGE_SIZE, isNearScrollBottom } from '@/utils/pagination';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,6 +32,7 @@ export default function IdolsScreen() {
 
   const [idols, setIdols] = useState<CatalogArtist[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [visibleCount, setVisibleCount] = useState(INFINITE_PAGE_SIZE);
 
   useEffect(() => {
     let active = true;
@@ -72,6 +74,12 @@ export default function IdolsScreen() {
           { paddingTop: Math.max(insets.top, 16) },
         ]}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={32}
+        onScroll={(e) => {
+          if (visibleCount < idols.length && isNearScrollBottom(e)) {
+            setVisibleCount((prev) => Math.min(idols.length, prev + INFINITE_PAGE_SIZE));
+          }
+        }}
       >
         <PageHeader
           title={isVisiting ? `Ídolos de @${username}` : 'Ídolos'}
@@ -81,12 +89,12 @@ export default function IdolsScreen() {
         />
 
         {isLoading && idols.length === 0 ? (
-          <View style={{ paddingVertical: 80, alignItems: 'center', justifyContent: 'center' }}>
-            <ActivityIndicator size="large" color={colors.foreground} />
+          <View style={{ flex: 1, minHeight: 420, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator size="large" color={colors.primary} />
           </View>
         ) : (
         <View style={styles.grid}>
-          {idols.map((artist) => (
+          {idols.slice(0, visibleCount).map((artist) => (
             <View
               key={artist.id}
               style={[

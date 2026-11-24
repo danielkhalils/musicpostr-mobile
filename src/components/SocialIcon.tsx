@@ -3,12 +3,46 @@ import Svg, { Path, Rect, Circle } from 'react-native-svg';
 
 interface SocialIconProps {
   name: string;
+  url?: string;
   size?: number;
   color?: string;
 }
 
-export function SocialIcon({ name, size = 16, color = '#ffffff' }: SocialIconProps) {
-  const normalized = name.toLowerCase().trim();
+function inferPlatformFromUrl(url?: string): string | null {
+  if (!url) return null;
+  const lower = url.toLowerCase();
+  if (lower.includes('instagram.com')) return 'instagram';
+  if (lower.includes('tiktok.com')) return 'tiktok';
+  if (lower.includes('twitter.com') || lower.includes('x.com')) return 'twitter';
+  if (lower.includes('threads.net') || lower.includes('threads.com')) return 'threads';
+  if (lower.includes('discord.gg') || lower.includes('discord.com')) return 'discord';
+  if (lower.includes('music.youtube.com')) return 'youtube_music';
+  if (lower.includes('youtube.com') || lower.includes('youtu.be')) return 'youtube';
+  if (lower.includes('last.fm')) return 'lastfm';
+  if (lower.includes('spotify.com')) return 'spotify';
+  if (lower.includes('music.apple.com')) return 'apple_music';
+  if (lower.includes('deezer.com')) return 'deezer';
+  if (lower.includes('tidal.com')) return 'tidal';
+  if (lower.includes('soundcloud.com')) return 'soundcloud';
+  if (lower.includes('facebook.com') || lower.includes('fb.com')) return 'facebook';
+  if (lower.includes('twitch.tv')) return 'twitch';
+  if (lower.includes('github.com')) return 'github';
+  if (lower.includes('bsky.app')) return 'bluesky';
+  if (lower.includes('bandcamp.com')) return 'bandcamp';
+  return null;
+}
+
+export function SocialIcon({
+  name,
+  url,
+  size = 16,
+  color = '#ffffff',
+}: SocialIconProps) {
+  const rawKey = name.toLowerCase().trim().replace(/[\s.-]+/g, '_');
+  const normalized =
+    rawKey === 'website' || rawKey === 'site' || rawKey === 'link'
+      ? inferPlatformFromUrl(url) || rawKey
+      : rawKey;
 
   switch (normalized) {
     case 'instagram':
@@ -60,6 +94,16 @@ export function SocialIcon({ name, size = 16, color = '#ffffff' }: SocialIconPro
         </Svg>
       );
 
+    case 'youtube_music':
+    case 'youtubemusic':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Circle cx="12" cy="12" r="10" fill="#FF0000" />
+          <Circle cx="12" cy="12" r="6" stroke="#ffffff" strokeWidth="1.2" />
+          <Path d="M10 9.2L15 12l-5 2.8V9.2z" fill="#ffffff" />
+        </Svg>
+      );
+
     case 'tiktok':
       return (
         <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
@@ -68,9 +112,90 @@ export function SocialIcon({ name, size = 16, color = '#ffffff' }: SocialIconPro
       );
 
     case 'lastfm':
+    case 'last_fm':
       return (
         <Svg width={size} height={size} viewBox="0 0 24 24" fill="#d51007">
           <Path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm1.66 13.91c-1.39 0-2.07-.63-2.38-1.57l-.37-1.14c-.39-1.2-1.07-2.58-2.8-2.58-1.54 0-2.6 1.13-2.6 2.76 0 1.48.91 2.53 2.36 2.53 1.05 0 1.87-.52 2.36-1.5l1.04.66c-.68 1.43-1.92 2.1-3.4 2.1-2.28 0-3.76-1.63-3.76-3.79 0-2.3 1.63-4.02 4-4.02 2.45 0 3.49 1.68 4.04 3.32l.33 1.05c.24.78.65 1.17 1.47 1.17.84 0 1.46-.58 1.46-1.46 0-.8-.44-1.32-1.36-1.81l.48-1.08c1.33.68 2.06 1.54 2.06 2.89 0 1.62-1.22 2.46-2.94 2.46z" />
+        </Svg>
+      );
+
+    case 'spotify':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Circle cx="12" cy="12" r="10.5" fill="#1DB954" />
+          <Path
+            d="M16.75 15.95a.68.68 0 0 1-.93.22c-2.54-1.55-5.74-1.9-9.51-1.04a.68.68 0 1 1-.3-1.32c4.13-.94 7.67-.54 10.52 1.21.31.19.41.59.22.93zm1.25-2.77a.84.84 0 0 1-1.16.28c-2.91-1.79-7.34-2.31-10.78-1.26a.84.84 0 1 1-.49-1.61c3.93-1.19 8.82-.61 12.16 1.44.39.24.51.75.27 1.15zm.11-2.9c-3.49-2.07-9.24-2.26-12.58-1.25a1.01 1.01 0 1 1-.59-1.93c3.83-1.16 10.17-.94 14.19 1.45a1.01 1.01 0 1 1-1.02 1.73z"
+            fill="#ffffff"
+          />
+        </Svg>
+      );
+
+    case 'apple_music':
+    case 'applemusic':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Rect x="1.5" y="1.5" width="21" height="21" rx="5.5" fill="#FA2D48" />
+          <Path
+            d="M16.3 6.5c0-.1-.08-.18-.18-.18h-6.2c-.1 0-.18.08-.18.18v8.1a2.45 2.45 0 1 1-1.4-2.22V5.5c0-.14.11-.25.25-.25h7.46c.14 0 .25.11.25.25v7.05a2.45 2.45 0 1 1-1.4-2.22V6.5z"
+            fill="#ffffff"
+          />
+        </Svg>
+      );
+
+    case 'deezer':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="#A238FF">
+          <Path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+        </Svg>
+      );
+
+    case 'tidal':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+          <Path d="M4.5 9.5L2 7l2.5-2.5L7 7 4.5 9.5zm7.5 0L9.5 7 12 4.5 14.5 7 12 9.5zm0 7.5L9.5 14.5 12 12l2.5 2.5L12 17zm7.5-7.5L17 7l2.5-2.5L22 7l-2.5 2.5z" />
+        </Svg>
+      );
+
+    case 'soundcloud':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="#FF5500">
+          <Path d="M11.56 8.87V17h8.76c1.48 0 2.68-1.2 2.68-2.68 0-1.36-1.02-2.49-2.34-2.66.04-.24.06-.49.06-.74 0-2.49-2.02-4.51-4.51-4.51-1.93 0-3.58 1.22-4.22 2.93-.14-.17-.28-.33-.43-.47zM9.6 9.97v7.03h1.2V9.46a4.5 4.5 0 0 0-1.2.51zm-2.4 1.88V17h1.2v-5.73c-.43.16-.83.36-1.2.58zm-2.4 1.65V17H6v-4.2c-.43.2-.83.44-1.2.7zm-2.4 1.35V17h1.2v-2.6c-.44.12-.84.27-1.2.45z" />
+        </Svg>
+      );
+
+    case 'facebook':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="#1877F2">
+          <Path d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.878v-6.987h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.988C18.343 21.128 22 16.991 22 12z" />
+        </Svg>
+      );
+
+    case 'twitch':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="#9146FF">
+          <Path d="M4.265 3L3 6.236v13.223h4.502V21l2.531.001 2.392-2.392h3.658l4.917-4.917V3H4.265zm15.048 9.845l-2.813 2.813h-4.502l-2.392 2.392v-2.392H5.813V4.688h13.5v8.157zM16.5 7.5h-1.688v4.5H16.5V7.5zm-4.5 0h-1.688v4.5H12V7.5z" />
+        </Svg>
+      );
+
+    case 'github':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+          <Path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0 0 22 12.017C22 6.484 17.522 2 12 2z" />
+        </Svg>
+      );
+
+    case 'bluesky':
+    case 'bsky':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="#1185FE">
+          <Path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.206-.659-.298-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z" />
+        </Svg>
+      );
+
+    case 'bandcamp':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="#1DA0C3">
+          <Path d="M0 18.75l7.437-13.5H24l-7.438 13.5H0z" />
         </Svg>
       );
 

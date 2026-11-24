@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
+import { INFINITE_PAGE_SIZE, isNearScrollBottom } from '@/utils/pagination';
 import { formatRating } from '@/utils/rating';
 import {
   Headphones,
@@ -39,6 +40,7 @@ export default function TopAlbunsScreen() {
   const [selectedGenre, setSelectedGenre] = useState('Todos');
   const [genres, setGenres] = useState<string[]>(['Todos']);
   const [allAlbums, setAllAlbums] = useState<CatalogAlbum[]>([]);
+  const [visibleCount, setVisibleCount] = useState(INFINITE_PAGE_SIZE);
 
   useEffect(() => {
     let active = true;
@@ -85,6 +87,14 @@ export default function TopAlbunsScreen() {
           { paddingTop: Math.max(insets.top, 16) },
         ]}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={32}
+        onScroll={(e) => {
+          if (visibleCount < filteredAlbums.length && isNearScrollBottom(e)) {
+            setVisibleCount((prev) =>
+              Math.min(filteredAlbums.length, prev + INFINITE_PAGE_SIZE)
+            );
+          }
+        }}
       >
         <PageHeader
           title="Álbuns Populares"
@@ -151,7 +161,7 @@ export default function TopAlbunsScreen() {
         </View>
 
         <View style={styles.grid}>
-          {filteredAlbums.map((album) => (
+          {filteredAlbums.slice(0, visibleCount).map((album) => (
             <TouchableOpacity
               key={album.id}
               style={[

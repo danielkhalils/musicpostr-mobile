@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
+import { INFINITE_PAGE_SIZE, isNearScrollBottom } from '@/utils/pagination';
 import {
   Trash2,
   Music,
@@ -39,6 +40,7 @@ export default function MyReviewsScreen() {
   const [reviews, setReviews] = useState<MyReviewRecord[]>([]);
   const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [visibleCount, setVisibleCount] = useState(INFINITE_PAGE_SIZE);
 
   useEffect(() => {
     let active = true;
@@ -115,6 +117,12 @@ export default function MyReviewsScreen() {
           { paddingTop: Math.max(insets.top, 16) },
         ]}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={32}
+        onScroll={(e) => {
+          if (visibleCount < reviews.length && isNearScrollBottom(e)) {
+            setVisibleCount((prev) => Math.min(reviews.length, prev + INFINITE_PAGE_SIZE));
+          }
+        }}
       >
         <PageHeader
           title="Minhas Avaliações"
@@ -124,8 +132,8 @@ export default function MyReviewsScreen() {
         />
 
         {isLoading && reviews.length === 0 ? (
-          <View style={{ paddingVertical: 80, alignItems: 'center', justifyContent: 'center' }}>
-            <ActivityIndicator size="large" color={colors.foreground} />
+          <View style={{ flex: 1, minHeight: 420, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator size="large" color={colors.primary} />
           </View>
         ) : reviews.length === 0 ? (
           <View style={styles.emptyBox}>
@@ -136,7 +144,7 @@ export default function MyReviewsScreen() {
           </View>
         ) : (
           <View style={{ gap: 12 }}>
-            {reviews.map((rev) =>
+            {reviews.slice(0, visibleCount).map((rev) =>
               cardMode === 'full' ? (
                 <FeedStyleActivityCard
                   key={rev.id}

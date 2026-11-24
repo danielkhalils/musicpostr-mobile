@@ -139,7 +139,7 @@ export default function RankingsScreen() {
           justifyContent: 'center',
         }}
       >
-        <ActivityIndicator size="large" color={colors.foreground} />
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }

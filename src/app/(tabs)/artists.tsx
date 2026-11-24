@@ -45,6 +45,7 @@ import {
   type RecordLabelRecord,
 } from '@/services/catalog.service';
 import { CoverImage } from '@/components/CoverImage';
+import { RecordLabelLogo } from '@/components/RecordLabelLogo';
 import { PageHeader } from '@/components/PageHeader';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -79,6 +80,8 @@ export default function GlobalSearchScreen() {
   const [tracks, setTracks] = useState<CatalogTrack[]>([]);
 
   const [followedIds, setFollowedIds] = useState<string[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -151,14 +154,7 @@ export default function GlobalSearchScreen() {
   };
 
   const handleSelectLabel = (label: string) => {
-    if (selectedLabel === label) {
-      setSelectedLabel(null);
-      setSearchQuery('');
-    } else {
-      setSelectedLabel(label);
-      setSelectedGenre(null);
-      setSearchQuery(label);
-    }
+    router.push(`/label/${encodeURIComponent(label)}` as any);
   };
 
   useEffect(() => {
@@ -283,8 +279,19 @@ export default function GlobalSearchScreen() {
         : releases
       : filteredAlbums;
 
-  const [refreshing, setRefreshing] = useState(false);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const visibleGenres =
+    normalizedSearch && !selectedGenre
+      ? musicGenres.filter((g) => g.name.toLowerCase().includes(normalizedSearch))
+      : musicGenres;
+  const visibleLabels =
+    normalizedSearch && !selectedLabel
+      ? recordLabels.filter(
+          (l) =>
+            l.name.toLowerCase().includes(normalizedSearch) ||
+            l.desc.toLowerCase().includes(normalizedSearch)
+        )
+      : recordLabels;
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -315,7 +322,7 @@ export default function GlobalSearchScreen() {
           justifyContent: 'center',
         }}
       >
-        <ActivityIndicator size="large" color={colors.foreground} />
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
@@ -775,44 +782,81 @@ export default function GlobalSearchScreen() {
                 </Text>
               </View>
 
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.chipsScrollRow}
-              >
-                {musicGenres.map((item) => {
-                  const isSelected = selectedGenre === item.name;
-                  return (
-                    <TouchableOpacity
-                      key={item.name}
-                      onPress={() => handleSelectGenre(item.name)}
-                      style={[
-                        styles.genreChip,
-                        {
-                          backgroundColor: isSelected
-                            ? colors.primary
-                            : colors.card,
-                          borderColor: isSelected
-                            ? colors.primary
-                            : colors.border,
-                        },
-                      ]}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.genreEmoji}>{item.emoji}</Text>
-                      <Text
-                        style={{
-                          fontSize: 12,
-                          fontWeight: '700',
-                          color: isSelected ? '#fff' : colors.foreground,
-                        }}
+              {activeCategory === 'genre' ? (
+                <View style={styles.wrappedChipsGrid}>
+                  {visibleGenres.map((item) => {
+                    const isSelected = selectedGenre === item.name;
+                    return (
+                      <TouchableOpacity
+                        key={item.name}
+                        onPress={() => handleSelectGenre(item.name)}
+                        style={[
+                          styles.genreChip,
+                          {
+                            backgroundColor: isSelected
+                              ? colors.primary
+                              : colors.card,
+                            borderColor: isSelected
+                              ? colors.primary
+                              : colors.border,
+                          },
+                        ]}
+                        activeOpacity={0.8}
                       >
-                        {item.name}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+                        <Text style={styles.genreEmoji}>{item.emoji}</Text>
+                        <Text
+                          style={{
+                            fontSize: 12,
+                            fontWeight: '700',
+                            color: isSelected ? '#fff' : colors.foreground,
+                          }}
+                        >
+                          {item.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.chipsScrollRow}
+                >
+                  {visibleGenres.map((item) => {
+                    const isSelected = selectedGenre === item.name;
+                    return (
+                      <TouchableOpacity
+                        key={item.name}
+                        onPress={() => handleSelectGenre(item.name)}
+                        style={[
+                          styles.genreChip,
+                          {
+                            backgroundColor: isSelected
+                              ? colors.primary
+                              : colors.card,
+                            borderColor: isSelected
+                              ? colors.primary
+                              : colors.border,
+                          },
+                        ]}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.genreEmoji}>{item.emoji}</Text>
+                        <Text
+                          style={{
+                            fontSize: 12,
+                            fontWeight: '700',
+                            color: isSelected ? '#fff' : colors.foreground,
+                          }}
+                        >
+                          {item.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
             </View>
           )}
 
@@ -828,66 +872,120 @@ export default function GlobalSearchScreen() {
                 </Text>
               </View>
 
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.chipsScrollRow}
-              >
-                {recordLabels.map((item) => {
-                  const isSelected = selectedLabel === item.name;
-                  return (
-                    <TouchableOpacity
-                      key={item.name}
-                      onPress={() => handleSelectLabel(item.name)}
-                      style={[
-                        styles.labelCard,
-                        {
-                          backgroundColor: isSelected
-                            ? `${colors.primary}22`
-                            : colors.card,
-                          borderColor: isSelected
-                            ? colors.primary
-                            : colors.border,
-                        },
-                      ]}
-                      activeOpacity={0.8}
-                    >
-                      <View style={styles.labelHeaderRow}>
-                        <Building2
-                          size={13}
-                          color={
-                            isSelected
-                              ? colors.primary
-                              : colors.mutedForeground
-                          }
-                        />
-                        <Text
-                          style={[
-                            styles.labelCardTitle,
-                            {
-                              color: isSelected
-                                ? colors.primary
-                                : colors.foreground,
-                            },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {item.name}
-                        </Text>
-                      </View>
-                      <Text
+              {activeCategory === 'label' ? (
+                <View style={styles.labelsGrid}>
+                  {visibleLabels.map((item) => {
+                    const isSelected = selectedLabel === item.name;
+                    return (
+                      <TouchableOpacity
+                        key={item.name}
+                        onPress={() => handleSelectLabel(item.name)}
                         style={[
-                          styles.labelCardDesc,
-                          { color: colors.mutedForeground },
+                          styles.labelCard,
+                          styles.labelCardGrid,
+                          {
+                            backgroundColor: isSelected
+                              ? `${colors.primary}22`
+                              : colors.card,
+                            borderColor: isSelected
+                              ? colors.primary
+                              : colors.border,
+                          },
                         ]}
-                        numberOfLines={1}
+                        activeOpacity={0.8}
                       >
-                        {item.desc}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+                        <View style={styles.labelHeaderRow}>
+                          <RecordLabelLogo name={item.name} size={28} />
+                          <View style={{ flex: 1, gap: 1 }}>
+                            <Text
+                              style={[
+                                styles.labelCardTitle,
+                                {
+                                  color: isSelected
+                                    ? colors.primary
+                                    : colors.foreground,
+                                },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {item.name}
+                            </Text>
+                            {Boolean(item.desc) && (
+                              <Text
+                                style={[
+                                  styles.labelCardDesc,
+                                  { color: colors.mutedForeground },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {item.desc}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.chipsScrollRow}
+                >
+                  {visibleLabels.map((item) => {
+                    const isSelected = selectedLabel === item.name;
+                    return (
+                      <TouchableOpacity
+                        key={item.name}
+                        onPress={() => handleSelectLabel(item.name)}
+                        style={[
+                          styles.labelCard,
+                          {
+                            backgroundColor: isSelected
+                              ? `${colors.primary}22`
+                              : colors.card,
+                            borderColor: isSelected
+                              ? colors.primary
+                              : colors.border,
+                          },
+                        ]}
+                        activeOpacity={0.8}
+                      >
+                        <View style={styles.labelHeaderRow}>
+                          <RecordLabelLogo name={item.name} size={28} />
+                          <View style={{ gap: 1, maxWidth: 160 }}>
+                            <Text
+                              style={[
+                                styles.labelCardTitle,
+                                {
+                                  color: isSelected
+                                    ? colors.primary
+                                    : colors.foreground,
+                                },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {item.name}
+                            </Text>
+                            {Boolean(item.desc) && (
+                              <Text
+                                style={[
+                                  styles.labelCardDesc,
+                                  { color: colors.mutedForeground },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {item.desc}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
             </View>
           )}
         </View>
@@ -955,17 +1053,29 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   labelCard: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 14,
     borderWidth: 1,
-    minWidth: 145,
     gap: 3,
+  },
+  labelCardGrid: {
+    width: '48.5%',
+  },
+  wrappedChipsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  labelsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   labelHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 9,
   },
   labelCardTitle: {
     fontSize: 12.5,

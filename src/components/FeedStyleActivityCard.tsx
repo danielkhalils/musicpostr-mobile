@@ -238,8 +238,13 @@ export function FeedStyleActivityCard({
         ) : null}
 
         <LinearGradient
-          colors={['transparent', 'rgba(0, 0, 0, 0.35)', 'rgba(0, 0, 0, 0.88)']}
-          locations={[0, 0.45, 1]}
+          colors={[
+            'rgba(0, 0, 0, 0)',
+            'rgba(0, 0, 0, 0)',
+            'rgba(0, 0, 0, 0.4)',
+            'rgba(0, 0, 0, 0.9)',
+          ]}
+          locations={[0, 0.45, 0.72, 1]}
           style={styles.heroGradientOverlay}
         >
           <View style={styles.heroMediaInfo}>
@@ -342,7 +347,6 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 12,
-    elevation: 4,
   },
   postHeader: {
     flexDirection: 'row',
@@ -421,9 +425,14 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: 'hidden',
     position: 'relative',
-    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    backgroundColor: '#09090b',
   },
   heroMediaImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     width: '100%',
     height: '100%',
   },
@@ -457,12 +466,14 @@ const styles = StyleSheet.create({
   },
   heroGradientOverlay: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 75,
+    top: 0,
+    left: -1,
+    right: -1,
+    bottom: -2,
     justifyContent: 'flex-end',
-    padding: 10,
+    paddingHorizontal: 11,
+    paddingTop: 10,
+    paddingBottom: 12,
   },
   heroMediaInfo: {
     gap: 2,

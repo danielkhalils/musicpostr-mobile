@@ -4,7 +4,7 @@ export const INFINITE_PAGE_SIZE = 10;
 
 export function isNearScrollBottom(
   event: NativeSyntheticEvent<NativeScrollEvent>,
-  threshold = 350
+  threshold = 120
 ): boolean {
   const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
   return layoutMeasurement.height + contentOffset.y >= contentSize.height - threshold;

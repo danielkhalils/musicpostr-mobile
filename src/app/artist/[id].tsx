@@ -18,19 +18,21 @@ import {
   Disc,
   Radio,
   ChevronDown,
+  ChevronRight,
   Award,
   Globe,
   Check,
   Info,
   Users,
   X,
-  Building2,
   Calendar,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { Image } from 'expo-image';
 import { CoverImage } from '@/components/CoverImage';
+import { AwardLogo } from '@/components/AwardLogo';
+import { RecordLabelLogo } from '@/components/RecordLabelLogo';
 import {
   buildDeezerCoverIndex,
   fetchDeezerArtistAlbums,
@@ -43,6 +45,7 @@ import {
   type CatalogArtist,
   fetchArtistBioFromWikipedia,
   fetchArtistDetailsFromMusicBrainz,
+  fetchOfficialArtistLabelFromDeezer,
   fetchSimilarArtistsFromApi,
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
@@ -51,6 +54,7 @@ import {
   getArtistAwardsFromSupabase,
   getFollowedArtistIdsFromSupabase,
   toggleFollowArtistInSupabase,
+  updateArtistLabelInSupabase,
   type ArtistAwardRecord,
 } from '@/services/catalog.service';
 
@@ -88,6 +92,7 @@ export default function ArtistDetailScreen() {
 
   const [visibleAlbumsCount, setVisibleAlbumsCount] = useState(10);
   const [visibleEpsCount, setVisibleEpsCount] = useState(10);
+  const [visibleAwardsCount, setVisibleAwardsCount] = useState(10);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
   const [artistAwards, setArtistAwards] = useState<ArtistAwardRecord[]>([]);
 
@@ -206,7 +211,7 @@ export default function ArtistDetailScreen() {
         if (!trimmed || deezerStartedFor === trimmed.toLowerCase()) return;
         deezerStartedFor = trimmed.toLowerCase();
 
-        // Carrega perfil (foto HD + fãs) e todas as capas da discografia no Deezer em paralelo
+        // Carrega perfil (foto HD + fãs), gravadora oficial atual e capas da discografia no Deezer em paralelo
         resolveDeezerArtistProfile(trimmed)
           .then((profile) => {
             if (!isMounted || !profile) return;
@@ -216,6 +221,17 @@ export default function ArtistDetailScreen() {
             if (!hasCommunityFans && profile.nbFans > 0) {
               setArtistFans((prev) => (prev > 0 ? prev : profile.nbFans));
             }
+          })
+          .catch(() => {});
+
+        fetchOfficialArtistLabelFromDeezer(trimmed)
+          .then((dzLabel) => {
+            if (!isMounted || !dzLabel) return;
+            setArtistInfo((prev) => ({
+              ...prev,
+              label: dzLabel,
+            }));
+            updateArtistLabelInSupabase(id, dzLabel);
           })
           .catch(() => {});
 
@@ -297,15 +313,26 @@ export default function ArtistDetailScreen() {
           if ((!dbData.artist.genre || dbData.artist.genre === 'Artista') && mbDetails.genre) {
             setArtistGenre(mbDetails.genre);
           }
+          const resolvedLabel =
+            mbDetails.label &&
+            mbDetails.label !== 'Independente' &&
+            mbDetails.label !== 'Não informada'
+              ? mbDetails.label
+              : dbData.labelName || 'Não informada';
           setArtistInfo((prev) => ({
             ...prev,
-            label:
-              prev.label && prev.label !== 'Independente' && prev.label !== 'Não informada'
-                ? prev.label
-                : mbDetails.label || prev.label || 'Não informada',
+            label: resolvedLabel,
             activeYears: mbDetails.activeYears || prev.activeYears || '',
             type: prev.type || mbDetails.type || '',
           }));
+          if (
+            mbDetails.label &&
+            mbDetails.label !== 'Independente' &&
+            mbDetails.label !== 'Não informada' &&
+            mbDetails.label !== dbData.labelName
+          ) {
+            updateArtistLabelInSupabase(id, mbDetails.label);
+          }
         }
 
         triggerDeezerEnrichment(resolvedName, Boolean(dbData && dbData.artist.nbFans > 0));
@@ -724,6 +751,53 @@ export default function ArtistDetailScreen() {
                   {artistInfo.bio}
                 </Text>
               )}
+
+              {Boolean(
+                artistInfo.label &&
+                  artistInfo.label !== 'Não informada' &&
+                  artistInfo.label !== 'Oficial'
+              ) && (
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() =>
+                    router.push(`/label/${encodeURIComponent(artistInfo.label)}` as any)
+                  }
+                  style={{
+                    marginTop: 6,
+                    paddingTop: 10,
+                    borderTopWidth: 1,
+                    borderTopColor: colors.border,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 10,
+                  }}
+                >
+                  <RecordLabelLogo name={artistInfo.label} size={28} />
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        fontWeight: '700',
+                        color: colors.mutedForeground,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Gravadora Oficial
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 12.5,
+                        fontWeight: '800',
+                        color: colors.foreground,
+                      }}
+                      numberOfLines={1}
+                    >
+                      {artistInfo.label}
+                    </Text>
+                  </View>
+                  <ChevronRight size={15} color={colors.primary} />
+                </TouchableOpacity>
+              )}
             </TouchableOpacity>
           )}
 
@@ -934,7 +1008,7 @@ export default function ArtistDetailScreen() {
               </View>
 
               <View style={{ gap: 10 }}>
-                {artistAwards.map((aw) => {
+                {artistAwards.slice(0, visibleAwardsCount).map((aw) => {
                   const isWinner = Boolean(aw.isWinner);
                   return (
                     <View
@@ -943,78 +1017,108 @@ export default function ArtistDetailScreen() {
                         backgroundColor: colors.card,
                         borderColor: isWinner ? `${colors.amber}55` : colors.border,
                         borderWidth: 1,
-                        borderRadius: 14,
+                        borderRadius: 16,
                         padding: 12,
-                        gap: 4,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 12,
                       }}
                     >
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: 8,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            fontSize: 12.5,
-                            fontWeight: '800',
-                            color: colors.foreground,
-                            flex: 1,
-                          }}
-                          numberOfLines={1}
-                        >
-                          {aw.ceremonyName} {aw.year ? `• ${aw.year}` : ''}
-                        </Text>
+                      <AwardLogo
+                        ceremonyName={aw.ceremonyName || aw.category}
+                        logoUrl={aw.logoUrl}
+                        size={44}
+                        isWinner={isWinner}
+                      />
+
+                      <View style={{ flex: 1, gap: 4 }}>
                         <View
                           style={{
-                            paddingHorizontal: 8,
-                            paddingVertical: 2,
-                            borderRadius: 999,
-                            backgroundColor: isWinner
-                              ? `${colors.amber}22`
-                              : `${colors.mutedForeground}22`,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
                           }}
                         >
                           <Text
                             style={{
-                              fontSize: 10,
+                              fontSize: 13,
                               fontWeight: '800',
-                              color: isWinner ? colors.amber : colors.mutedForeground,
+                              color: colors.foreground,
+                              flex: 1,
+                            }}
+                            numberOfLines={1}
+                          >
+                            {aw.ceremonyName} {aw.year ? `• ${aw.year}` : ''}
+                          </Text>
+                          <View
+                            style={{
+                              paddingHorizontal: 8,
+                              paddingVertical: 2,
+                              borderRadius: 999,
+                              backgroundColor: isWinner
+                                ? `${colors.amber}22`
+                                : `${colors.mutedForeground}22`,
                             }}
                           >
-                            {isWinner ? 'Vencedor' : 'Indicado'}
-                          </Text>
+                            <Text
+                              style={{
+                                fontSize: 10,
+                                fontWeight: '800',
+                                color: isWinner ? colors.amber : colors.mutedForeground,
+                              }}
+                            >
+                              {isWinner ? 'Vencedor' : 'Indicado'}
+                            </Text>
+                          </View>
                         </View>
-                      </View>
 
-                      <Text
-                        style={{
-                          fontSize: 12,
-                          color: colors.foreground,
-                          opacity: 0.9,
-                        }}
-                      >
-                        {aw.category}
-                      </Text>
-
-                      {Boolean(aw.albumTitle) && (
                         <Text
                           style={{
-                            fontSize: 11,
-                            color: colors.mutedForeground,
-                            fontWeight: '600',
+                            fontSize: 12,
+                            color: colors.primary,
+                            fontWeight: '700',
                           }}
-                          numberOfLines={1}
                         >
-                          Álbum: {aw.albumTitle}
+                          {aw.category}
                         </Text>
-                      )}
+
+                        {Boolean(aw.albumTitle) && (
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              color: colors.mutedForeground,
+                              fontWeight: '600',
+                            }}
+                            numberOfLines={1}
+                          >
+                            Obra: {aw.albumTitle}
+                          </Text>
+                        )}
+                      </View>
                     </View>
                   );
                 })}
               </View>
+
+              {visibleAwardsCount < artistAwards.length && (
+                <TouchableOpacity
+                  onPress={() => setVisibleAwardsCount((prev) => prev + 10)}
+                  style={[
+                    styles.loadMoreBtn,
+                    {
+                      backgroundColor: colors.card,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.primary }}>
+                    Ver mais premiações ({artistAwards.length - visibleAwardsCount} restantes)
+                  </Text>
+                  <ChevronDown size={15} color={colors.primary} />
+                </TouchableOpacity>
+              )}
             </View>
           )}
 
@@ -1168,7 +1272,18 @@ export default function ArtistDetailScreen() {
 
             {/* Ficha Técnica Rápida */}
             <View style={styles.quickFactsGrid}>
-              <View
+              <TouchableOpacity
+                activeOpacity={0.8}
+                disabled={
+                  !artistInfo.label ||
+                  artistInfo.label === 'Não informada' ||
+                  artistInfo.label === 'Oficial'
+                }
+                onPress={() => {
+                  if (!artistInfo.label) return;
+                  setIsInfoModalOpen(false);
+                  router.push(`/label/${encodeURIComponent(artistInfo.label)}` as any);
+                }}
                 style={[
                   styles.factCard,
                   {
@@ -1177,7 +1292,10 @@ export default function ArtistDetailScreen() {
                   },
                 ]}
               >
-                <Building2 size={15} color={colors.primary} />
+                <RecordLabelLogo
+                  name={artistInfo.label || 'Gravadora'}
+                  size={28}
+                />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.factLabel}>Gravadora Oficial</Text>
                   <Text
@@ -1187,10 +1305,15 @@ export default function ArtistDetailScreen() {
                     ]}
                     numberOfLines={1}
                   >
-                    {artistInfo.label}
+                    {artistInfo.label || 'Não informada'}
                   </Text>
                 </View>
-              </View>
+                {Boolean(
+                  artistInfo.label &&
+                    artistInfo.label !== 'Não informada' &&
+                    artistInfo.label !== 'Oficial'
+                ) && <ChevronRight size={15} color={colors.primary} />}
+              </TouchableOpacity>
 
               <View
                 style={[

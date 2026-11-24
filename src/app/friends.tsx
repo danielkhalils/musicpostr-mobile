@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
+import { INFINITE_PAGE_SIZE, isNearScrollBottom } from '@/utils/pagination';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,6 +27,7 @@ export default function FriendsScreen() {
   const insets = useSafeAreaInsets();
 
   const [friends, setFriends] = useState<FriendProfileRecord[]>([]);
+  const [visibleCount, setVisibleCount] = useState(INFINITE_PAGE_SIZE);
 
   useEffect(() => {
     let active = true;
@@ -55,6 +57,12 @@ export default function FriendsScreen() {
           { paddingTop: Math.max(insets.top, 16) },
         ]}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={32}
+        onScroll={(e) => {
+          if (visibleCount < friends.length && isNearScrollBottom(e)) {
+            setVisibleCount((prev) => Math.min(friends.length, prev + INFINITE_PAGE_SIZE));
+          }
+        }}
       >
         <PageHeader
           title={isVisiting ? `Amigos de @${username}` : 'Amigos'}
@@ -64,7 +72,7 @@ export default function FriendsScreen() {
         />
 
         <View style={{ gap: 12 }}>
-          {friends.map((friend) => (
+          {friends.slice(0, visibleCount).map((friend) => (
             <View
               key={friend.id}
               style={[

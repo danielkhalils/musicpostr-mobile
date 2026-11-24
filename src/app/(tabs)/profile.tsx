@@ -5,7 +5,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Share,
-  Linking,
   RefreshControl,
   StyleSheet,
   Modal,
@@ -63,6 +62,7 @@ import {
 import { CoverImage } from '@/components/CoverImage';
 import { FeedStyleActivityCard } from '@/components/FeedStyleActivityCard';
 import { SocialIcon } from '@/components/SocialIcon';
+import { openSocialLink } from '@/utils/social';
 import { useActivityCardMode } from '@/hooks/use-activity-card-mode';
 
 type ProfileHistoryTab = 'all' | 'reviews' | 'favorites' | 'idols';
@@ -339,7 +339,7 @@ export function ProfileView({
           justifyContent: 'center',
         }}
       >
-        <ActivityIndicator size="large" color={colors.foreground} />
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
@@ -562,11 +562,12 @@ export function ProfileView({
             contentContainerStyle={styles.socialsRow}
           >
             {Object.entries(displayProfile.socials).map(([key, url]) => {
-              if (!url) return null;
+              const trimmed = typeof url === 'string' ? url.trim() : '';
+              if (!trimmed) return null;
               return (
                 <TouchableOpacity
                   key={key}
-                  onPress={() => Linking.openURL(url).catch(() => {})}
+                  onPress={() => openSocialLink(key, trimmed)}
                   style={[
                     styles.socialCircleBtn,
                     {
@@ -577,7 +578,12 @@ export function ProfileView({
                   accessibilityLabel={key}
                   activeOpacity={0.8}
                 >
-                  <SocialIcon name={key} size={15} color={colors.foreground} />
+                  <SocialIcon
+                    name={key}
+                    url={trimmed}
+                    size={16}
+                    color={colors.foreground}
+                  />
                 </TouchableOpacity>
               );
             })}
