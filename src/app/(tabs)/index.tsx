@@ -1,4 +1,5 @@
 import { CoverImage } from '@/components/CoverImage';
+import { KeyboardAwareSheetModal } from '@/components/KeyboardAwareSheetModal';
 import { MobileHeader } from '@/components/MobileHeader';
 import { ScreenLoader } from '@/components/ScreenLoader';
 import { ShareableReviewCard } from '@/components/ShareableReviewCard';
@@ -35,7 +36,7 @@ import {
   UserCheck,
   X,
 } from 'lucide-react-native';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -57,7 +58,7 @@ interface FeedCommentInputProps {
   avatarUrl?: string;
   colors: any;
   onAddComment: (postId: string, text: string) => Promise<boolean>;
-  onFocusChange?: (focused: boolean) => void;
+  onCommentPosted?: () => void;
 }
 
 function FeedCommentInput({
@@ -65,7 +66,7 @@ function FeedCommentInput({
   avatarUrl,
   colors,
   onAddComment,
-  onFocusChange,
+  onCommentPosted,
 }: FeedCommentInputProps) {
   const [text, setText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -78,6 +79,7 @@ function FeedCommentInput({
       const ok = await onAddComment(postId, trimmed);
       if (ok) {
         setText('');
+        onCommentPosted?.();
       }
     } finally {
       setIsSubmitting(false);
@@ -92,14 +94,15 @@ function FeedCommentInput({
         fallbackType="artist"
       />
       <TextInput
-        placeholder="Escreva um comentário..."
+        placeholder="Adicione um comentário..."
         placeholderTextColor={colors.mutedForeground}
         value={text}
         onChangeText={setText}
         editable={!isSubmitting}
-        onFocus={() => onFocusChange?.(true)}
-        onBlur={() => onFocusChange?.(false)}
+        multiline
+        maxLength={500}
         returnKeyType="send"
+        blurOnSubmit={false}
         onSubmitEditing={handleSend}
         style={[
           styles.commentInput,
@@ -122,6 +125,7 @@ function FeedCommentInput({
         onPress={handleSend}
         activeOpacity={0.85}
         disabled={!text.trim() || isSubmitting}
+        accessibilityLabel="Enviar comentário"
       >
         {isSubmitting ? (
           <ActivityIndicator size="small" color="#fff" />
@@ -140,7 +144,7 @@ export default function HomeScreen() {
   const { setIsHeaderVisible } = useHeaderVisibility();
   const { mode: cardMode } = useActivityCardMode();
   const lastScrollY = useRef(0);
-  const isTypingRef = useRef(false);
+  const commentsScrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
 
   const [feedItems, setFeedItems] = useState<FeedPostItem[]>([]);
   const [visibleCount, setVisibleCount] = useState<number>(INFINITE_PAGE_SIZE);
@@ -149,11 +153,14 @@ export default function HomeScreen() {
     consumeTimelineIntroOnce()
   );
   const [refreshing, setRefreshing] = useState(false);
-  const [activeCommentSection, setActiveCommentSection] = useState<{
-    [key: string]: boolean;
-  }>({});
+  const [activeCommentPostId, setActiveCommentPostId] = useState<string | null>(null);
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
   const [sharePostItem, setSharePostItem] = useState<FeedPostItem | null>(null);
+
+  const activeCommentPost = useMemo(
+    () => feedItems.find((item) => item.id === activeCommentPostId) ?? null,
+    [feedItems, activeCommentPostId]
+  );
 
   const loadFeed = useCallback(async () => {
     try {
@@ -218,9 +225,6 @@ export default function HomeScreen() {
   }, [setIsHeaderVisible]);
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    if (isTypingRef.current) {
-      return;
-    }
     const currentScrollY = event.nativeEvent.contentOffset.y;
     const diff = currentScrollY - lastScrollY.current;
 
@@ -264,14 +268,15 @@ export default function HomeScreen() {
     setSharePostItem(item);
   };
 
-  const handleToggleCommentSection = (id: string) => {
-    setActiveCommentSection((prev) => ({ ...prev, [id]: !prev[id] }));
+  const handleOpenComments = (id: string) => {
+    setActiveCommentPostId(id);
   };
 
   const handleAddComment = async (id: string, commentText: string): Promise<boolean> => {
     const text = commentText.trim();
     if (!text) return false;
     if (!user) {
+      setActiveCommentPostId(null);
       router.push('/login' as any);
       return false;
     }
@@ -298,7 +303,6 @@ export default function HomeScreen() {
             : item
         )
       );
-      setActiveCommentSection((prev) => ({ ...prev, [id]: true }));
       return true;
     }
     return false;
@@ -571,7 +575,7 @@ export default function HomeScreen() {
           {feedItems.slice(0, visibleCount).map((item) => {
             const isIdolActivity = item.activityType === 'follow_idol';
             const isFavoriteActivity = item.activityType === 'favorite';
-            const isCommentsOpen = Boolean(activeCommentSection[item.id]);
+            const isCommentsOpen = activeCommentPostId === item.id;
             const targetRoute = isIdolActivity
               ? `/artist/${item.artistId || ''}`
               : `/album/${item.albumId}`;
@@ -851,7 +855,7 @@ export default function HomeScreen() {
                   {/* Botão Comentar */}
                   <TouchableOpacity
                     style={styles.instagramActionBtn}
-                    onPress={() => handleToggleCommentSection(item.id)}
+                    onPress={() => handleOpenComments(item.id)}
                     activeOpacity={0.7}
                     accessibilityLabel="Comentários"
                   >
@@ -921,8 +925,8 @@ export default function HomeScreen() {
                   </View>
                 )}
 
-                {/* 6. PRÉVIA DO ÚLTIMO COMENTÁRIO (quando fechado) */}
-                {!isCommentsOpen && item.comments.length > 0 && (
+                {/* 6. PRÉVIA DO ÚLTIMO COMENTÁRIO (abre o bottom sheet estilo rede social) */}
+                {item.comments.length > 0 && (
                   <TouchableOpacity
                     style={[
                       styles.commentPreviewBox,
@@ -933,7 +937,7 @@ export default function HomeScreen() {
                         borderColor: colors.border,
                       },
                     ]}
-                    onPress={() => handleToggleCommentSection(item.id)}
+                    onPress={() => handleOpenComments(item.id)}
                     activeOpacity={0.8}
                   >
                     <CoverImage
@@ -958,127 +962,18 @@ export default function HomeScreen() {
                       </Text>
                       {item.comments[item.comments.length - 1].text}
                     </Text>
-                  </TouchableOpacity>
-                )}
-
-                {/* 6. SEÇÃO EXPANDIDA DE COMENTÁRIOS */}
-                {isCommentsOpen && (
-                  <View
-                    style={[
-                      styles.commentsSection,
-                      { borderTopColor: colors.border },
-                    ]}
-                  >
-                    {item.comments.length === 0 ? (
+                    {item.comments.length > 1 && (
                       <Text
                         style={{
-                          fontSize: 12,
-                          color: colors.mutedForeground,
-                          textAlign: 'center',
-                          paddingVertical: 6,
+                          fontSize: 11,
+                          fontWeight: '700',
+                          color: colors.primary,
                         }}
                       >
-                        Seja o primeiro a comentar nesta publicação!
+                        Ver {item.comments.length}
                       </Text>
-                    ) : (
-                      item.comments.map((comment) => {
-                        const isPostOwner = Boolean(
-                          user &&
-                            ((item.userId && item.userId === user.id) ||
-                              (authProfile?.username &&
-                                item.friendUsername.toLowerCase() ===
-                                  authProfile.username.toLowerCase()))
-                        );
-                        const isCommentAuthor = Boolean(
-                          user && comment.userId && comment.userId === user.id
-                        );
-                        const canDeleteComment = isPostOwner || isCommentAuthor;
-                        const isDeletingThis = deletingCommentId === comment.id;
-
-                        return (
-                          <View
-                            key={comment.id}
-                            style={[
-                              styles.commentItem,
-                              {
-                                backgroundColor: colors.secondary,
-                                borderColor: colors.border,
-                              },
-                            ]}
-                          >
-                            <CoverImage
-                              uri={comment.avatar}
-                              style={styles.commentAvatar}
-                              fallbackType="artist"
-                            />
-                            <View style={{ flex: 1 }}>
-                              <View style={styles.commentHeader}>
-                                <Text
-                                  style={{
-                                    fontSize: 12,
-                                    fontWeight: '800',
-                                    color: colors.foreground,
-                                    flex: 1,
-                                  }}
-                                  numberOfLines={1}
-                                >
-                                  {comment.author}
-                                </Text>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                  <Text
-                                    style={{
-                                      fontSize: 10,
-                                      color: colors.mutedForeground,
-                                    }}
-                                  >
-                                    {comment.time}
-                                  </Text>
-                                  {canDeleteComment && (
-                                    <TouchableOpacity
-                                      onPress={() => handleDeleteComment(item.id, comment.id)}
-                                      disabled={isDeletingThis}
-                                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                                      style={{ opacity: isDeletingThis ? 0.6 : 1 }}
-                                      accessibilityLabel="Excluir comentário"
-                                    >
-                                      {isDeletingThis ? (
-                                        <ActivityIndicator size="small" color={colors.mutedForeground} />
-                                      ) : (
-                                        <Trash2 size={13} color={colors.mutedForeground} />
-                                      )}
-                                    </TouchableOpacity>
-                                  )}
-                                </View>
-                              </View>
-                              <Text
-                                style={{
-                                  fontSize: 12,
-                                  color: colors.foreground,
-                                  opacity: 0.9,
-                                  marginTop: 3,
-                                  lineHeight: 17,
-                                }}
-                              >
-                                {comment.text}
-                              </Text>
-                            </View>
-                          </View>
-                        );
-                      })
                     )}
-
-                    {/* Input de Comentário isolado com Avatar do Usuário Logado */}
-                    <FeedCommentInput
-                      postId={item.id}
-                      avatarUrl={authProfile?.avatar_url || ''}
-                      colors={colors}
-                      onAddComment={handleAddComment}
-                      onFocusChange={(focused) => {
-                        isTypingRef.current = focused;
-                        if (focused) setIsHeaderVisible(true);
-                      }}
-                    />
-                  </View>
+                  </TouchableOpacity>
                 )}
               </View>
             );
@@ -1086,6 +981,190 @@ export default function HomeScreen() {
         </View>
       )}
       </ScrollView>
+
+      {/* Bottom Sheet de Comentários estilo rede social (input fixo acima do teclado) */}
+      <KeyboardAwareSheetModal
+        visible={Boolean(activeCommentPost)}
+        onClose={() => setActiveCommentPostId(null)}
+        backgroundColor={colors.card}
+        borderColor={colors.border}
+        maxHeightRatio={0.86}
+      >
+        {({ maxSheetHeight }) =>
+          activeCommentPost ? (
+            <View style={{ gap: 10 }}>
+              <View style={styles.sheetModalHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.sheetModalTitle, { color: colors.foreground }]}>
+                    Comentários ({activeCommentPost.comments.length})
+                  </Text>
+                  <Text
+                    style={{ fontSize: 12, color: colors.mutedForeground, marginTop: 2 }}
+                    numberOfLines={1}
+                  >
+                    @{activeCommentPost.friendUsername} • {activeCommentPost.albumTitle}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setActiveCommentPostId(null)}
+                  style={styles.sheetCloseBtn}
+                  accessibilityLabel="Fechar comentários"
+                >
+                  <X size={18} color={colors.mutedForeground} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                ref={commentsScrollRef}
+                style={{ maxHeight: Math.max(150, maxSheetHeight - 155) }}
+                contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="interactive"
+              >
+                {activeCommentPost.comments.length === 0 ? (
+                  <View style={styles.emptyCommentsBox}>
+                    <MessageSquare
+                      size={26}
+                      color={colors.mutedForeground}
+                      style={{ opacity: 0.55 }}
+                    />
+                    <Text
+                      style={{
+                        fontSize: 13.5,
+                        fontWeight: '700',
+                        color: colors.foreground,
+                        textAlign: 'center',
+                      }}
+                    >
+                      Nenhum comentário ainda
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        color: colors.mutedForeground,
+                        textAlign: 'center',
+                      }}
+                    >
+                      Seja o primeiro a comentar nesta publicação!
+                    </Text>
+                  </View>
+                ) : (
+                  activeCommentPost.comments.map((comment) => {
+                    const isPostOwner = Boolean(
+                      user &&
+                        ((activeCommentPost.userId &&
+                          activeCommentPost.userId === user.id) ||
+                          (authProfile?.username &&
+                            activeCommentPost.friendUsername.toLowerCase() ===
+                              authProfile.username.toLowerCase()))
+                    );
+                    const isCommentAuthor = Boolean(
+                      user && comment.userId && comment.userId === user.id
+                    );
+                    const canDeleteComment = isPostOwner || isCommentAuthor;
+                    const isDeletingThis = deletingCommentId === comment.id;
+
+                    return (
+                      <View
+                        key={comment.id}
+                        style={[
+                          styles.commentItem,
+                          {
+                            backgroundColor: colors.secondary,
+                            borderColor: colors.border,
+                          },
+                        ]}
+                      >
+                        <CoverImage
+                          uri={comment.avatar}
+                          style={styles.commentAvatar}
+                          fallbackType="artist"
+                        />
+                        <View style={{ flex: 1 }}>
+                          <View style={styles.commentHeader}>
+                            <Text
+                              style={{
+                                fontSize: 12.5,
+                                fontWeight: '800',
+                                color: colors.foreground,
+                                flex: 1,
+                              }}
+                              numberOfLines={1}
+                            >
+                              {comment.author}
+                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                              <Text
+                                style={{
+                                  fontSize: 10.5,
+                                  color: colors.mutedForeground,
+                                }}
+                              >
+                                {comment.time}
+                              </Text>
+                              {canDeleteComment && (
+                                <TouchableOpacity
+                                  onPress={() =>
+                                    handleDeleteComment(activeCommentPost.id, comment.id)
+                                  }
+                                  disabled={isDeletingThis}
+                                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                  style={{ opacity: isDeletingThis ? 0.6 : 1 }}
+                                  accessibilityLabel="Excluir comentário"
+                                >
+                                  {isDeletingThis ? (
+                                    <ActivityIndicator
+                                      size="small"
+                                      color={colors.mutedForeground}
+                                    />
+                                  ) : (
+                                    <Trash2 size={13} color={colors.mutedForeground} />
+                                  )}
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          </View>
+                          <Text
+                            style={{
+                              fontSize: 13,
+                              color: colors.foreground,
+                              opacity: 0.92,
+                              marginTop: 3,
+                              lineHeight: 18,
+                            }}
+                          >
+                            {comment.text}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })
+                )}
+              </ScrollView>
+
+              <View
+                style={[
+                  styles.commentsFooterBar,
+                  { borderTopColor: colors.border },
+                ]}
+              >
+                <FeedCommentInput
+                  postId={activeCommentPost.id}
+                  avatarUrl={authProfile?.avatar_url || ''}
+                  colors={colors}
+                  onAddComment={handleAddComment}
+                  onCommentPosted={() => {
+                    setTimeout(() => {
+                      commentsScrollRef.current?.scrollToEnd({ animated: true });
+                    }, 80);
+                  }}
+                />
+              </View>
+            </View>
+          ) : null
+        }
+      </KeyboardAwareSheetModal>
 
       {/* Modal de Compartilhamento de Card PNG (idêntica à modal da tela de álbum) */}
       <Modal
@@ -1509,24 +1588,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  emptyCommentsBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 28,
+    gap: 6,
+  },
+  commentsFooterBar: {
+    borderTopWidth: 1,
+    paddingTop: 10,
+  },
   commentInputRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: 8,
-    marginTop: 4,
   },
   commentInputUserAvatar: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     borderRadius: 999,
+    marginBottom: 3,
   },
   commentInput: {
     flex: 1,
-    height: 40,
-    borderRadius: 999,
+    minHeight: 40,
+    maxHeight: 96,
+    borderRadius: 20,
     borderWidth: 1,
     paddingHorizontal: 14,
-    fontSize: 13,
+    paddingVertical: 9,
+    fontSize: 13.5,
   },
   sendBtn: {
     width: 40,

@@ -1,5 +1,6 @@
 import { CoverImage } from '@/components/CoverImage';
 import { AwardLogo } from '@/components/AwardLogo';
+import { KeyboardAwareSheetModal } from '@/components/KeyboardAwareSheetModal';
 import { MobileHeader } from '@/components/MobileHeader';
 import { StreamingIcon } from '@/components/StreamingIcon';
 import { useAppTheme } from '@/context/ThemeContext';
@@ -67,7 +68,7 @@ import {
   UserPlus,
   UserCheck,
 } from 'lucide-react-native';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ComponentRef, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -147,6 +148,7 @@ export default function AlbumDetailScreen() {
 
   const [scoreSlideIndex, setScoreSlideIndex] = useState<number>(0);
   const scoreSliderRef = useRef<any>(null);
+  const reviewScrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
   const screenWidth = Dimensions.get('window').width;
   const scorePagerWidth = screenWidth - 40;
 
@@ -1862,32 +1864,16 @@ export default function AlbumDetailScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* MODAL 1: Avaliar / Favoritar Álbum */}
-      <Modal
+      {/* MODAL 1: Avaliar / Favoritar Álbum (com compositor acima do teclado estilo rede social) */}
+      <KeyboardAwareSheetModal
         visible={isReviewModalOpen}
-        animationType="slide"
-        transparent
-        statusBarTranslucent
-        onRequestClose={() => setIsReviewModalOpen(false)}
+        onClose={() => setIsReviewModalOpen(false)}
+        backgroundColor={colors.card}
+        borderColor={colors.border}
+        maxHeightRatio={0.9}
       >
-        <View style={styles.sheetModalOverlay}>
-          <TouchableOpacity
-            style={StyleSheet.absoluteFill}
-            activeOpacity={1}
-            onPress={() => setIsReviewModalOpen(false)}
-          />
-          <View
-            style={[
-              styles.sheetModalContent,
-              {
-                backgroundColor: colors.card,
-                borderColor: colors.border,
-                paddingBottom: insets.bottom > 0 ? insets.bottom + 12 : 20,
-              },
-            ]}
-          >
-            <View style={styles.sheetModalDragIndicator} />
-
+        {({ isKeyboardVisible }) => (
+          <View style={{ gap: 10, flexShrink: 1 }}>
             <View style={styles.sheetModalHeader}>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.sheetModalTitle, { color: colors.foreground }]}>
@@ -1903,158 +1889,45 @@ export default function AlbumDetailScreen() {
               <TouchableOpacity
                 onPress={() => setIsReviewModalOpen(false)}
                 style={styles.sheetCloseBtn}
+                accessibilityLabel="Fechar"
               >
                 <X size={18} color={colors.mutedForeground} />
               </TouchableOpacity>
             </View>
 
-            {/* Atalho rápido para Favoritar dentro da Modal */}
-            {/* Destaque da Nota Selecionada */}
-            <View style={{ alignItems: 'center', marginVertical: 6 }}>
-              <Text
-                style={{
-                  fontSize: 36,
-                  fontWeight: '900',
-                  color: rating > 0 ? colors.amber : colors.mutedForeground,
-                  letterSpacing: -1,
-                }}
-              >
-                {rating > 0 ? formatRating(rating) : '—'}
-                <Text style={{ fontSize: 16, fontWeight: '700', color: colors.mutedForeground }}>
-                  {' '}/ 10
-                </Text>
-              </Text>
-            </View>
-
-            {/* Frase de Feedback de Acordo com a Nota */}
-            <View
-              style={[
-                styles.genZBadge,
-                {
-                  borderColor: `${currentGenZ.color}50`,
-                  backgroundColor: `${currentGenZ.color}15`,
-                  alignSelf: 'center',
-                },
-              ]}
+            <ScrollView
+              ref={reviewScrollRef}
+              style={{ flexShrink: 1 }}
+              contentContainerStyle={{ gap: 10, paddingBottom: 6 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
             >
-              <Text
-                style={{
-                  fontSize: 12,
-                  fontWeight: '700',
-                  color: currentGenZ.color,
-                }}
-              >
-                {currentGenZ.text}
-              </Text>
-            </View>
-
-            {/* 10 Estrelas Interativas com Incremento Decimal */}
-            <View style={styles.starsRow}>
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => {
-                const active = rating >= star;
-                const isSelectedBase = Math.floor(rating) === star;
-                return (
-                  <TouchableOpacity
-                    key={star}
-                    onPress={() => handleStarPress(star)}
-                    style={[
-                      styles.starBtn,
-                      isSelectedBase && {
-                        backgroundColor: `${colors.amber}18`,
-                        borderRadius: 8,
-                      },
-                    ]}
-                    activeOpacity={0.65}
-                    accessibilityLabel={`Nota ${star}`}
-                  >
-                    <Star
-                      size={24}
-                      color={active ? colors.amber : colors.mutedForeground}
-                      fill={active ? colors.amber : 'transparent'}
-                    />
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            {/* Ajuste fino decimal */}
-            <View style={{ alignItems: 'center', marginTop: 4, marginBottom: 8, gap: 6 }}>
-              <Text style={{ fontSize: 11, color: colors.mutedForeground, textAlign: 'center' }}>
-                Toque na mesma estrela até 9x para ajustar os décimos (ex: 9.1 a 9.9)
-              </Text>
-
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <TouchableOpacity
-                  onPress={() => {
-                    const next = Math.max(1, Number((rating - 0.1).toFixed(1)));
-                    setRating(next);
+              {/* Destaque da Nota Selecionada */}
+              <View style={{ alignItems: 'center', marginVertical: 2 }}>
+                <Text
+                  style={{
+                    fontSize: isKeyboardVisible ? 28 : 36,
+                    fontWeight: '900',
+                    color: rating > 0 ? colors.amber : colors.mutedForeground,
+                    letterSpacing: -1,
                   }}
-                  style={[
-                    styles.decStepBtn,
-                    { backgroundColor: colors.secondary, borderColor: colors.border },
-                  ]}
-                  activeOpacity={0.7}
                 >
-                  <Text style={{ fontSize: 11, fontWeight: '800', color: colors.foreground }}>
-                    -0.1
+                  {rating > 0 ? formatRating(rating) : '—'}
+                  <Text style={{ fontSize: 16, fontWeight: '700', color: colors.mutedForeground }}>
+                    {' '}/ 10
                   </Text>
-                </TouchableOpacity>
-
-                {[0, 2, 5, 8].map((dec) => {
-                  const base = Math.max(1, Math.floor(rating) || 8);
-                  const candidate = Number((base + dec * 0.1).toFixed(1));
-                  const isCurrent = rating === candidate;
-                  return (
-                    <TouchableOpacity
-                      key={dec}
-                      onPress={() => setRating(candidate)}
-                      style={[
-                        styles.decChipBtn,
-                        {
-                          backgroundColor: isCurrent ? colors.primary : colors.secondary,
-                          borderColor: isCurrent ? colors.primary : colors.border,
-                        },
-                      ]}
-                      activeOpacity={0.7}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 11,
-                          fontWeight: '700',
-                          color: isCurrent ? '#fff' : colors.foreground,
-                        }}
-                      >
-                        .{dec}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-
-                <TouchableOpacity
-                  onPress={() => {
-                    const next = Math.min(10, Number((rating + 0.1).toFixed(1)));
-                    setRating(next);
-                  }}
-                  style={[
-                    styles.decStepBtn,
-                    { backgroundColor: colors.secondary, borderColor: colors.border },
-                  ]}
-                  activeOpacity={0.7}
-                >
-                  <Text style={{ fontSize: 11, fontWeight: '800', color: colors.foreground }}>
-                    +0.1
-                  </Text>
-                </TouchableOpacity>
+                </Text>
               </View>
-            </View>
 
-            {postSuccess && (
+              {/* Frase de Feedback de Acordo com a Nota */}
               <View
                 style={[
-                  styles.successBanner,
+                  styles.genZBadge,
                   {
-                    backgroundColor: `${colors.emerald}20`,
-                    borderColor: `${colors.emerald}45`,
+                    borderColor: `${currentGenZ.color}50`,
+                    backgroundColor: `${currentGenZ.color}15`,
+                    alignSelf: 'center',
                   },
                 ]}
               >
@@ -2062,121 +1935,239 @@ export default function AlbumDetailScreen() {
                   style={{
                     fontSize: 12,
                     fontWeight: '700',
-                    color: colors.emerald,
+                    color: currentGenZ.color,
                   }}
                 >
-                  ✓ Sua avaliação foi publicada com sucesso!
+                  {currentGenZ.text}
                 </Text>
               </View>
-            )}
 
-            <TextInput
-              multiline
-              placeholder="Compartilhe seus pensamentos sobre este álbum..."
-              placeholderTextColor={colors.mutedForeground}
-              value={reviewText}
-              onChangeText={setReviewText}
-              style={[
-                styles.reviewTextarea,
-                {
-                  backgroundColor: colors.background,
-                  borderColor: colors.border,
-                  color: colors.foreground,
-                },
-              ]}
-            />
+              {/* 10 Estrelas Interativas com Incremento Decimal */}
+              <View style={styles.starsRow}>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => {
+                  const active = rating >= star;
+                  const isSelectedBase = Math.floor(rating) === star;
+                  return (
+                    <TouchableOpacity
+                      key={star}
+                      onPress={() => handleStarPress(star)}
+                      style={[
+                        styles.starBtn,
+                        isSelectedBase && {
+                          backgroundColor: `${colors.amber}18`,
+                          borderRadius: 8,
+                        },
+                      ]}
+                      activeOpacity={0.65}
+                      accessibilityLabel={`Nota ${star}`}
+                    >
+                      <Star
+                        size={24}
+                        color={active ? colors.amber : colors.mutedForeground}
+                        fill={active ? colors.amber : 'transparent'}
+                      />
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
 
-            <TouchableOpacity
-              onPress={handlePostReview}
-              disabled={isSubmittingReview || isDeletingReview}
-              style={[
-                styles.submitReviewBtn,
-                {
-                  backgroundColor: colors.primary,
-                  opacity: isSubmittingReview || isDeletingReview ? 0.7 : 1,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                },
-              ]}
-              activeOpacity={0.85}
-            >
-              {isSubmittingReview && <ActivityIndicator size="small" color="#fff" />}
-              <Text style={styles.submitReviewBtnText}>
-                {isSubmittingReview
-                  ? 'Salvando avaliação...'
-                  : currentUserReview
-                    ? 'Salvar Alterações'
-                    : 'Publicar Avaliação'}
-              </Text>
-            </TouchableOpacity>
+              {/* Ajuste fino decimal */}
+              <View style={{ alignItems: 'center', marginTop: 2, marginBottom: 4, gap: 6 }}>
+                <Text style={{ fontSize: 11, color: colors.mutedForeground, textAlign: 'center' }}>
+                  Toque na mesma estrela até 9x para ajustar os décimos (ex: 9.1 a 9.9)
+                </Text>
 
-            {Boolean(currentUserReview) && (
-              <TouchableOpacity
-                onPress={handleDeleteCurrentReview}
-                disabled={isDeletingReview || isSubmittingReview}
-                style={{
-                  marginTop: 4,
-                  paddingVertical: 12,
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: `${colors.destructive}55`,
-                  backgroundColor: `${colors.destructive}14`,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  opacity: isDeletingReview || isSubmittingReview ? 0.65 : 1,
-                }}
-                activeOpacity={0.8}
-              >
-                {isDeletingReview ? (
-                  <ActivityIndicator size="small" color={colors.destructive} />
-                ) : (
-                  <Trash2 size={15} color={colors.destructive} />
-                )}
-                <Text
-                  style={{
-                    fontSize: 13,
-                    fontWeight: '800',
-                    color: colors.destructive,
-                  }}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const next = Math.max(1, Number((rating - 0.1).toFixed(1)));
+                      setRating(next);
+                    }}
+                    style={[
+                      styles.decStepBtn,
+                      { backgroundColor: colors.secondary, borderColor: colors.border },
+                    ]}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: colors.foreground }}>
+                      -0.1
+                    </Text>
+                  </TouchableOpacity>
+
+                  {[0, 2, 5, 8].map((dec) => {
+                    const base = Math.max(1, Math.floor(rating) || 8);
+                    const candidate = Number((base + dec * 0.1).toFixed(1));
+                    const isCurrent = rating === candidate;
+                    return (
+                      <TouchableOpacity
+                        key={dec}
+                        onPress={() => setRating(candidate)}
+                        style={[
+                          styles.decChipBtn,
+                          {
+                            backgroundColor: isCurrent ? colors.primary : colors.secondary,
+                            borderColor: isCurrent ? colors.primary : colors.border,
+                          },
+                        ]}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            fontWeight: '700',
+                            color: isCurrent ? '#fff' : colors.foreground,
+                          }}
+                        >
+                          .{dec}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                  <TouchableOpacity
+                    onPress={() => {
+                      const next = Math.min(10, Number((rating + 0.1).toFixed(1)));
+                      setRating(next);
+                    }}
+                    style={[
+                      styles.decStepBtn,
+                      { backgroundColor: colors.secondary, borderColor: colors.border },
+                    ]}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: colors.foreground }}>
+                      +0.1
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {postSuccess && (
+                <View
+                  style={[
+                    styles.successBanner,
+                    {
+                      backgroundColor: `${colors.emerald}20`,
+                      borderColor: `${colors.emerald}45`,
+                    },
+                  ]}
                 >
-                  {isDeletingReview ? 'Excluindo...' : 'Excluir Avaliação'}
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      fontWeight: '700',
+                      color: colors.emerald,
+                    }}
+                  >
+                    ✓ Sua avaliação foi publicada com sucesso!
+                  </Text>
+                </View>
+              )}
+
+              <TextInput
+                multiline
+                placeholder="Compartilhe seus pensamentos sobre este álbum..."
+                placeholderTextColor={colors.mutedForeground}
+                value={reviewText}
+                onChangeText={setReviewText}
+                onFocus={() => {
+                  setTimeout(() => {
+                    reviewScrollRef.current?.scrollToEnd({ animated: true });
+                  }, 120);
+                }}
+                style={[
+                  styles.reviewTextarea,
+                  {
+                    backgroundColor: colors.background,
+                    borderColor: colors.border,
+                    color: colors.foreground,
+                  },
+                ]}
+              />
+            </ScrollView>
+
+            {/* Rodapé fixo logo acima do teclado */}
+            <View
+              style={[
+                styles.sheetStickyFooter,
+                { borderTopColor: colors.border },
+              ]}
+            >
+              <TouchableOpacity
+                onPress={handlePostReview}
+                disabled={isSubmittingReview || isDeletingReview}
+                style={[
+                  styles.submitReviewBtn,
+                  {
+                    backgroundColor: colors.primary,
+                    opacity: isSubmittingReview || isDeletingReview ? 0.7 : 1,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  },
+                ]}
+                activeOpacity={0.85}
+              >
+                {isSubmittingReview && <ActivityIndicator size="small" color="#fff" />}
+                <Text style={styles.submitReviewBtnText}>
+                  {isSubmittingReview
+                    ? 'Salvando avaliação...'
+                    : currentUserReview
+                      ? 'Salvar Alterações'
+                      : 'Publicar Avaliação'}
                 </Text>
               </TouchableOpacity>
-            )}
+
+              {!isKeyboardVisible && Boolean(currentUserReview) && (
+                <TouchableOpacity
+                  onPress={handleDeleteCurrentReview}
+                  disabled={isDeletingReview || isSubmittingReview}
+                  style={{
+                    paddingVertical: 11,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: `${colors.destructive}55`,
+                    backgroundColor: `${colors.destructive}14`,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    opacity: isDeletingReview || isSubmittingReview ? 0.65 : 1,
+                  }}
+                  activeOpacity={0.8}
+                >
+                  {isDeletingReview ? (
+                    <ActivityIndicator size="small" color={colors.destructive} />
+                  ) : (
+                    <Trash2 size={15} color={colors.destructive} />
+                  )}
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      fontWeight: '800',
+                      color: colors.destructive,
+                    }}
+                  >
+                    {isDeletingReview ? 'Excluindo...' : 'Excluir Avaliação'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
-        </View>
-      </Modal>
+        )}
+      </KeyboardAwareSheetModal>
 
       {/* MODAL 2: Adicionar a uma Lista */}
-      <Modal
+      <KeyboardAwareSheetModal
         visible={isListModalOpen}
-        animationType="slide"
-        transparent
-        statusBarTranslucent
-        onRequestClose={() => setIsListModalOpen(false)}
+        onClose={() => setIsListModalOpen(false)}
+        backgroundColor={colors.card}
+        borderColor={colors.border}
+        maxHeightRatio={0.85}
       >
-        <View style={styles.sheetModalOverlay}>
-          <TouchableOpacity
-            style={StyleSheet.absoluteFill}
-            activeOpacity={1}
-            onPress={() => setIsListModalOpen(false)}
-          />
-          <View
-            style={[
-              styles.sheetModalContent,
-              {
-                backgroundColor: colors.card,
-                borderColor: colors.border,
-                paddingBottom: insets.bottom > 0 ? insets.bottom + 12 : 20,
-              },
-            ]}
-          >
-            <View style={styles.sheetModalDragIndicator} />
-
+        {() => (
+          <View style={{ gap: 12, flexShrink: 1 }}>
             <View style={styles.sheetModalHeader}>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.sheetModalTitle, { color: colors.foreground }]}>
@@ -2227,6 +2218,8 @@ export default function AlbumDetailScreen() {
                 placeholderTextColor={colors.mutedForeground}
                 value={newCustomListTitle}
                 onChangeText={setNewCustomListTitle}
+                returnKeyType="done"
+                onSubmitEditing={handleCreateAndAddList}
                 style={[
                   styles.createListInput,
                   {
@@ -2262,8 +2255,9 @@ export default function AlbumDetailScreen() {
 
             {/* Listagem das listas do usuário */}
             <ScrollView
-              style={{ maxHeight: 250, marginTop: 8 }}
+              style={{ maxHeight: 250 }}
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
             >
               {isLoadingLists && userLists.length === 0 ? (
                 <View style={{ paddingVertical: 24, alignItems: 'center' }}>
@@ -2358,8 +2352,8 @@ export default function AlbumDetailScreen() {
               )}
             </ScrollView>
           </View>
-        </View>
-      </Modal>
+        )}
+      </KeyboardAwareSheetModal>
 
       {/* MODAL 3: Opções do Álbum (3 pontinhos) */}
       <Modal
@@ -3209,12 +3203,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   reviewTextarea: {
-    minHeight: 84,
+    minHeight: 92,
+    maxHeight: 160,
     borderRadius: 14,
     borderWidth: 1,
     padding: 12,
-    fontSize: 13,
+    fontSize: 13.5,
     textAlignVertical: 'top',
+  },
+  sheetStickyFooter: {
+    borderTopWidth: 1,
+    paddingTop: 10,
+    gap: 8,
   },
   submitReviewBtn: {
     height: 42,
