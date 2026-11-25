@@ -14,7 +14,46 @@ import {
   type UserListRecord,
 } from './musicBrainz.service';
 import { fetchLiveRecordLabelDetails } from './recordLabel.service';
+import { Storage } from './storage';
 import { supabase } from './supabase';
+
+const SUPERFAN_STORAGE_PREFIX = 'musicpostr_superfan_artists_v1_';
+const SUPERFAN_FEED_MARKER = '__superfan__';
+
+function resolveFeedActivityType(row: any): FeedPostItem['activityType'] {
+  if (row?.activity_type === 'superfan') return 'superfan';
+  if (row?.activity_type === 'follow_idol' && row?.comment === SUPERFAN_FEED_MARKER) {
+    return 'superfan';
+  }
+  return (row?.activity_type || 'review') as FeedPostItem['activityType'];
+}
+
+function resolveFeedComment(row: any): string {
+  if (row?.comment === SUPERFAN_FEED_MARKER) return '';
+  return row?.comment || '';
+}
+
+async function readLocalSuperfanIds(userId: string): Promise<string[]> {
+  try {
+    const raw = await Storage.getItem(`${SUPERFAN_STORAGE_PREFIX}${userId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeLocalSuperfanIds(userId: string, ids: string[]): Promise<void> {
+  try {
+    await Storage.setItem(
+      `${SUPERFAN_STORAGE_PREFIX}${userId}`,
+      JSON.stringify(Array.from(new Set(ids)))
+    );
+  } catch {
+    // ignore
+  }
+}
 
 export interface GenreRecord {
   id: string;
@@ -1289,6 +1328,7 @@ export async function ensureAlbumExistsInSupabase(
 // ============================================================================
 
 export async function getFeedPostsFromSupabase(currentUserId?: string): Promise<FeedPostItem[]> {
+  if (!currentUserId) return [];
   try {
     const [postsRes, reviewsRes] = await Promise.all([
       supabase
@@ -1375,12 +1415,14 @@ export async function getFeedPostsFromSupabase(currentUserId?: string): Promise<
         existingReviewIds.add(String(p.review_id));
       }
       const sortTime = p.created_at ? new Date(p.created_at).getTime() || 0 : 0;
+      const resolvedType = resolveFeedActivityType(p);
       combined.push({
         sortTime,
         item: {
           id: String(p.id),
           userId: p.user_id ? String(p.user_id) : undefined,
-          activityType: p.activity_type || 'review',
+          reviewId: p.review_id ? String(p.review_id) : undefined,
+          activityType: resolvedType,
           friendName: p.friend_name || 'Usuário',
           friendUsername: p.friend_username || 'user',
           friendAvatar: p.friend_avatar || '',
@@ -1391,7 +1433,7 @@ export async function getFeedPostsFromSupabase(currentUserId?: string): Promise<
           artistGenre: p.artist_genre || undefined,
           albumCover: p.album_cover || '',
           rating: Number(p.rating || 0),
-          comment: p.comment || '',
+          comment: resolveFeedComment(p),
           timeAgo: formatRelativeTime(p.created_at, p.time_ago, Boolean(p.is_edited)),
           likesCount: Number(p.likes_count || 0),
           isLiked: likedSet.has(String(p.id)),
@@ -1415,6 +1457,7 @@ export async function getFeedPostsFromSupabase(currentUserId?: string): Promise<
         item: {
           id: `review-feed-${reviewId}`,
           userId: r.user_id ? String(r.user_id) : undefined,
+          reviewId,
           activityType: 'review',
           friendName: r.user_display_name || r.username || 'Usuário',
           friendUsername: r.username || 'user',
@@ -1440,6 +1483,387 @@ export async function getFeedPostsFromSupabase(currentUserId?: string): Promise<
     return combined.slice(0, 60).map((entry) => entry.item);
   } catch (err) {
     console.warn('[CatalogService] Erro ao buscar feed_posts:', err);
+    return [];
+  }
+}
+
+export function isSyntheticFeedPostId(postId: string): boolean {
+  return (
+    postId.startsWith('review-feed-') ||
+    postId.startsWith('favorite-feed-') ||
+    postId.startsWith('idol-feed-')
+  );
+}
+
+export async function ensureFeedPostInSupabase(item: FeedPostItem): Promise<string | null> {
+  if (!isSyntheticFeedPostId(item.id)) {
+    return item.id;
+  }
+
+  try {
+    const activityType = item.activityType || 'review';
+
+    // Verifica se já existe um post correspondente no Supabase
+    if (activityType === 'review' && item.reviewId) {
+      const { data: existing } = await supabase
+        .from('feed_posts')
+        .select('id')
+        .eq('review_id', item.reviewId)
+        .maybeSingle();
+      if (existing?.id) return String(existing.id);
+    } else if (activityType === 'favorite' && item.userId && item.albumId) {
+      const { data: existing } = await supabase
+        .from('feed_posts')
+        .select('id')
+        .eq('user_id', item.userId)
+        .eq('album_id', item.albumId)
+        .eq('activity_type', 'favorite')
+        .maybeSingle();
+      if (existing?.id) return String(existing.id);
+    } else if (activityType === 'follow_idol' && item.userId && item.artistId) {
+      const { data: existing } = await supabase
+        .from('feed_posts')
+        .select('id')
+        .eq('user_id', item.userId)
+        .eq('artist_id', item.artistId)
+        .eq('activity_type', 'follow_idol')
+        .maybeSingle();
+      if (existing?.id) return String(existing.id);
+    }
+
+    if (!item.userId) return null;
+
+    const basePayload: Record<string, any> = {
+      activity_type: activityType,
+      user_id: item.userId,
+      friend_name: item.friendName || 'Usuário',
+      friend_username: item.friendUsername || 'user',
+      friend_avatar: item.friendAvatar || '',
+      album_id: activityType === 'follow_idol' ? null : item.albumId || null,
+      album_title: item.albumTitle || '',
+      artist_id: item.artistId || null,
+      artist_name: item.artistName || '',
+      artist_genre: item.artistGenre || null,
+      album_cover: item.albumCover || '',
+      rating: Number(item.rating || 0),
+      comment: item.comment || '',
+      time_ago: item.timeAgo || 'agora',
+      is_edited: Boolean(item.isEdited),
+      review_id: item.reviewId || null,
+    };
+
+    const { data: inserted, error } = await supabase
+      .from('feed_posts')
+      .insert(basePayload)
+      .select('id')
+      .single();
+
+    if (!error && inserted?.id) {
+      return String(inserted.id);
+    }
+
+    if (error?.code === '23503' && basePayload.artist_id) {
+      const { data: retryData } = await supabase
+        .from('feed_posts')
+        .insert({ ...basePayload, artist_id: null })
+        .select('id')
+        .single();
+      if (retryData?.id) return String(retryData.id);
+    }
+
+    return null;
+  } catch (err) {
+    console.warn('[CatalogService] Erro ao garantir feed_post:', err);
+    return null;
+  }
+}
+
+export async function getUserFeedPostsFromSupabase(
+  identifier: { userId?: string; username?: string },
+  currentUserId?: string
+): Promise<FeedPostItem[]> {
+  try {
+    let targetUserId = identifier.userId;
+    let profileRow: {
+      id: string;
+      full_name?: string | null;
+      username?: string | null;
+      avatar_url?: string | null;
+    } | null = null;
+
+    if (targetUserId) {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, full_name, username, avatar_url')
+        .eq('id', targetUserId)
+        .maybeSingle();
+      profileRow = data;
+    } else if (identifier.username) {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, full_name, username, avatar_url')
+        .ilike('username', identifier.username)
+        .maybeSingle();
+      profileRow = data;
+      targetUserId = data?.id;
+    }
+
+    if (!targetUserId) return [];
+
+    const [postsRes, reviewsRes, favoritesRes, idolsRes] = await Promise.all([
+      supabase
+        .from('feed_posts')
+        .select('*')
+        .eq('user_id', targetUserId)
+        .order('created_at', { ascending: false })
+        .limit(100),
+      supabase
+        .from('album_reviews')
+        .select(`
+          id,
+          album_id,
+          user_id,
+          user_display_name,
+          username,
+          user_avatar,
+          rating,
+          comment,
+          display_date,
+          is_edited,
+          likes_count,
+          created_at,
+          album:albums(title, artist_id, artist_name, genre_name, cover_xl, cover_big, cover_medium)
+        `)
+        .eq('user_id', targetUserId)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('user_favorite_albums')
+        .select(`
+          id,
+          album_id,
+          created_at,
+          album:albums(id, title, artist_id, artist_name, genre_name, cover_xl, cover_big, cover_medium, community_rating)
+        `)
+        .eq('user_id', targetUserId)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('user_followed_artists')
+        .select(`
+          id,
+          artist_id,
+          created_at,
+          artist:artists(id, name, image_url, genre)
+        `)
+        .eq('user_id', targetUserId)
+        .order('created_at', { ascending: false }),
+    ]);
+
+    const posts: any[] = !postsRes.error && Array.isArray(postsRes.data) ? postsRes.data : [];
+    const postIds = posts.map((p) => p.id);
+
+    const [commentsRes, likesRes] =
+      postIds.length > 0
+        ? await Promise.all([
+            supabase
+              .from('feed_post_comments')
+              .select('*')
+              .in('post_id', postIds)
+              .order('created_at', { ascending: true }),
+            currentUserId
+              ? supabase
+                  .from('feed_post_likes')
+                  .select('post_id')
+                  .eq('user_id', currentUserId)
+                  .in('post_id', postIds)
+              : Promise.resolve({ data: [], error: null }),
+          ])
+        : [
+            { data: [], error: null },
+            { data: [], error: null },
+          ];
+
+    const commentsByPost = new Map<
+      string,
+      { id: string; userId?: string; author: string; avatar: string; text: string; time: string }[]
+    >();
+
+    if (!commentsRes.error && commentsRes.data) {
+      for (const c of commentsRes.data as any[]) {
+        const list = commentsByPost.get(c.post_id) || [];
+        list.push({
+          id: String(c.id),
+          userId: c.user_id ? String(c.user_id) : undefined,
+          author: c.author || 'Usuário',
+          avatar: c.avatar || '',
+          text: c.text || '',
+          time: formatRelativeTime(c.created_at, c.time_label),
+        });
+        commentsByPost.set(c.post_id, list);
+      }
+    }
+
+    const likedSet = new Set<string>(
+      !likesRes.error && likesRes.data
+        ? (likesRes.data as any[]).map((l) => String(l.post_id))
+        : []
+    );
+
+    const fallbackName =
+      profileRow?.full_name || profileRow?.username || identifier.username || 'Usuário';
+    const fallbackUsername = profileRow?.username || identifier.username || 'user';
+    const fallbackAvatar = profileRow?.avatar_url || '';
+
+    const seenReviewIds = new Set<string>();
+    const seenReviewAlbumIds = new Set<string>();
+    const seenFavoriteAlbumIds = new Set<string>();
+    const seenIdolArtistIds = new Set<string>();
+    const combined: { sortTime: number; item: FeedPostItem }[] = [];
+
+    for (const p of posts) {
+      const actType = resolveFeedActivityType(p);
+      if (actType === 'review') {
+        if (p.review_id) seenReviewIds.add(String(p.review_id));
+        if (p.album_id) seenReviewAlbumIds.add(String(p.album_id));
+      } else if (actType === 'favorite' && p.album_id) {
+        seenFavoriteAlbumIds.add(String(p.album_id));
+      } else if (actType === 'follow_idol' && p.artist_id) {
+        seenIdolArtistIds.add(String(p.artist_id));
+      }
+
+      const sortTime = p.created_at ? new Date(p.created_at).getTime() || 0 : 0;
+      combined.push({
+        sortTime,
+        item: {
+          id: String(p.id),
+          userId: p.user_id ? String(p.user_id) : targetUserId,
+          reviewId: p.review_id ? String(p.review_id) : undefined,
+          activityType: actType,
+          friendName: p.friend_name || fallbackName,
+          friendUsername: p.friend_username || fallbackUsername,
+          friendAvatar: p.friend_avatar || fallbackAvatar,
+          albumId: String(p.album_id || ''),
+          albumTitle: p.album_title || '',
+          artistId: p.artist_id ? String(p.artist_id) : undefined,
+          artistName: p.artist_name || '',
+          artistGenre: p.artist_genre || undefined,
+          albumCover: p.album_cover || '',
+          rating: Number(p.rating || 0),
+          comment: resolveFeedComment(p),
+          timeAgo: formatRelativeTime(p.created_at, p.time_ago, Boolean(p.is_edited)),
+          likesCount: Number(p.likes_count || 0),
+          isLiked: likedSet.has(String(p.id)),
+          isEdited: Boolean(p.is_edited),
+          comments: commentsByPost.get(String(p.id)) || [],
+        },
+      });
+    }
+
+    // Inclui reviews que ainda não tenham entrada em feed_posts
+    const userReviews: any[] =
+      !reviewsRes.error && Array.isArray(reviewsRes.data) ? reviewsRes.data : [];
+    for (const r of userReviews) {
+      const reviewId = String(r.id);
+      const albumId = String(r.album_id || '');
+      if (seenReviewIds.has(reviewId) || (albumId && seenReviewAlbumIds.has(albumId))) continue;
+      const album = Array.isArray(r.album) ? r.album[0] : r.album;
+      const sortTime = r.created_at ? new Date(r.created_at).getTime() || 0 : 0;
+      combined.push({
+        sortTime,
+        item: {
+          id: `review-feed-${reviewId}`,
+          userId: r.user_id ? String(r.user_id) : targetUserId,
+          reviewId,
+          activityType: 'review',
+          friendName: r.user_display_name || fallbackName,
+          friendUsername: r.username || fallbackUsername,
+          friendAvatar: r.user_avatar || fallbackAvatar,
+          albumId,
+          albumTitle: album?.title || 'Álbum',
+          artistId: album?.artist_id ? String(album.artist_id) : undefined,
+          artistName: album?.artist_name || 'Artista',
+          artistGenre: album?.genre_name || undefined,
+          albumCover: album?.cover_xl || album?.cover_big || album?.cover_medium || '',
+          rating: Number(r.rating || 0),
+          comment: r.comment || '',
+          timeAgo: formatRelativeTime(r.created_at, r.display_date, Boolean(r.is_edited)),
+          likesCount: Number(r.likes_count || 0),
+          isLiked: false,
+          isEdited: Boolean(r.is_edited),
+          comments: [],
+        },
+      });
+    }
+
+    // Inclui favoritos que ainda não tenham entrada em feed_posts
+    const userFavorites: any[] =
+      !favoritesRes.error && Array.isArray(favoritesRes.data) ? favoritesRes.data : [];
+    for (const f of userFavorites) {
+      const album = Array.isArray(f.album) ? f.album[0] : f.album;
+      const albumId = String(album?.id || f.album_id || '');
+      if (!albumId || seenFavoriteAlbumIds.has(albumId)) continue;
+      const sortTime = f.created_at ? new Date(f.created_at).getTime() || 0 : 0;
+      combined.push({
+        sortTime,
+        item: {
+          id: `favorite-feed-${albumId}`,
+          userId: targetUserId,
+          activityType: 'favorite',
+          friendName: fallbackName,
+          friendUsername: fallbackUsername,
+          friendAvatar: fallbackAvatar,
+          albumId,
+          albumTitle: album?.title || 'Álbum',
+          artistId: album?.artist_id ? String(album.artist_id) : undefined,
+          artistName: album?.artist_name || 'Artista',
+          artistGenre: album?.genre_name || undefined,
+          albumCover: album?.cover_xl || album?.cover_big || album?.cover_medium || '',
+          rating: Number(album?.community_rating || 0),
+          comment: '',
+          timeAgo: formatRelativeTime(f.created_at),
+          likesCount: 0,
+          isLiked: false,
+          comments: [],
+        },
+      });
+    }
+
+    // Inclui artistas seguidos (ídolos) que ainda não tenham entrada em feed_posts
+    const userIdols: any[] =
+      !idolsRes.error && Array.isArray(idolsRes.data) ? idolsRes.data : [];
+    for (const a of userIdols) {
+      const artist = Array.isArray(a.artist) ? a.artist[0] : a.artist;
+      const artistId = String(artist?.id || a.artist_id || '');
+      if (!artistId || seenIdolArtistIds.has(artistId)) continue;
+      const sortTime = a.created_at ? new Date(a.created_at).getTime() || 0 : 0;
+      combined.push({
+        sortTime,
+        item: {
+          id: `idol-feed-${artistId}`,
+          userId: targetUserId,
+          activityType: 'follow_idol',
+          friendName: fallbackName,
+          friendUsername: fallbackUsername,
+          friendAvatar: fallbackAvatar,
+          albumId: '',
+          albumTitle: artist?.name || 'Artista',
+          artistId,
+          artistName: artist?.name || 'Artista',
+          artistGenre: artist?.genre || 'Artista',
+          albumCover: artist?.image_url || '',
+          rating: 0,
+          comment: '',
+          timeAgo: formatRelativeTime(a.created_at),
+          likesCount: 0,
+          isLiked: false,
+          comments: [],
+        },
+      });
+    }
+
+    combined.sort((a, b) => b.sortTime - a.sortTime);
+    return combined.map((entry) => entry.item);
+  } catch (err) {
+    console.warn('[CatalogService] Erro ao buscar feed_posts do usuário:', err);
     return [];
   }
 }
@@ -1951,6 +2375,166 @@ export async function getFollowedArtistIdsFromSupabase(userId: string): Promise<
   }
 }
 
+export async function getSuperfanArtistIdsFromSupabase(userId: string): Promise<string[]> {
+  const localIds = await readLocalSuperfanIds(userId);
+  try {
+    const { data, error } = await supabase
+      .from('user_followed_artists')
+      .select('artist_id')
+      .eq('user_id', userId)
+      .eq('is_superfan', true);
+
+    if (!error && Array.isArray(data)) {
+      const dbIds = data.map((row: any) => String(row.artist_id));
+      await writeLocalSuperfanIds(userId, dbIds);
+      return dbIds;
+    }
+
+    // Fallback se a coluna is_superfan ainda não existir no banco
+    const { data: posts } = await supabase
+      .from('feed_posts')
+      .select('artist_id, activity_type, comment')
+      .eq('user_id', userId)
+      .not('artist_id', 'is', null);
+
+    const postIds = Array.isArray(posts)
+      ? posts
+          .filter((p: any) => resolveFeedActivityType(p) === 'superfan')
+          .map((p: any) => String(p.artist_id))
+      : [];
+
+    return Array.from(new Set([...localIds, ...postIds]));
+  } catch {
+    return localIds;
+  }
+}
+
+export async function toggleSuperfanArtistInSupabase(
+  userId: string,
+  artist: CatalogArtist,
+  currentlySuperfan: boolean
+): Promise<boolean> {
+  try {
+    const localIds = await readLocalSuperfanIds(userId);
+
+    if (currentlySuperfan) {
+      await writeLocalSuperfanIds(
+        userId,
+        localIds.filter((item) => item !== artist.id)
+      );
+
+      // Tenta atualizar is_superfan = false (ignora se a coluna ainda não existir)
+      await supabase
+        .from('user_followed_artists')
+        .update({ is_superfan: false } as any)
+        .eq('user_id', userId)
+        .eq('artist_id', artist.id);
+
+      // Remove posts de superfã deste artista na timeline
+      await Promise.all([
+        supabase
+          .from('feed_posts')
+          .delete()
+          .eq('user_id', userId)
+          .eq('artist_id', artist.id)
+          .eq('activity_type', 'superfan'),
+        supabase
+          .from('feed_posts')
+          .delete()
+          .eq('user_id', userId)
+          .eq('artist_id', artist.id)
+          .eq('activity_type', 'follow_idol')
+          .eq('comment', SUPERFAN_FEED_MARKER),
+      ]);
+
+      notifyCatalogUpdated();
+      return false;
+    } else {
+      await ensureArtistExistsInSupabase({
+        id: artist.id,
+        name: artist.name,
+        image_url: artist.imageUrl,
+        banner_url: artist.imageUrl,
+        genre: artist.genre,
+        country: artist.country,
+        type: artist.type,
+      });
+
+      await writeLocalSuperfanIds(userId, [...localIds, artist.id]);
+
+      // Garante que o artista também esteja em user_followed_artists e marca is_superfan = true
+      const { data: existingRow } = await supabase
+        .from('user_followed_artists')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('artist_id', artist.id)
+        .maybeSingle();
+
+      if (existingRow?.id) {
+        await supabase
+          .from('user_followed_artists')
+          .update({ is_superfan: true } as any)
+          .eq('id', existingRow.id);
+      } else {
+        const { error: insertWithSuperfanErr } = await supabase
+          .from('user_followed_artists')
+          .insert({ user_id: userId, artist_id: artist.id, is_superfan: true } as any);
+        if (insertWithSuperfanErr) {
+          await supabase
+            .from('user_followed_artists')
+            .insert({ user_id: userId, artist_id: artist.id });
+        }
+      }
+
+      // Publica atividade de Superfã na timeline
+      try {
+        const { data: userProfile } = await supabase
+          .from('profiles')
+          .select('full_name, username, avatar_url')
+          .eq('id', userId)
+          .maybeSingle();
+
+        const basePayload = {
+          user_id: userId,
+          friend_name: userProfile?.full_name || userProfile?.username || 'Usuário',
+          friend_username: userProfile?.username || 'user',
+          friend_avatar: userProfile?.avatar_url || '',
+          album_id: null,
+          album_title: artist.name || 'Artista',
+          artist_id: artist.id,
+          artist_name: artist.name || 'Artista',
+          artist_genre: artist.genre || 'Artista',
+          album_cover: artist.imageUrl || '',
+          rating: 0,
+          time_ago: 'agora',
+        };
+
+        const { error: superfanPostErr } = await supabase.from('feed_posts').insert({
+          ...basePayload,
+          activity_type: 'superfan' as any,
+          comment: '',
+        });
+
+        // Fallback caso o enum 'superfan' ainda não tenha sido migrado no banco
+        if (superfanPostErr) {
+          await supabase.from('feed_posts').insert({
+            ...basePayload,
+            activity_type: 'follow_idol' as const,
+            comment: SUPERFAN_FEED_MARKER,
+          });
+        }
+      } catch {
+        // non-blocking
+      }
+
+      notifyCatalogUpdated();
+      return true;
+    }
+  } catch {
+    return currentlySuperfan;
+  }
+}
+
 export async function toggleFollowArtistInSupabase(
   userId: string,
   artist: CatalogArtist,
@@ -1958,6 +2542,11 @@ export async function toggleFollowArtistInSupabase(
 ): Promise<boolean> {
   try {
     if (currentlyFollowing) {
+      const localSuperfans = await readLocalSuperfanIds(userId);
+      await writeLocalSuperfanIds(
+        userId,
+        localSuperfans.filter((item) => item !== artist.id)
+      );
       await Promise.all([
         supabase
           .from('user_followed_artists')
@@ -1970,6 +2559,12 @@ export async function toggleFollowArtistInSupabase(
           .eq('user_id', userId)
           .eq('artist_id', artist.id)
           .eq('activity_type', 'follow_idol'),
+        supabase
+          .from('feed_posts')
+          .delete()
+          .eq('user_id', userId)
+          .eq('artist_id', artist.id)
+          .eq('activity_type', 'superfan'),
       ]);
       notifyCatalogUpdated();
       return false;
@@ -2066,11 +2661,119 @@ export async function addAlbumToUserListInSupabase(
         list_id: listId,
         album_id: album.id,
         album_title: album.title,
-        album_cover: album.cover_medium || album.cover_big || '',
+        album_cover: album.cover_big || album.cover_medium || album.cover_xl || '',
       },
       { onConflict: 'list_id,album_id', ignoreDuplicates: true }
     );
-    return !error;
+    if (error) return false;
+
+    const { count } = await supabase
+      .from('user_list_items')
+      .select('*', { count: 'exact', head: true })
+      .eq('list_id', listId);
+
+    if (typeof count === 'number') {
+      await supabase
+        .from('user_lists')
+        .update({ items_count: count })
+        .eq('id', listId);
+    }
+
+    notifyCatalogUpdated();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function removeAlbumFromUserListInSupabase(
+  listId: string,
+  albumId: string
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('user_list_items')
+      .delete()
+      .eq('list_id', listId)
+      .eq('album_id', albumId);
+    if (error) return false;
+
+    const { count } = await supabase
+      .from('user_list_items')
+      .select('*', { count: 'exact', head: true })
+      .eq('list_id', listId);
+
+    if (typeof count === 'number') {
+      await supabase
+        .from('user_lists')
+        .update({ items_count: count })
+        .eq('id', listId);
+    }
+
+    notifyCatalogUpdated();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function searchAlbumsInSupabase(
+  query: string,
+  limit = 15
+): Promise<CatalogAlbum[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  try {
+    const { data, error } = await supabase
+      .from('albums')
+      .select('*')
+      .or(`title.ilike.%${trimmed}%,artist_name.ilike.%${trimmed}%`)
+      .order('listeners_count', { ascending: false })
+      .limit(limit);
+    if (error || !data) return [];
+    return data.map(mapDbAlbumToCatalog);
+  } catch {
+    return [];
+  }
+}
+
+export async function updateUserListInSupabase(
+  listId: string,
+  userId: string,
+  updates: { title: string; description: string }
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('user_lists')
+      .update({
+        title: updates.title.trim(),
+        description: updates.description.trim() || 'Coleção de álbuns organizados por você.',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', listId)
+      .eq('user_id', userId);
+    if (error) return false;
+    notifyCatalogUpdated();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteUserListInSupabase(
+  listId: string,
+  userId: string
+): Promise<boolean> {
+  try {
+    await supabase.from('user_list_items').delete().eq('list_id', listId);
+    const { error } = await supabase
+      .from('user_lists')
+      .delete()
+      .eq('id', listId)
+      .eq('user_id', userId);
+    if (error) return false;
+    notifyCatalogUpdated();
+    return true;
   } catch {
     return false;
   }

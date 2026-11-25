@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { formatSocialDate } from '@/utils/date';
+import { getSuperfanArtistIdsFromSupabase } from './catalog.service';
 import {
   type MyReviewRecord,
   type FavoriteAlbumRecord,
@@ -450,34 +451,45 @@ export async function getUserFollowedArtists(identifier: { userId?: string; user
     }
     if (!targetUserId) return [];
 
-    const { data, error } = await supabase
-      .from('user_followed_artists')
-      .select(`
-        id,
-        artist_id,
-        created_at,
-        artist:artists(
+    const [followedRes, superfanIds] = await Promise.all([
+      supabase
+        .from('user_followed_artists')
+        .select(`
           id,
-          name,
-          image_url,
-          genre,
-          country,
-          nb_fans
-        )
-      `)
-      .eq('user_id', targetUserId);
+          artist_id,
+          created_at,
+          artist:artists(
+            id,
+            name,
+            image_url,
+            genre,
+            country,
+            nb_fans
+          )
+        `)
+        .eq('user_id', targetUserId)
+        .order('created_at', { ascending: false }),
+      getSuperfanArtistIdsFromSupabase(targetUserId),
+    ]);
 
+    const { data, error } = followedRes;
     if (error) throw error;
 
+    const superfanSet = new Set<string>(superfanIds);
+
     if (data && data.length > 0) {
-      return data.map((item: any) => ({
-        id: item.artist?.id || item.artist_id,
-        name: item.artist?.name || 'Artista',
-        imageUrl: item.artist?.image_url || '',
-        genre: item.artist?.genre || 'Artista Oficial',
-        country: item.artist?.country || '',
-        nbFans: item.artist?.nb_fans || 0,
-      }));
+      return data.map((item: any) => {
+        const artistId = String(item.artist?.id || item.artist_id);
+        return {
+          id: artistId,
+          name: item.artist?.name || 'Artista',
+          imageUrl: item.artist?.image_url || '',
+          genre: item.artist?.genre || 'Artista Oficial',
+          country: item.artist?.country || '',
+          nbFans: item.artist?.nb_fans || 0,
+          isSuperfan: superfanSet.has(artistId),
+        };
+      });
     }
   } catch (error) {
     console.warn('[ProfileService] Erro ao buscar ídolos do Supabase:', error);
@@ -507,14 +519,72 @@ export async function getUserListsFromSupabase(identifier: { userId?: string; us
     if (error) throw error;
 
     if (data && data.length > 0) {
-      return data.map((item: any) => ({
-        id: item.id,
-        title: item.title || item.name || 'Lista',
-        count: item.items_count || 0,
-        description: item.description || '',
-        createdAt: item.created_label || item.created_at,
-        isDefault: item.is_default || false,
-      }));
+      const listIds = data.map((item: any) => String(item.id));
+      const { data: itemsData } = await supabase
+        .from('user_list_items')
+        .select(`
+          list_id,
+          album_id,
+          album_title,
+          album_cover,
+          position,
+          added_at,
+          album:albums(
+            id,
+            title,
+            artist_name,
+            cover_medium,
+            cover_big,
+            cover_xl
+          )
+        `)
+        .in('list_id', listIds)
+        .order('position', { ascending: true })
+        .order('added_at', { ascending: true });
+
+      const albumsByList = new Map<
+        string,
+        { id: string; title: string; artist?: string; cover: string }[]
+      >();
+      const countsByList = new Map<string, number>();
+
+      if (Array.isArray(itemsData)) {
+        for (const row of itemsData as any[]) {
+          const lid = String(row.list_id);
+          countsByList.set(lid, (countsByList.get(lid) || 0) + 1);
+          const current = albumsByList.get(lid) || [];
+          if (current.length < 4) {
+            const albumObj = Array.isArray(row.album) ? row.album[0] : row.album;
+            current.push({
+              id: String(albumObj?.id || row.album_id || ''),
+              title: albumObj?.title || row.album_title || 'Álbum',
+              artist: albumObj?.artist_name || undefined,
+              cover:
+                albumObj?.cover_big ||
+                albumObj?.cover_medium ||
+                albumObj?.cover_xl ||
+                row.album_cover ||
+                '',
+            });
+            albumsByList.set(lid, current);
+          }
+        }
+      }
+
+      return data.map((item: any) => {
+        const lid = String(item.id);
+        const listAlbums = albumsByList.get(lid) || [];
+        const realCount = countsByList.get(lid);
+        return {
+          id: lid,
+          title: item.title || item.name || 'Lista',
+          count: typeof realCount === 'number' ? realCount : item.items_count || 0,
+          description: item.description || '',
+          createdAt: item.created_label || formatSocialDate(item.created_at),
+          isDefault: item.is_default || false,
+          albums: listAlbums,
+        };
+      });
     }
   } catch (error) {
     console.warn('[ProfileService] Erro ao buscar listas do Supabase:', error);

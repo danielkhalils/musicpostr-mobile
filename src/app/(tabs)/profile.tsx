@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
 import {
   User,
@@ -27,7 +27,6 @@ import {
   Share2,
   Check,
   Settings,
-  Trash2,
   ArrowLeft,
   LogIn,
   X,
@@ -43,8 +42,8 @@ import {
 import {
   type MyReviewRecord,
   type FavoriteAlbumRecord,
-  type CatalogArtist,
   type UserListRecord,
+  type FeedPostItem,
   subscribeAlbumsUpdated,
 } from '@/services/musicBrainz.service';
 import {
@@ -59,13 +58,21 @@ import {
   mapSupabaseProfileToView,
   type UnifiedProfileViewData,
 } from '@/services/profile.service';
+import {
+  getUserFeedPostsFromSupabase,
+  ensureFeedPostInSupabase,
+  toggleFeedPostLikeInSupabase,
+  addFeedPostCommentInSupabase,
+  deleteFeedPostCommentInSupabase,
+} from '@/services/catalog.service';
 import { CoverImage } from '@/components/CoverImage';
-import { FeedStyleActivityCard } from '@/components/FeedStyleActivityCard';
+import { FeedPostCard } from '@/components/FeedPostCard';
+import { FeedCommentsModal, FeedShareModal } from '@/components/FeedPostModals';
 import { SocialIcon } from '@/components/SocialIcon';
 import { openSocialLink } from '@/utils/social';
 import { useActivityCardMode } from '@/hooks/use-activity-card-mode';
 
-type ProfileHistoryTab = 'all' | 'reviews' | 'favorites' | 'idols';
+type ProfileHistoryTab = 'all' | 'reviews' | 'favorites';
 
 export function ProfileView({
   visitingUsername,
@@ -94,9 +101,28 @@ export function ProfileView({
 
   const [reviews, setReviews] = useState<MyReviewRecord[]>([]);
   const [favorites, setFavorites] = useState<FavoriteAlbumRecord[]>([]);
-  const [idols, setIdols] = useState<CatalogArtist[]>([]);
   const [idolsCount, setIdolsCount] = useState(0);
   const [lists, setLists] = useState<UserListRecord[]>([]);
+  const [feedPosts, setFeedPosts] = useState<FeedPostItem[]>([]);
+  const [activeCommentPostId, setActiveCommentPostId] = useState<string | null>(null);
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
+  const [sharePostItem, setSharePostItem] = useState<FeedPostItem | null>(null);
+
+  const activeCommentPost = useMemo(
+    () => feedPosts.find((item) => item.id === activeCommentPostId) ?? null,
+    [feedPosts, activeCommentPostId]
+  );
+
+  const filteredFeedPosts = useMemo(() => {
+    if (historyTab === 'all') return feedPosts;
+    if (historyTab === 'reviews') {
+      return feedPosts.filter((p) => (p.activityType || 'review') === 'review');
+    }
+    if (historyTab === 'favorites') {
+      return feedPosts.filter((p) => p.activityType === 'favorite');
+    }
+    return feedPosts;
+  }, [feedPosts, historyTab]);
 
   // Dados consolidados do perfil carregado
   const [customProfile, setCustomProfile] = useState<UnifiedProfileViewData | null>(null);
@@ -106,13 +132,14 @@ export function ProfileView({
     try {
       if (isVisiting && visitingUsername) {
         // Carrega dados do perfil visitado no Supabase
-        const [dbProfile, stats, userRevs, userFavs, userIdols, userLists] = await Promise.all([
+        const [dbProfile, stats, userRevs, userFavs, userIdols, userLists, userPosts] = await Promise.all([
           getProfileByUsername(visitingUsername),
           getProfileStats({ username: visitingUsername }),
           getUserReviews({ username: visitingUsername }),
           getUserFavoriteAlbums({ username: visitingUsername }),
           getUserFollowedArtists({ username: visitingUsername }),
           getUserListsFromSupabase({ username: visitingUsername }),
+          getUserFeedPostsFromSupabase({ username: visitingUsername }, user?.id),
         ]);
 
         if (dbProfile) {
@@ -122,17 +149,18 @@ export function ProfileView({
         }
         setReviews(userRevs);
         setFavorites(userFavs);
-        setIdols(userIdols);
         setIdolsCount(userIdols.length);
         setLists(userLists);
+        setFeedPosts(userPosts);
       } else if (user) {
         // Carrega dados do usuário autenticado no Supabase
-        const [stats, userRevs, userFavs, userIdols, userLists] = await Promise.all([
+        const [stats, userRevs, userFavs, userIdols, userLists, userPosts] = await Promise.all([
           getProfileStats({ userId: user.id }),
           getUserReviews({ userId: user.id }),
           getUserFavoriteAlbums({ userId: user.id }),
           getUserFollowedArtists({ userId: user.id }),
           getUserListsFromSupabase({ userId: user.id }),
+          getUserFeedPostsFromSupabase({ userId: user.id }, user.id),
         ]);
 
         if (authProfile) {
@@ -146,16 +174,16 @@ export function ProfileView({
 
         setReviews(userRevs);
         setFavorites(userFavs);
-        setIdols(userIdols);
         setIdolsCount(userIdols.length);
         setLists(userLists);
+        setFeedPosts(userPosts);
       } else {
         setCustomProfile(null);
         setReviews([]);
         setFavorites([]);
-        setIdols([]);
         setIdolsCount(0);
         setLists([]);
+        setFeedPosts([]);
       }
     } catch (err) {
       console.warn('[ProfileView] Erro ao carregar perfil do Supabase:', err);
@@ -172,19 +200,162 @@ export function ProfileView({
     return unsubscribe;
   }, [loadProfileData]);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadProfileData();
+    }, [loadProfileData])
+  );
+
   const onRefresh = async () => {
     setRefreshing(true);
     await Promise.all([refreshProfile(), loadProfileData()]);
     setRefreshing(false);
   };
 
-  const executeDeleteReview = async (id: string) => {
+  const handleToggleLike = async (postId: string) => {
+    const target = feedPosts.find((item) => item.id === postId);
+    if (!target) return;
+    if (!user) {
+      router.push('/login' as any);
+      return;
+    }
+    const prevLiked = target.isLiked;
+
+    setFeedPosts((prev) =>
+      prev.map((item) =>
+        item.id === postId
+          ? {
+              ...item,
+              isLiked: !prevLiked,
+              likesCount: Math.max(0, prevLiked ? item.likesCount - 1 : item.likesCount + 1),
+            }
+          : item
+      )
+    );
+
+    const realPostId = await ensureFeedPostInSupabase(target);
+    if (!realPostId) return;
+
+    if (realPostId !== postId) {
+      setFeedPosts((prev) =>
+        prev.map((item) => (item.id === postId ? { ...item, id: realPostId } : item))
+      );
+      setActiveCommentPostId((prev) => (prev === postId ? realPostId : prev));
+    }
+
+    await toggleFeedPostLikeInSupabase(realPostId, user.id, prevLiked);
+  };
+
+  const handleAddComment = async (postId: string, commentText: string): Promise<boolean> => {
+    const text = commentText.trim();
+    if (!text) return false;
+    if (!user) {
+      setActiveCommentPostId(null);
+      router.push('/login' as any);
+      return false;
+    }
+
+    const target = feedPosts.find((item) => item.id === postId);
+    if (!target) return false;
+
+    const realPostId = await ensureFeedPostInSupabase(target);
+    if (!realPostId) return false;
+
+    const authorName = authProfile?.full_name || authProfile?.username || 'Usuário';
+    const authorAvatar = authProfile?.avatar_url || '';
+
+    const created = await addFeedPostCommentInSupabase({
+      postId: realPostId,
+      userId: user.id,
+      author: authorName,
+      avatar: authorAvatar,
+      text,
+    });
+
+    if (created) {
+      setFeedPosts((prev) =>
+        prev.map((item) =>
+          item.id === postId || item.id === realPostId
+            ? {
+                ...item,
+                id: realPostId,
+                comments: [...item.comments, created],
+              }
+            : item
+        )
+      );
+      if (realPostId !== postId) {
+        setActiveCommentPostId((prev) => (prev === postId ? realPostId : prev));
+      }
+      return true;
+    }
+    return false;
+  };
+
+  const executeDeleteComment = async (postId: string, commentId: string) => {
+    if (deletingCommentId) return;
+    setDeletingCommentId(commentId);
+    try {
+      const ok = await deleteFeedPostCommentInSupabase(commentId);
+      if (ok) {
+        setFeedPosts((prev) =>
+          prev.map((item) =>
+            item.id === postId
+              ? {
+                  ...item,
+                  comments: item.comments.filter((c) => c.id !== commentId),
+                }
+              : item
+          )
+        );
+      } else {
+        Alert.alert(
+          'Erro ao excluir comentário',
+          'Não foi possível excluir este comentário. Tente novamente.'
+        );
+      }
+    } finally {
+      setDeletingCommentId(null);
+    }
+  };
+
+  const handleDeleteComment = (postId: string, commentId: string) => {
+    if (deletingCommentId) return;
+    const message = 'Tem certeza que deseja excluir este comentário?';
+    if (Platform.OS === 'web') {
+      const confirmed = typeof window !== 'undefined' && window.confirm(message);
+      if (confirmed) {
+        executeDeleteComment(postId, commentId);
+      }
+      return;
+    }
+
+    Alert.alert('Excluir comentário', message, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Excluir',
+        style: 'destructive',
+        onPress: () => executeDeleteComment(postId, commentId),
+      },
+    ]);
+  };
+
+  const executeDeleteReview = async (id: string, albumId?: string) => {
     if (isVisiting || deletingReviewId) return;
     setDeletingReviewId(id);
     try {
       const ok = user ? await deleteReviewFromSupabase(id, user.id) : true;
       if (ok) {
         setReviews((prev) => prev.filter((r) => r.id !== id));
+        setFeedPosts((prev) =>
+          prev.filter(
+            (p) =>
+              !(
+                (p.activityType || 'review') === 'review' &&
+                (p.reviewId === id || (albumId && p.albumId === albumId))
+              )
+          )
+        );
       } else {
         Alert.alert(
           'Erro ao excluir',
@@ -196,7 +367,7 @@ export function ProfileView({
     }
   };
 
-  const handleDeleteReview = (id: string, albumTitle?: string) => {
+  const handleDeleteReview = (id: string, albumTitle?: string, albumId?: string) => {
     if (isVisiting || deletingReviewId) return;
     const message = albumTitle
       ? `Tem certeza que deseja excluir sua avaliação de "${albumTitle}"? Ela também será removida da timeline.`
@@ -205,7 +376,7 @@ export function ProfileView({
     if (Platform.OS === 'web') {
       const confirmed = typeof window !== 'undefined' && window.confirm(message);
       if (confirmed) {
-        executeDeleteReview(id);
+        executeDeleteReview(id, albumId);
       }
       return;
     }
@@ -215,7 +386,7 @@ export function ProfileView({
       {
         text: 'Excluir',
         style: 'destructive',
-        onPress: () => executeDeleteReview(id),
+        onPress: () => executeDeleteReview(id, albumId),
       },
     ]);
   };
@@ -345,13 +516,13 @@ export function ProfileView({
   }
 
   return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
     <ScrollView
-      style={{ flex: 1, backgroundColor: colors.background }}
+      style={{ flex: 1 }}
       contentContainerStyle={styles.container}
       showsVerticalScrollIndicator={false}
       onScroll={(e) => {
-        const totalItems = reviews.length + favorites.length + idols.length;
-        if (visibleHistoryCount < totalItems && isNearScrollBottom(e)) {
+        if (visibleHistoryCount < filteredFeedPosts.length && isNearScrollBottom(e)) {
           setVisibleHistoryCount((prev) => prev + INFINITE_PAGE_SIZE);
         }
       }}
@@ -738,45 +909,6 @@ export function ProfileView({
               style={[styles.pipeDivider, { backgroundColor: colors.border }]}
             />
 
-            {/* Ídolos */}
-            <TouchableOpacity
-              style={[
-                styles.unifiedStatItem,
-                historyTab === 'idols' && {
-                  backgroundColor: '#a855f718',
-                  borderRadius: 10,
-                },
-              ]}
-              onPress={() => setHistoryTab('idols')}
-              activeOpacity={0.7}
-            >
-              <View style={styles.unifiedStatHeader}>
-                <User size={12} color="#a855f7" />
-                <Text
-                  style={[styles.unifiedStatValue, { color: colors.foreground }]}
-                >
-                  {displayProfile.stats.idols}
-                </Text>
-              </View>
-              <Text
-                style={[
-                  styles.unifiedStatLabel,
-                  {
-                    color:
-                      historyTab === 'idols'
-                        ? '#a855f7'
-                        : colors.mutedForeground,
-                  },
-                ]}
-              >
-                Ídolos
-              </Text>
-            </TouchableOpacity>
-
-            <View
-              style={[styles.pipeDivider, { backgroundColor: colors.border }]}
-            />
-
             {/* Favoritos */}
             <TouchableOpacity
               style={[
@@ -811,6 +943,41 @@ export function ProfileView({
                 Favoritos
               </Text>
             </TouchableOpacity>
+
+            <View
+              style={[styles.pipeDivider, { backgroundColor: colors.border }]}
+            />
+
+            {/* Ídolos */}
+            <TouchableOpacity
+              style={styles.unifiedStatItem}
+              onPress={() =>
+                router.push({
+                  pathname: '/idols' as any,
+                  params: isVisiting
+                    ? { username: displayProfile.username }
+                    : {},
+                })
+              }
+              activeOpacity={0.7}
+            >
+              <View style={styles.unifiedStatHeader}>
+                <User size={12} color="#a855f7" />
+                <Text
+                  style={[styles.unifiedStatValue, { color: colors.foreground }]}
+                >
+                  {displayProfile.stats.idols}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  styles.unifiedStatLabel,
+                  { color: colors.mutedForeground },
+                ]}
+              >
+                Ídolos
+              </Text>
+            </TouchableOpacity>
           </ScrollView>
         </View>
       </View>
@@ -826,7 +993,6 @@ export function ProfileView({
             { key: 'all', label: 'Todo o Histórico' },
             { key: 'reviews', label: `Avaliados (${reviews.length})` },
             { key: 'favorites', label: `Favoritados (${favorites.length})` },
-            { key: 'idols', label: `Artistas Seguidos (${idols.length})` },
           ] as const
         ).map((tab) => {
           const active = historyTab === tab.key;
@@ -856,277 +1022,60 @@ export function ProfileView({
         })}
       </ScrollView>
 
-      {/* Histórico Completo Carregado Direto no Perfil */}
+      {/* Histórico Completo Carregado Direto no Perfil (idêntico ao Feed) */}
       <View style={styles.feedHistoryContainer}>
-        {/* 1. Álbuns Avaliados */}
-        {(historyTab === 'all' || historyTab === 'reviews') &&
-          reviews.slice(0, visibleHistoryCount).map((rev) =>
-            cardMode === 'full' ? (
-              <FeedStyleActivityCard
-                key={`rev-${rev.id}`}
-                activityType="review"
-                authorName={displayProfile.name}
-                authorUsername={displayProfile.username}
-                authorAvatar={displayProfile.avatarUrl}
-                timeAgo={rev.date}
-                title={rev.albumTitle}
-                subtitle={rev.artistName}
-                coverUrl={rev.coverUrl}
-                rating={rev.rating}
-                comment={rev.comment}
-                onPressTarget={() => router.push(`/album/${rev.albumId}` as any)}
-                onDelete={!isVisiting ? () => handleDeleteReview(rev.id, rev.albumTitle) : undefined}
-                isDeleting={deletingReviewId === rev.id}
-              />
-            ) : (
-            <View
-              key={`rev-${rev.id}`}
-              style={[
-                styles.activityItemCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
-            >
-              <TouchableOpacity
-                style={styles.activityRowMain}
-                onPress={() => router.push(`/album/${rev.albumId}` as any)}
-                activeOpacity={0.85}
-              >
-                <CoverImage uri={rev.coverUrl} albumTitle={rev.albumTitle} albumArtist={rev.artistName} style={styles.activityThumb} quality="medium" />
-                <View style={{ flex: 1, gap: 2 }}>
-                  <View style={styles.activityHeaderLine}>
-                    <View
-                      style={[
-                        styles.typeTag,
-                        { backgroundColor: `${colors.primary}18` },
-                      ]}
-                    >
-                      <Star
-                        size={10}
-                        color={colors.primary}
-                        fill={colors.primary}
-                      />
-                      <Text
-                        style={{
-                          fontSize: 10,
-                          fontWeight: '800',
-                          color: colors.primary,
-                        }}
-                      >
-                        Avaliou • {rev.rating}/10
-                      </Text>
-                    </View>
-                    <Text
-                      style={{ fontSize: 10, color: colors.mutedForeground }}
-                    >
-                      {rev.date}
-                    </Text>
-                  </View>
+        {filteredFeedPosts.slice(0, visibleHistoryCount).map((item) => {
+          const isArtistActivity =
+            item.activityType === 'follow_idol' ||
+            item.activityType === 'superfan';
+          const isReviewActivity = (item.activityType || 'review') === 'review';
+          const targetRoute = isArtistActivity
+            ? `/artist/${item.artistId || ''}`
+            : `/album/${item.albumId}`;
+          const linkedReviewId = isReviewActivity
+            ? item.reviewId || reviews.find((r) => r.albumId === item.albumId)?.id
+            : undefined;
+          const canShare = Boolean(
+            item.activityType !== 'follow_idol' &&
+              user &&
+              ((item.userId && item.userId === user.id) ||
+                (authProfile?.username &&
+                  item.friendUsername.toLowerCase() ===
+                    authProfile.username.toLowerCase()))
+          );
 
-                  <Text
-                    style={[
-                      styles.activityTitle,
-                      { color: colors.foreground },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {rev.albumTitle}
-                  </Text>
-                  <Text
-                    style={{ fontSize: 11, color: colors.mutedForeground }}
-                    numberOfLines={1}
-                  >
-                    {rev.artistName}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.activityComment,
-                      { color: colors.foreground },
-                    ]}
-                    numberOfLines={2}
-                  >
-                    {rev.comment}
-                  </Text>
-                </View>
-
-                {!isVisiting && (
-                  <TouchableOpacity
-                    onPress={() => handleDeleteReview(rev.id, rev.albumTitle)}
-                    disabled={deletingReviewId === rev.id}
-                    style={[
-                      styles.deleteIconBtn,
-                      { opacity: deletingReviewId === rev.id ? 0.6 : 1 },
-                    ]}
-                  >
-                    {deletingReviewId === rev.id ? (
-                      <ActivityIndicator size="small" color={colors.mutedForeground} />
-                    ) : (
-                      <Trash2 size={14} color={colors.mutedForeground} />
-                    )}
-                  </TouchableOpacity>
-                )}
-              </TouchableOpacity>
-            </View>
-            )
-          )}
-
-        {/* 2. Álbuns Favoritados */}
-        {(historyTab === 'all' || historyTab === 'favorites') &&
-          favorites.slice(0, visibleHistoryCount).map((fav) =>
-            cardMode === 'full' ? (
-              <FeedStyleActivityCard
-                key={`fav-${fav.id}`}
-                activityType="favorite"
-                authorName={displayProfile.name}
-                authorUsername={displayProfile.username}
-                authorAvatar={displayProfile.avatarUrl}
-                title={fav.title}
-                subtitle={fav.artist}
-                coverUrl={fav.cover}
-                rating={fav.rating}
-                onPressTarget={() => router.push(`/album/${fav.id}` as any)}
-              />
-            ) : (
-            <TouchableOpacity
-              key={`fav-${fav.id}`}
-              style={[
-                styles.activityItemCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
-              onPress={() => router.push(`/album/${fav.id}` as any)}
-              activeOpacity={0.85}
-            >
-              <View style={styles.activityRowMain}>
-                <CoverImage uri={fav.cover} albumTitle={fav.title} albumArtist={fav.artist} style={styles.activityThumb} quality="medium" />
-                <View style={{ flex: 1, gap: 3 }}>
-                  <View style={styles.activityHeaderLine}>
-                    <View
-                      style={[
-                        styles.typeTag,
-                        { backgroundColor: `${colors.rose}18` },
-                      ]}
-                    >
-                      <Heart size={10} color={colors.rose} fill={colors.rose} />
-                      <Text
-                        style={{
-                          fontSize: 10,
-                          fontWeight: '800',
-                          color: colors.rose,
-                        }}
-                      >
-                        Álbum Favoritado
-                      </Text>
-                    </View>
-                    <Text
-                      style={{
-                        fontSize: 11,
-                        fontWeight: '800',
-                        color: colors.amber,
-                      }}
-                    >
-                      ★ {fav.rating}
-                    </Text>
-                  </View>
-
-                  <Text
-                    style={[
-                      styles.activityTitle,
-                      { color: colors.foreground },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {fav.title}
-                  </Text>
-                  <Text
-                    style={{ fontSize: 11, color: colors.mutedForeground }}
-                    numberOfLines={1}
-                  >
-                    {fav.artist}
-                  </Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-            )
-          )}
-
-        {/* 3. Artistas / Ídolos Seguidos */}
-        {(historyTab === 'all' || historyTab === 'idols') &&
-          idols.slice(0, visibleHistoryCount).map((artist) =>
-            cardMode === 'full' ? (
-              <FeedStyleActivityCard
-                key={`idol-${artist.id}`}
-                activityType="follow_idol"
-                authorName={displayProfile.name}
-                authorUsername={displayProfile.username}
-                authorAvatar={displayProfile.avatarUrl}
-                title={artist.name}
-                subtitle={artist.genre || 'Artista'}
-                coverUrl={artist.imageUrl}
-                artistNameForImage={artist.name}
-                onPressTarget={() => router.push(`/artist/${artist.id}` as any)}
-              />
-            ) : (
-            <TouchableOpacity
-              key={`idol-${artist.id}`}
-              style={[
-                styles.activityItemCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
-              onPress={() => router.push(`/artist/${artist.id}` as any)}
-              activeOpacity={0.85}
-            >
-              <View style={styles.activityRowMain}>
-                <CoverImage
-                  uri={artist.imageUrl}
-                  artistName={artist.name}
-                  style={[styles.activityThumb, { borderRadius: 999 }]}
-                  fallbackType="artist"
-                />
-                <View style={{ flex: 1, gap: 3 }}>
-                  <View style={styles.activityHeaderLine}>
-                    <View
-                      style={[
-                        styles.typeTag,
-                        { backgroundColor: '#a855f718' },
-                      ]}
-                    >
-                      <Award size={10} color="#a855f7" />
-                      <Text
-                        style={{
-                          fontSize: 10,
-                          fontWeight: '800',
-                          color: '#a855f7',
-                        }}
-                      >
-                        Artista Seguido
-                      </Text>
-                    </View>
-                    <Text
-                      style={{ fontSize: 10, color: colors.mutedForeground }}
-                    >
-                      {artist.nbFans.toLocaleString('pt-BR')} ouvintes
-                    </Text>
-                  </View>
-
-                  <Text
-                    style={[
-                      styles.activityTitle,
-                      { color: colors.foreground },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {artist.name}
-                  </Text>
-                  <Text
-                    style={{ fontSize: 11, color: colors.mutedForeground }}
-                    numberOfLines={1}
-                  >
-                    {artist.genre}
-                  </Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-            )
-          )}
+          return (
+            <FeedPostCard
+              key={item.id}
+              item={{
+                ...item,
+                friendName: displayProfile.name,
+                friendUsername: displayProfile.username,
+                friendAvatar: displayProfile.avatarUrl,
+              }}
+              cardMode={cardMode}
+              isCommentsOpen={activeCommentPostId === item.id}
+              canShare={canShare}
+              onPressTarget={() => router.push(targetRoute as any)}
+              onToggleLike={() => handleToggleLike(item.id)}
+              onPressComment={() => setActiveCommentPostId(item.id)}
+              onShare={() =>
+                setSharePostItem({
+                  ...item,
+                  friendName: displayProfile.name,
+                  friendUsername: displayProfile.username,
+                  friendAvatar: displayProfile.avatarUrl,
+                })
+              }
+              onDelete={
+                !isVisiting && linkedReviewId
+                  ? () => handleDeleteReview(linkedReviewId, item.albumTitle, item.albumId)
+                  : undefined
+              }
+              isDeleting={Boolean(linkedReviewId && deletingReviewId === linkedReviewId)}
+            />
+          );
+        })}
       </View>
 
       {/* Modal de escolha de foto (Avatar ou Capa) */}
@@ -1231,6 +1180,23 @@ export function ProfileView({
         </View>
       </Modal>
     </ScrollView>
+
+    <FeedCommentsModal
+      post={activeCommentPost}
+      currentUserId={user?.id}
+      currentUsername={authProfile?.username}
+      currentUserAvatar={authProfile?.avatar_url}
+      deletingCommentId={deletingCommentId}
+      onClose={() => setActiveCommentPostId(null)}
+      onAddComment={handleAddComment}
+      onDeleteComment={handleDeleteComment}
+    />
+
+    <FeedShareModal
+      post={sharePostItem}
+      onClose={() => setSharePostItem(null)}
+    />
+    </View>
   );
 }
 
@@ -1408,7 +1374,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   feedHistoryContainer: {
-    gap: 10,
+    gap: 16,
     paddingHorizontal: 14,
   },
   activityItemCard: {

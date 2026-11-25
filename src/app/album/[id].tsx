@@ -2604,6 +2604,13 @@ export default function AlbumDetailScreen() {
                     user?.email?.split('@')[0] ||
                     'musicpostr'
                   }
+                  userName={
+                    authProfile?.full_name ||
+                    authProfile?.username ||
+                    user?.email?.split('@')[0] ||
+                    'Você'
+                  }
+                  userAvatar={authProfile?.avatar_url}
                 />
               </ScrollView>
             )}

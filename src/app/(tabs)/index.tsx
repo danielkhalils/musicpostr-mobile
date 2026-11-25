@@ -1,12 +1,10 @@
-import { CoverImage } from '@/components/CoverImage';
-import { KeyboardAwareSheetModal } from '@/components/KeyboardAwareSheetModal';
+import { FeedPostCard } from '@/components/FeedPostCard';
+import { FeedCommentsModal, FeedShareModal } from '@/components/FeedPostModals';
 import { MobileHeader } from '@/components/MobileHeader';
 import { ScreenLoader } from '@/components/ScreenLoader';
-import { ShareableReviewCard } from '@/components/ShareableReviewCard';
 import { useActivityCardMode } from '@/hooks/use-activity-card-mode';
 import { useHeaderVisibility } from '@/context/HeaderVisibilityContext';
 import { useAppTheme } from '@/context/ThemeContext';
-import { formatRating } from '@/utils/rating';
 import { INFINITE_PAGE_SIZE, isNearScrollBottom } from '@/utils/pagination';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -16,31 +14,16 @@ import {
 } from '@/services/musicBrainz.service';
 import {
   getFeedPostsFromSupabase,
+  ensureFeedPostInSupabase,
   toggleFeedPostLikeInSupabase,
   addFeedPostCommentInSupabase,
   deleteFeedPostCommentInSupabase,
 } from '@/services/catalog.service';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  Clock,
-  Disc,
-  Heart,
-  MessageSquare,
-  Send,
-  Share2,
-  Sparkles,
-  Star,
-  Trash2,
-  UserCheck,
-  X,
-} from 'lucide-react-native';
+import { Disc, Sparkles, Star, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
-  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -48,103 +31,16 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 
-interface FeedCommentInputProps {
-  postId: string;
-  avatarUrl?: string;
-  colors: any;
-  onAddComment: (postId: string, text: string) => Promise<boolean>;
-  onCommentPosted?: () => void;
-}
-
-function FeedCommentInput({
-  postId,
-  avatarUrl,
-  colors,
-  onAddComment,
-  onCommentPosted,
-}: FeedCommentInputProps) {
-  const [text, setText] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleSend = async () => {
-    const trimmed = text.trim();
-    if (!trimmed || isSubmitting) return;
-    setIsSubmitting(true);
-    try {
-      const ok = await onAddComment(postId, trimmed);
-      if (ok) {
-        setText('');
-        onCommentPosted?.();
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <View style={styles.commentInputRow}>
-      <CoverImage
-        uri={avatarUrl}
-        style={styles.commentInputUserAvatar}
-        fallbackType="artist"
-      />
-      <TextInput
-        placeholder="Adicione um comentário..."
-        placeholderTextColor={colors.mutedForeground}
-        value={text}
-        onChangeText={setText}
-        editable={!isSubmitting}
-        multiline
-        maxLength={500}
-        returnKeyType="send"
-        blurOnSubmit={false}
-        onSubmitEditing={handleSend}
-        style={[
-          styles.commentInput,
-          {
-            backgroundColor: colors.background,
-            borderColor: colors.border,
-            color: colors.foreground,
-            opacity: isSubmitting ? 0.7 : 1,
-          },
-        ]}
-      />
-      <TouchableOpacity
-        style={[
-          styles.sendBtn,
-          {
-            backgroundColor:
-              text.trim() && !isSubmitting ? colors.primary : `${colors.primary}66`,
-          },
-        ]}
-        onPress={handleSend}
-        activeOpacity={0.85}
-        disabled={!text.trim() || isSubmitting}
-        accessibilityLabel="Enviar comentário"
-      >
-        {isSubmitting ? (
-          <ActivityIndicator size="small" color="#fff" />
-        ) : (
-          <Send size={15} color="#fff" />
-        )}
-      </TouchableOpacity>
-    </View>
-  );
-}
-
 export default function HomeScreen() {
-  const { colors, isDark } = useAppTheme();
-  const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
   const { user, profile: authProfile } = useAuth();
   const { setIsHeaderVisible } = useHeaderVisibility();
   const { mode: cardMode } = useActivityCardMode();
   const lastScrollY = useRef(0);
-  const commentsScrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
 
   const [feedItems, setFeedItems] = useState<FeedPostItem[]>([]);
   const [visibleCount, setVisibleCount] = useState<number>(INFINITE_PAGE_SIZE);
@@ -163,8 +59,13 @@ export default function HomeScreen() {
   );
 
   const loadFeed = useCallback(async () => {
+    if (!user?.id) {
+      setFeedItems([]);
+      setIsInitialLoading(false);
+      return;
+    }
     try {
-      const posts = await getFeedPostsFromSupabase(user?.id);
+      const posts = await getFeedPostsFromSupabase(user.id);
       setFeedItems(posts);
     } finally {
       setIsInitialLoading(false);
@@ -228,14 +129,11 @@ export default function HomeScreen() {
     const currentScrollY = event.nativeEvent.contentOffset.y;
     const diff = currentScrollY - lastScrollY.current;
 
-    // Se estiver no topo da tela, sempre mostra o header
     if (currentScrollY <= 25) {
       setIsHeaderVisible(true);
     } else if (diff > 20 && currentScrollY > 70) {
-      // Rolando para baixo firmemente: oculta o header de forma suave
       setIsHeaderVisible(false);
     } else if (diff < -15) {
-      // Rolando para cima: mostra o header novamente
       setIsHeaderVisible(true);
     }
 
@@ -260,7 +158,15 @@ export default function HomeScreen() {
     );
 
     if (user) {
-      await toggleFeedPostLikeInSupabase(id, user.id, prevLiked);
+      const realPostId = await ensureFeedPostInSupabase(target);
+      if (!realPostId) return;
+      if (realPostId !== id) {
+        setFeedItems((prev) =>
+          prev.map((item) => (item.id === id ? { ...item, id: realPostId } : item))
+        );
+        setActiveCommentPostId((prev) => (prev === id ? realPostId : prev));
+      }
+      await toggleFeedPostLikeInSupabase(realPostId, user.id, prevLiked);
     }
   };
 
@@ -281,11 +187,17 @@ export default function HomeScreen() {
       return false;
     }
 
+    const target = feedItems.find((item) => item.id === id);
+    if (!target) return false;
+
+    const realPostId = await ensureFeedPostInSupabase(target);
+    if (!realPostId) return false;
+
     const authorName = authProfile?.full_name || authProfile?.username || 'Usuário';
     const authorAvatar = authProfile?.avatar_url || '';
 
     const created = await addFeedPostCommentInSupabase({
-      postId: id,
+      postId: realPostId,
       userId: user.id,
       author: authorName,
       avatar: authorAvatar,
@@ -295,14 +207,18 @@ export default function HomeScreen() {
     if (created) {
       setFeedItems((prev) =>
         prev.map((item) =>
-          item.id === id
+          item.id === id || item.id === realPostId
             ? {
                 ...item,
+                id: realPostId,
                 comments: [...item.comments, created],
               }
             : item
         )
       );
+      if (realPostId !== id) {
+        setActiveCommentPostId((prev) => (prev === id ? realPostId : prev));
+      }
       return true;
     }
     return false;
@@ -356,94 +272,6 @@ export default function HomeScreen() {
     ]);
   };
 
-  const getActivityActionText = (item: FeedPostItem) => {
-    const type = item.activityType || 'review';
-    if (type === 'favorite') return 'favoritou um álbum';
-    if (type === 'follow_idol') return 'seguiu um novo ídolo';
-    return item.isEdited ? 'editou uma avaliação' : 'publicou uma avaliação';
-  };
-
-  const renderActivityBadge = (item: FeedPostItem) => {
-    const type = item.activityType || 'review';
-    if (type === 'favorite') {
-      return (
-        <View
-          style={[
-            styles.activityTypeBadge,
-            {
-              backgroundColor: `${colors.rose}16`,
-              borderColor: `${colors.rose}38`,
-            },
-          ]}
-        >
-          <Heart size={11} color={colors.rose} fill={colors.rose} />
-          <Text
-            style={[
-              styles.activityTypeBadgeText,
-              { color: colors.rose },
-            ]}
-          >
-            Favoritado
-          </Text>
-        </View>
-      );
-    }
-
-    if (type === 'follow_idol') {
-      return (
-        <View
-          style={[
-            styles.activityTypeBadge,
-            {
-              backgroundColor: '#a855f716',
-              borderColor: '#a855f738',
-            },
-          ]}
-        >
-          <UserCheck size={11} color="#a855f7" />
-          <Text
-            style={[
-              styles.activityTypeBadgeText,
-              { color: '#a855f7' },
-            ]}
-          >
-            Novo Ídolo
-          </Text>
-        </View>
-      );
-    }
-
-    return (
-      <View
-        style={[
-          styles.activityTypeBadge,
-          {
-            backgroundColor: `${colors.primary}16`,
-            borderColor: `${colors.primary}38`,
-          },
-        ]}
-      >
-        <Star size={11} color={colors.primary} fill={colors.primary} />
-        <Text
-          style={[
-            styles.activityTypeBadgeText,
-            { color: colors.primary },
-          ]}
-        >
-          Review
-        </Text>
-      </View>
-    );
-  };
-
-  const getScoreColor = (rating: number) => {
-    if (rating >= 8.5) return '#10b981';
-    if (rating >= 7.0) return '#84cc16';
-    if (rating >= 5.0) return '#eab308';
-    if (rating >= 3.0) return '#f97316';
-    return '#ef4444';
-  };
-
   if (isInitialLoading && feedItems.length === 0) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -477,830 +305,163 @@ export default function HomeScreen() {
           />
         }
       >
-      {/* Sessão "Timeline de Atividades" - exibida apenas uma vez quando o usuário se cadastra e depois some */}
-      {showTimelineIntro && (
-        <View
-          style={[
-            styles.headerBox,
-            {
-              backgroundColor: colors.card,
-              borderColor: colors.border,
-            },
-          ]}
-        >
-          <View style={styles.headerRow}>
-            <View
-              style={[
-                styles.iconBox,
-                {
-                  backgroundColor: `${colors.primary}18`,
-                  borderColor: `${colors.primary}35`,
-                },
-              ]}
-            >
-              <Sparkles size={22} color={colors.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.pageTitle, { color: colors.foreground }]}>
-                Timeline de Atividades
-              </Text>
-              <Text
-                style={[styles.pageSubtitle, { color: colors.mutedForeground }]}
-              >
-                Veja álbuns favoritados, notas compartilhadas por amigos e por
-                você, ídolos seguidos, curta e comente!
-              </Text>
-            </View>
-            <TouchableOpacity
-              onPress={() => setShowTimelineIntro(false)}
-              style={styles.dismissIntroBtn}
-              accessibilityLabel="Fechar boas-vindas"
-            >
-              <X size={16} color={colors.mutedForeground} />
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {feedItems.length === 0 ? (
-        <View
-          style={[
-            styles.emptyBox,
-            { backgroundColor: colors.card, borderColor: colors.border, gap: 10 },
-          ]}
-        >
-          <Disc size={44} color={colors.primary} />
-          <Text
-            style={{
-              fontSize: 16,
-              fontWeight: '900',
-              color: colors.foreground,
-              textAlign: 'center',
-            }}
-          >
-            Sua timeline ainda está vazia
-          </Text>
-          <Text
-            style={{
-              fontSize: 13,
-              color: colors.mutedForeground,
-              textAlign: 'center',
-              lineHeight: 19,
-            }}
-          >
-            Que tal dar o primeiro play? Publique sua primeira avaliação de álbum e compartilhe seu gosto musical com a comunidade!
-          </Text>
-          <TouchableOpacity
-            onPress={() => router.push('/(tabs)/artists' as any)}
-            activeOpacity={0.85}
-            style={{
-              marginTop: 6,
-              backgroundColor: colors.primary,
-              paddingHorizontal: 20,
-              paddingVertical: 11,
-              borderRadius: 999,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <Star size={15} color="#fff" fill="#fff" />
-            <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>
-              Avaliar meu primeiro álbum
-            </Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={styles.feedList}>
-          {feedItems.slice(0, visibleCount).map((item) => {
-            const isIdolActivity = item.activityType === 'follow_idol';
-            const isFavoriteActivity = item.activityType === 'favorite';
-            const isCommentsOpen = activeCommentPostId === item.id;
-            const targetRoute = isIdolActivity
-              ? `/artist/${item.artistId || ''}`
-              : `/album/${item.albumId}`;
-            const authorRoute =
-              item.friendUsername === 'anabeat'
-                ? '/(tabs)/profile'
-                : `/user/${item.friendUsername}`;
-
-            return (
-              <View
-                key={item.id}
-                style={[
-                  styles.postCard,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor: colors.border,
-                    shadowOpacity: isDark ? 0.35 : 0.06,
-                  },
-                ]}
-              >
-                {/* 1. CABEÇALHO DO POST (Autor + Ação + Tempo + Badge) */}
-                <View style={styles.postHeader}>
-                  <TouchableOpacity
-                    style={styles.authorTouchArea}
-                    onPress={() => router.push(authorRoute as any)}
-                    activeOpacity={0.8}
-                  >
-                    <View
-                      style={[
-                        styles.avatarRing,
-                        { borderColor: `${colors.primary}55` },
-                      ]}
-                    >
-                      <CoverImage
-                        uri={item.friendAvatar}
-                        style={styles.authorAvatar}
-                        fallbackType="artist"
-                      />
-                    </View>
-
-                    <View style={styles.authorInfoCol}>
-                      <View style={styles.authorNameLine}>
-                        <Text
-                          style={[
-                            styles.authorName,
-                            { color: colors.foreground },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {item.friendName}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.authorHandle,
-                            { color: colors.primary },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          @{item.friendUsername}
-                        </Text>
-                      </View>
-
-                      <View style={styles.authorSubLine}>
-                        <Text
-                          style={[
-                            styles.authorActionLabel,
-                            { color: colors.mutedForeground },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {getActivityActionText(item)}
-                        </Text>
-                        <Text style={{ color: colors.mutedForeground, fontSize: 10 }}>
-                          •
-                        </Text>
-                        <View style={styles.timeLine}>
-                          <Clock size={10} color={colors.mutedForeground} />
-                          <Text
-                            style={[
-                              styles.timeText,
-                              { color: colors.mutedForeground },
-                            ]}
-                          >
-                            {item.timeAgo}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-
-                  {renderActivityBadge(item)}
-                </View>
-
-                {/* 2. MÍDIA DO POST: COMPLETA (HERO) OU COMPACTA */}
-                {cardMode === 'compact' ? (
-                  <TouchableOpacity
-                    style={styles.compactMediaRow}
-                    onPress={() => router.push(targetRoute as any)}
-                    activeOpacity={0.88}
-                  >
-                    <CoverImage
-                      uri={item.albumCover}
-                      artistName={isIdolActivity ? item.albumTitle : undefined}
-                      albumTitle={!isIdolActivity ? item.albumTitle : undefined}
-                      albumArtist={!isIdolActivity ? item.artistName : undefined}
-                      style={[
-                        styles.compactMediaThumb,
-                        isIdolActivity && { borderRadius: 999 },
-                      ]}
-                      fallbackType={isIdolActivity ? 'artist' : 'album'}
-                      quality="medium"
-                    />
-                    <View style={{ flex: 1, gap: 3 }}>
-                      <View style={styles.compactTitleLine}>
-                        <Text
-                          style={[styles.compactTitle, { color: colors.foreground }]}
-                          numberOfLines={1}
-                        >
-                          {item.albumTitle}
-                        </Text>
-                        {!isIdolActivity && item.rating > 0 && (
-                          <View
-                            style={[
-                              styles.compactScorePill,
-                              {
-                                backgroundColor: `${getScoreColor(item.rating)}20`,
-                                borderColor: `${getScoreColor(item.rating)}55`,
-                              },
-                            ]}
-                          >
-                            <Star
-                              size={10}
-                              color={getScoreColor(item.rating)}
-                              fill={getScoreColor(item.rating)}
-                            />
-                            <Text
-                              style={[
-                                styles.compactScoreText,
-                                { color: getScoreColor(item.rating) },
-                              ]}
-                            >
-                              {formatRating(item.rating)}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                      {!isIdolActivity && (
-                        <Text
-                          style={[styles.compactArtist, { color: colors.mutedForeground }]}
-                          numberOfLines={1}
-                        >
-                          {item.artistName}
-                        </Text>
-                      )}
-                      {Boolean(item.comment) && (
-                        <Text
-                          style={[styles.compactComment, { color: colors.foreground }]}
-                          numberOfLines={2}
-                        >
-                          {item.comment}
-                        </Text>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.heroMediaContainer}
-                    onPress={() => router.push(targetRoute as any)}
-                    activeOpacity={0.92}
-                  >
-                    <CoverImage
-                      uri={item.albumCover}
-                      artistName={isIdolActivity ? item.albumTitle : undefined}
-                      albumTitle={!isIdolActivity ? item.albumTitle : undefined}
-                      albumArtist={!isIdolActivity ? item.artistName : undefined}
-                      style={styles.heroMediaImage}
-                      fallbackType={isIdolActivity ? 'artist' : 'album'}
-                      quality="high"
-                    />
-
-                    {/* Círculo de Nota de Destaque Estilo Musicpostr / Tela de Álbuns */}
-                    {!isIdolActivity && !isFavoriteActivity && item.rating > 0 ? (
-                      <View
-                        style={[
-                          styles.musicpostrHeroBadge,
-                          {
-                            backgroundColor: isDark
-                              ? 'rgba(18, 18, 20, 0.94)'
-                              : 'rgba(255, 255, 255, 0.96)',
-                            borderColor: getScoreColor(item.rating),
-                            shadowColor: getScoreColor(item.rating),
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.musicpostrScoreText,
-                            { color: colors.foreground },
-                          ]}
-                        >
-                          {formatRating(item.rating)}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.musicpostrScoreLabel,
-                            { color: getScoreColor(item.rating) },
-                          ]}
-                        >
-                          NOTA
-                        </Text>
-                      </View>
-                    ) : null}
-
-                    {/* Gradiente Inferior com Título do Álbum e Artista */}
-                    <LinearGradient
-                      colors={[
-                        'rgba(0, 0, 0, 0)',
-                        'rgba(0, 0, 0, 0)',
-                        'rgba(0, 0, 0, 0.4)',
-                        'rgba(0, 0, 0, 0.9)',
-                      ]}
-                      locations={[0, 0.45, 0.72, 1]}
-                      style={styles.heroGradientOverlay}
-                    >
-                      <View style={styles.heroMediaInfo}>
-                        <View style={styles.heroMediaTypePill}>
-                          <Disc size={11} color="#ffffff" />
-                          <Text style={styles.heroMediaTypeText}>
-                            {isIdolActivity ? 'ARTISTA' : 'ÁLBUM'}
-                          </Text>
-                        </View>
-                        <Text style={styles.heroMediaTitle} numberOfLines={1}>
-                          {item.albumTitle}
-                        </Text>
-                        {!isIdolActivity && (
-                          <Text style={styles.heroMediaArtist} numberOfLines={1}>
-                            {item.artistName}
-                          </Text>
-                        )}
-                      </View>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                )}
-
-                {/* 3. BARRA DE INTERAÇÃO ESTILO INSTAGRAM (Curtir, Comentar, Compartilhar) */}
-                <View style={styles.instagramActionBar}>
-                  {/* Botão Curtir */}
-                  <TouchableOpacity
-                    style={styles.instagramActionBtn}
-                    onPress={() => handleToggleLike(item.id)}
-                    activeOpacity={0.7}
-                    accessibilityLabel="Curtir publicação"
-                  >
-                    <Heart
-                      size={22}
-                      color={
-                        item.isLiked ? colors.rose : colors.foreground
-                      }
-                      fill={item.isLiked ? colors.rose : 'transparent'}
-                    />
-                    {item.likesCount > 0 && (
-                      <Text
-                        style={[
-                          styles.instagramActionCount,
-                          {
-                            color: item.isLiked
-                              ? colors.rose
-                              : colors.foreground,
-                          },
-                        ]}
-                      >
-                        {item.likesCount}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-
-                  {/* Botão Comentar */}
-                  <TouchableOpacity
-                    style={styles.instagramActionBtn}
-                    onPress={() => handleOpenComments(item.id)}
-                    activeOpacity={0.7}
-                    accessibilityLabel="Comentários"
-                  >
-                    <MessageSquare
-                      size={21}
-                      color={
-                        isCommentsOpen
-                          ? colors.primary
-                          : colors.foreground
-                      }
-                    />
-                    {item.comments.length > 0 && (
-                      <Text
-                        style={[
-                          styles.instagramActionCount,
-                          {
-                            color: isCommentsOpen
-                              ? colors.primary
-                              : colors.foreground,
-                          },
-                        ]}
-                      >
-                        {item.comments.length}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-
-                  {/* Botão Compartilhar (apenas para publicações próprias) */}
-                  {Boolean(
-                    user &&
-                      ((item.userId && item.userId === user.id) ||
-                        (authProfile?.username &&
-                          item.friendUsername.toLowerCase() ===
-                            authProfile.username.toLowerCase()))
-                  ) && (
-                    <TouchableOpacity
-                      style={[styles.instagramActionBtn, { marginLeft: 'auto' }]}
-                      onPress={() => handleSharePost(item)}
-                      activeOpacity={0.7}
-                      accessibilityLabel="Compartilhar publicação"
-                    >
-                      <Share2 size={21} color={colors.foreground} />
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                {/* 4. CAPTION DO USUÁRIO ESTILO INSTAGRAM (exibido no modo completo; no compacto já aparece ao lado da capa) */}
-                {cardMode === 'full' && Boolean(item.comment) && (
-                  <View style={styles.instagramCaptionContainer}>
-                    <Text
-                      style={[
-                        styles.instagramCaptionText,
-                        { color: colors.foreground },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.instagramCaptionUsername,
-                          { color: colors.foreground },
-                        ]}
-                        onPress={() => router.push(authorRoute as any)}
-                      >
-                        {item.friendUsername}{' '}
-                      </Text>
-                      {item.comment}
-                    </Text>
-                  </View>
-                )}
-
-                {/* 6. PRÉVIA DO ÚLTIMO COMENTÁRIO (abre o bottom sheet estilo rede social) */}
-                {item.comments.length > 0 && (
-                  <TouchableOpacity
-                    style={[
-                      styles.commentPreviewBox,
-                      {
-                        backgroundColor: isDark
-                          ? 'rgba(39, 39, 42, 0.35)'
-                          : colors.secondary,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                    onPress={() => handleOpenComments(item.id)}
-                    activeOpacity={0.8}
-                  >
-                    <CoverImage
-                      uri={item.comments[item.comments.length - 1].avatar}
-                      style={styles.commentPreviewAvatar}
-                      fallbackType="artist"
-                    />
-                    <Text
-                      style={[
-                        styles.commentPreviewText,
-                        { color: colors.mutedForeground },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      <Text
-                        style={{
-                          fontWeight: '800',
-                          color: colors.foreground,
-                        }}
-                      >
-                        {item.comments[item.comments.length - 1].author}:{' '}
-                      </Text>
-                      {item.comments[item.comments.length - 1].text}
-                    </Text>
-                    {item.comments.length > 1 && (
-                      <Text
-                        style={{
-                          fontSize: 11,
-                          fontWeight: '700',
-                          color: colors.primary,
-                        }}
-                      >
-                        Ver {item.comments.length}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                )}
-              </View>
-            );
-          })}
-        </View>
-      )}
-      </ScrollView>
-
-      {/* Bottom Sheet de Comentários estilo rede social (input fixo acima do teclado) */}
-      <KeyboardAwareSheetModal
-        visible={Boolean(activeCommentPost)}
-        onClose={() => setActiveCommentPostId(null)}
-        backgroundColor={colors.card}
-        borderColor={colors.border}
-        maxHeightRatio={0.86}
-      >
-        {({ maxSheetHeight }) =>
-          activeCommentPost ? (
-            <View style={{ gap: 10 }}>
-              <View style={styles.sheetModalHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.sheetModalTitle, { color: colors.foreground }]}>
-                    Comentários ({activeCommentPost.comments.length})
-                  </Text>
-                  <Text
-                    style={{ fontSize: 12, color: colors.mutedForeground, marginTop: 2 }}
-                    numberOfLines={1}
-                  >
-                    @{activeCommentPost.friendUsername} • {activeCommentPost.albumTitle}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => setActiveCommentPostId(null)}
-                  style={styles.sheetCloseBtn}
-                  accessibilityLabel="Fechar comentários"
-                >
-                  <X size={18} color={colors.mutedForeground} />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView
-                ref={commentsScrollRef}
-                style={{ maxHeight: Math.max(150, maxSheetHeight - 155) }}
-                contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="interactive"
-              >
-                {activeCommentPost.comments.length === 0 ? (
-                  <View style={styles.emptyCommentsBox}>
-                    <MessageSquare
-                      size={26}
-                      color={colors.mutedForeground}
-                      style={{ opacity: 0.55 }}
-                    />
-                    <Text
-                      style={{
-                        fontSize: 13.5,
-                        fontWeight: '700',
-                        color: colors.foreground,
-                        textAlign: 'center',
-                      }}
-                    >
-                      Nenhum comentário ainda
-                    </Text>
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        color: colors.mutedForeground,
-                        textAlign: 'center',
-                      }}
-                    >
-                      Seja o primeiro a comentar nesta publicação!
-                    </Text>
-                  </View>
-                ) : (
-                  activeCommentPost.comments.map((comment) => {
-                    const isPostOwner = Boolean(
-                      user &&
-                        ((activeCommentPost.userId &&
-                          activeCommentPost.userId === user.id) ||
-                          (authProfile?.username &&
-                            activeCommentPost.friendUsername.toLowerCase() ===
-                              authProfile.username.toLowerCase()))
-                    );
-                    const isCommentAuthor = Boolean(
-                      user && comment.userId && comment.userId === user.id
-                    );
-                    const canDeleteComment = isPostOwner || isCommentAuthor;
-                    const isDeletingThis = deletingCommentId === comment.id;
-
-                    return (
-                      <View
-                        key={comment.id}
-                        style={[
-                          styles.commentItem,
-                          {
-                            backgroundColor: colors.secondary,
-                            borderColor: colors.border,
-                          },
-                        ]}
-                      >
-                        <CoverImage
-                          uri={comment.avatar}
-                          style={styles.commentAvatar}
-                          fallbackType="artist"
-                        />
-                        <View style={{ flex: 1 }}>
-                          <View style={styles.commentHeader}>
-                            <Text
-                              style={{
-                                fontSize: 12.5,
-                                fontWeight: '800',
-                                color: colors.foreground,
-                                flex: 1,
-                              }}
-                              numberOfLines={1}
-                            >
-                              {comment.author}
-                            </Text>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                              <Text
-                                style={{
-                                  fontSize: 10.5,
-                                  color: colors.mutedForeground,
-                                }}
-                              >
-                                {comment.time}
-                              </Text>
-                              {canDeleteComment && (
-                                <TouchableOpacity
-                                  onPress={() =>
-                                    handleDeleteComment(activeCommentPost.id, comment.id)
-                                  }
-                                  disabled={isDeletingThis}
-                                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                                  style={{ opacity: isDeletingThis ? 0.6 : 1 }}
-                                  accessibilityLabel="Excluir comentário"
-                                >
-                                  {isDeletingThis ? (
-                                    <ActivityIndicator
-                                      size="small"
-                                      color={colors.mutedForeground}
-                                    />
-                                  ) : (
-                                    <Trash2 size={13} color={colors.mutedForeground} />
-                                  )}
-                                </TouchableOpacity>
-                              )}
-                            </View>
-                          </View>
-                          <Text
-                            style={{
-                              fontSize: 13,
-                              color: colors.foreground,
-                              opacity: 0.92,
-                              marginTop: 3,
-                              lineHeight: 18,
-                            }}
-                          >
-                            {comment.text}
-                          </Text>
-                        </View>
-                      </View>
-                    );
-                  })
-                )}
-              </ScrollView>
-
-              <View
-                style={[
-                  styles.commentsFooterBar,
-                  { borderTopColor: colors.border },
-                ]}
-              >
-                <FeedCommentInput
-                  postId={activeCommentPost.id}
-                  avatarUrl={authProfile?.avatar_url || ''}
-                  colors={colors}
-                  onAddComment={handleAddComment}
-                  onCommentPosted={() => {
-                    setTimeout(() => {
-                      commentsScrollRef.current?.scrollToEnd({ animated: true });
-                    }, 80);
-                  }}
-                />
-              </View>
-            </View>
-          ) : null
-        }
-      </KeyboardAwareSheetModal>
-
-      {/* Modal de Compartilhamento de Card PNG (idêntica à modal da tela de álbum) */}
-      <Modal
-        visible={Boolean(sharePostItem)}
-        animationType="slide"
-        transparent
-        statusBarTranslucent
-        onRequestClose={() => setSharePostItem(null)}
-      >
-        <View style={styles.sheetModalOverlay}>
-          <TouchableOpacity
-            style={StyleSheet.absoluteFill}
-            activeOpacity={1}
-            onPress={() => setSharePostItem(null)}
-          />
+        {/* Sessão "Timeline de Atividades" - exibida apenas uma vez quando o usuário se cadastra e depois some */}
+        {showTimelineIntro && (
           <View
             style={[
-              styles.sheetModalContent,
+              styles.headerBox,
               {
                 backgroundColor: colors.card,
                 borderColor: colors.border,
-                paddingBottom: insets.bottom > 0 ? insets.bottom + 12 : 20,
               },
             ]}
           >
-            <View style={styles.sheetModalDragIndicator} />
-
-            <View style={styles.sheetModalHeader}>
+            <View style={styles.headerRow}>
+              <View
+                style={[
+                  styles.iconBox,
+                  {
+                    backgroundColor: `${colors.primary}18`,
+                    borderColor: `${colors.primary}35`,
+                  },
+                ]}
+              >
+                <Sparkles size={22} color={colors.primary} />
+              </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.sheetModalTitle, { color: colors.foreground }]}>
-                  {sharePostItem?.activityType === 'review' || !sharePostItem?.activityType
-                    ? 'Compartilhar Nota'
-                    : 'Compartilhar Atividade'}
+                <Text style={[styles.pageTitle, { color: colors.foreground }]}>
+                  Timeline de Atividades
                 </Text>
-                {sharePostItem && (
-                  <Text
-                    style={{ fontSize: 12, color: colors.mutedForeground, marginTop: 2 }}
-                    numberOfLines={1}
-                  >
-                    {sharePostItem.activityType === 'follow_idol'
-                      ? sharePostItem.albumTitle
-                      : `${sharePostItem.albumTitle} • ${sharePostItem.artistName}`}
-                  </Text>
-                )}
+                <Text
+                  style={[styles.pageSubtitle, { color: colors.mutedForeground }]}
+                >
+                  Veja álbuns favoritados, notas compartilhadas por amigos e por
+                  você, ídolos seguidos, curta e comente!
+                </Text>
               </View>
               <TouchableOpacity
-                onPress={() => setSharePostItem(null)}
-                style={styles.sheetCloseBtn}
-                accessibilityLabel="Fechar"
+                onPress={() => setShowTimelineIntro(false)}
+                style={styles.dismissIntroBtn}
+                accessibilityLabel="Fechar boas-vindas"
               >
-                <X size={18} color={colors.mutedForeground} />
+                <X size={16} color={colors.mutedForeground} />
               </TouchableOpacity>
             </View>
-
-            {sharePostItem && (
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                style={{ maxHeight: 540 }}
-                contentContainerStyle={{ paddingVertical: 4 }}
-              >
-                <ShareableReviewCard
-                  albumTitle={sharePostItem.albumTitle}
-                  artistName={sharePostItem.artistName}
-                  albumCover={sharePostItem.albumCover}
-                  rating={sharePostItem.rating}
-                  comment={sharePostItem.comment}
-                  username={sharePostItem.friendUsername}
-                  activityType={sharePostItem.activityType || 'review'}
-                />
-              </ScrollView>
-            )}
           </View>
-        </View>
-      </Modal>
+        )}
+
+        {feedItems.length === 0 ? (
+          <View
+            style={[
+              styles.emptyBox,
+              { backgroundColor: colors.card, borderColor: colors.border, gap: 10 },
+            ]}
+          >
+            <Disc size={44} color={colors.primary} />
+            <Text
+              style={{
+                fontSize: 16,
+                fontWeight: '900',
+                color: colors.foreground,
+                textAlign: 'center',
+              }}
+            >
+              Sua timeline ainda está vazia
+            </Text>
+            <Text
+              style={{
+                fontSize: 13,
+                color: colors.mutedForeground,
+                textAlign: 'center',
+                lineHeight: 19,
+              }}
+            >
+              Que tal dar o primeiro play? Publique sua primeira avaliação de álbum e compartilhe seu gosto musical com a comunidade!
+            </Text>
+            <TouchableOpacity
+              onPress={() => router.push('/(tabs)/artists' as any)}
+              activeOpacity={0.85}
+              style={{
+                marginTop: 6,
+                backgroundColor: colors.primary,
+                paddingHorizontal: 20,
+                paddingVertical: 11,
+                borderRadius: 999,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Star size={15} color="#fff" fill="#fff" />
+              <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>
+                Avaliar meu primeiro álbum
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.feedList}>
+            {feedItems.slice(0, visibleCount).map((item) => {
+              const isArtistActivity =
+                item.activityType === 'follow_idol' ||
+                item.activityType === 'superfan';
+              const targetRoute = isArtistActivity
+                ? `/artist/${item.artistId || ''}`
+                : `/album/${item.albumId}`;
+              const authorRoute =
+                item.friendUsername === 'anabeat' ||
+                (authProfile?.username &&
+                  item.friendUsername.toLowerCase() ===
+                    authProfile.username.toLowerCase())
+                  ? '/(tabs)/profile'
+                  : `/user/${item.friendUsername}`;
+              const canShare = Boolean(
+                item.activityType !== 'follow_idol' &&
+                  user &&
+                  ((item.userId && item.userId === user.id) ||
+                    (authProfile?.username &&
+                      item.friendUsername.toLowerCase() ===
+                        authProfile.username.toLowerCase()))
+              );
+
+              return (
+                <FeedPostCard
+                  key={item.id}
+                  item={item}
+                  cardMode={cardMode}
+                  isCommentsOpen={activeCommentPostId === item.id}
+                  canShare={canShare}
+                  onPressAuthor={() => router.push(authorRoute as any)}
+                  onPressTarget={() => router.push(targetRoute as any)}
+                  onToggleLike={() => handleToggleLike(item.id)}
+                  onPressComment={() => handleOpenComments(item.id)}
+                  onShare={() => handleSharePost(item)}
+                />
+              );
+            })}
+          </View>
+        )}
+      </ScrollView>
+
+      <FeedCommentsModal
+        post={activeCommentPost}
+        currentUserId={user?.id}
+        currentUsername={authProfile?.username}
+        currentUserAvatar={authProfile?.avatar_url}
+        deletingCommentId={deletingCommentId}
+        onClose={() => setActiveCommentPostId(null)}
+        onAddComment={handleAddComment}
+        onDeleteComment={handleDeleteComment}
+      />
+
+      <FeedShareModal
+        post={sharePostItem}
+        onClose={() => setSharePostItem(null)}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  viewModeBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-    paddingHorizontal: 2,
-  },
-  viewModeLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  compactMediaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-  },
-  compactMediaThumb: {
-    width: 64,
-    height: 64,
-    borderRadius: 12,
-  },
-  compactTitleLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  compactTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    flex: 1,
-  },
-  compactScorePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  compactScoreText: {
-    fontSize: 11,
-    fontWeight: '900',
-  },
-  compactArtist: {
-    fontSize: 11.5,
-    fontWeight: '600',
-  },
-  compactComment: {
-    fontSize: 12,
-    fontStyle: 'italic',
-    lineHeight: 16,
-    opacity: 0.9,
-  },
   container: {
     padding: 14,
     paddingBottom: 110,
@@ -1346,330 +507,5 @@ const styles = StyleSheet.create({
   },
   feedList: {
     gap: 16,
-  },
-  postCard: {
-    borderRadius: 22,
-    borderWidth: 1,
-    padding: 15,
-    gap: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-  },
-  postHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  authorTouchArea: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 11,
-    flex: 1,
-  },
-  avatarRing: {
-    padding: 2,
-    borderRadius: 999,
-    borderWidth: 1.5,
-  },
-  authorAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 999,
-  },
-  authorInfoCol: {
-    flex: 1,
-    gap: 2,
-  },
-  authorNameLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  authorName: {
-    fontSize: 14.5,
-    fontWeight: '800',
-    flexShrink: 1,
-  },
-  authorHandle: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  authorSubLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  authorActionLabel: {
-    fontSize: 11.5,
-    fontWeight: '500',
-    flexShrink: 1,
-  },
-  timeLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  timeText: {
-    fontSize: 11,
-  },
-  activityTypeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  activityTypeBadgeText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-  },
-  heroMediaContainer: {
-    width: '100%',
-    aspectRatio: 2,
-    borderRadius: 18,
-    overflow: 'hidden',
-    position: 'relative',
-    backgroundColor: '#09090b',
-  },
-  heroMediaImage: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: '100%',
-    height: '100%',
-  },
-  musicpostrHeroBadge: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    borderWidth: 2.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
-    elevation: 6,
-    zIndex: 10,
-  },
-  musicpostrScoreText: {
-    fontSize: 20,
-    fontWeight: '900',
-    letterSpacing: -0.5,
-    lineHeight: 22,
-  },
-  musicpostrScoreLabel: {
-    fontSize: 7.5,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-    marginTop: 1,
-  },
-  heroGradientOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: -1,
-    right: -1,
-    bottom: -2,
-    justifyContent: 'flex-end',
-    paddingHorizontal: 11,
-    paddingTop: 10,
-    paddingBottom: 12,
-  },
-  heroMediaInfo: {
-    gap: 2,
-  },
-  heroMediaTypePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 999,
-    alignSelf: 'flex-start',
-    marginBottom: 1,
-  },
-  heroMediaTypeText: {
-    color: '#ffffff',
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-  },
-  heroMediaTitle: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '900',
-    textShadowColor: 'rgba(0, 0, 0, 0.75)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
-  },
-  heroMediaArtist: {
-    color: 'rgba(255, 255, 255, 0.88)',
-    fontSize: 12,
-    fontWeight: '600',
-    textShadowColor: 'rgba(0, 0, 0, 0.75)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
-  },
-  instagramActionBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 18,
-    paddingHorizontal: 2,
-    paddingVertical: 2,
-  },
-  instagramActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 4,
-  },
-  instagramActionCount: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  instagramCaptionContainer: {
-    paddingHorizontal: 2,
-  },
-  instagramCaptionText: {
-    fontSize: 13.5,
-    lineHeight: 19,
-    fontWeight: '400',
-  },
-  instagramCaptionUsername: {
-    fontSize: 13.5,
-    fontWeight: '800',
-  },
-  commentPreviewBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 11,
-    paddingVertical: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  commentPreviewAvatar: {
-    width: 20,
-    height: 20,
-    borderRadius: 999,
-  },
-  commentPreviewText: {
-    flex: 1,
-    fontSize: 11.5,
-  },
-  commentsSection: {
-    paddingTop: 12,
-    borderTopWidth: 1,
-    gap: 8,
-  },
-  commentItem: {
-    flexDirection: 'row',
-    gap: 9,
-    padding: 10,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  commentAvatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 999,
-  },
-  commentHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  emptyCommentsBox: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 28,
-    gap: 6,
-  },
-  commentsFooterBar: {
-    borderTopWidth: 1,
-    paddingTop: 10,
-  },
-  commentInputRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-  },
-  commentInputUserAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 999,
-    marginBottom: 3,
-  },
-  commentInput: {
-    flex: 1,
-    minHeight: 40,
-    maxHeight: 96,
-    borderRadius: 20,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    fontSize: 13.5,
-  },
-  sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sheetModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    justifyContent: 'flex-end',
-  },
-  sheetModalContent: {
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-    borderTopWidth: 1,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderBottomWidth: 0,
-    marginBottom: 0,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    gap: 14,
-  },
-  sheetModalDragIndicator: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    alignSelf: 'center',
-    marginBottom: 6,
-  },
-  sheetModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  sheetModalTitle: {
-    fontSize: 18,
-    fontWeight: '900',
-    letterSpacing: -0.3,
-  },
-  sheetCloseBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
 });

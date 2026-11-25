@@ -23,7 +23,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     ...(isWebSSR ? {} : { storage: AsyncStorage }),
     autoRefreshToken: isSupabaseConfigured && !isWebSSR,
     persistSession: isSupabaseConfigured && !isWebSSR,
-    detectSessionInUrl: false,
+    detectSessionInUrl: Platform.OS === 'web' && !isWebSSR,
   },
 });
 

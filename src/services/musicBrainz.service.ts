@@ -85,13 +85,15 @@ export interface CatalogArtist {
   country?: string;
   nbFans: number;
   type?: string;
+  isSuperfan?: boolean;
 }
 
-export type FeedActivityType = 'review' | 'favorite' | 'follow_idol' | 'list';
+export type FeedActivityType = 'review' | 'favorite' | 'follow_idol' | 'superfan' | 'list';
 
 export interface FeedPostItem {
   id: string;
   userId?: string;
+  reviewId?: string;
   activityType?: FeedActivityType;
   friendName: string;
   friendUsername: string;
@@ -145,7 +147,7 @@ export interface UserListRecord {
   description: string;
   createdAt: string;
   isDefault?: boolean;
-  albums?: { id: string; title: string; cover: string }[];
+  albums?: { id: string; title: string; artist?: string; cover: string }[];
 }
 
 export interface AlbumAward {

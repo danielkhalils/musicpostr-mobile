@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
+  Animated,
+  Easing,
   View,
   Text,
   ScrollView,
@@ -12,6 +14,7 @@ import {
   Platform,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import {
   Mail,
@@ -19,18 +22,19 @@ import {
   User,
   ArrowRight,
   Check,
-  X,
   Eye,
   EyeOff,
   AlertCircle,
 } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useKeyboardHeight } from '@/hooks/use-keyboard-height';
 import { SocialIcon } from '@/components/SocialIcon';
-import { safeGoBack } from '@/utils/navigation';
-import { signIn, signUp } from '@/services/auth.service';
-import { supabase } from '@/services/supabase';
+import {
+  signIn,
+  signInWithOAuthProvider,
+  signUp,
+} from '@/services/auth.service';
 import { triggerTimelineIntroOnSignup } from '@/services/musicBrainz.service';
-import * as WebBrowser from 'expo-web-browser';
 
 interface AuthScreenContentProps {
   initialMode?: 'login' | 'register';
@@ -42,9 +46,79 @@ export function AuthScreenContent({
   onSuccessRedirect,
 }: AuthScreenContentProps) {
   const { colors, isDark } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const sectionOffsets = useRef({ card: 0, animated: 0, form: 0 });
+  const fieldYMap = useRef<Record<string, number>>({});
+
+  const scrollToField = (fieldKey: string) => {
+    const fieldY = fieldYMap.current[fieldKey];
+    setTimeout(() => {
+      if (typeof fieldY === 'number') {
+        const absoluteY =
+          sectionOffsets.current.card +
+          sectionOffsets.current.animated +
+          sectionOffsets.current.form +
+          fieldY;
+        scrollRef.current?.scrollTo({
+          y: Math.max(0, absoluteY - 120),
+          animated: true,
+        });
+      } else {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 150);
+  };
+
+  const registerFieldLayout = (fieldKey: string, y: number) => {
+    fieldYMap.current[fieldKey] = y;
+  };
 
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const isLogin = mode === 'login';
+
+  // Animação suave na transição entre Entrar e Cadastrar
+  const [formAnim] = useState(() => new Animated.Value(1));
+  const [formTranslateY] = useState(() => new Animated.Value(0));
+
+  const switchMode = (nextMode: 'login' | 'register') => {
+    if (nextMode === mode) return;
+    setErrorMessage(null);
+    setSuccessBanner(null);
+
+    Animated.parallel([
+      Animated.timing(formAnim, {
+        toValue: 0,
+        duration: 130,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(formTranslateY, {
+        toValue: nextMode === 'register' ? 10 : -10,
+        duration: 130,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setMode(nextMode);
+      formTranslateY.setValue(nextMode === 'register' ? -10 : 10);
+      Animated.parallel([
+        Animated.timing(formAnim, {
+          toValue: 1,
+          duration: 220,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(formTranslateY, {
+          toValue: 0,
+          duration: 220,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
+  };
 
   // Form Fields
   const [name, setName] = useState('');
@@ -58,7 +132,7 @@ export function AuthScreenContent({
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [socialLoading, setSocialLoading] = useState<'google' | 'apple' | null>(null);
+  const [socialLoading, setSocialLoading] = useState<'google' | null>(null);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -145,7 +219,7 @@ export function AuthScreenContent({
     registerFullName: string
   ) => {
     try {
-      await signUp({
+      const authData = await signUp({
         email: registerEmail,
         password: registerPassword,
         username: registerUsername,
@@ -154,10 +228,16 @@ export function AuthScreenContent({
 
       triggerTimelineIntroOnSignup();
 
-      setSuccessBanner('Conta criada com sucesso! Seja bem-vindo(a) ao Musicpostr.');
-
-      const target = onSuccessRedirect || '/(tabs)';
-      router.replace(target as any);
+      if (authData.session) {
+        setSuccessBanner('Conta criada com sucesso! Seja bem-vindo(a) ao Musicpostr.');
+        const target = onSuccessRedirect || '/(tabs)';
+        router.replace(target as any);
+      } else {
+        setSuccessBanner(
+          'Conta criada! Confirme seu e-mail para entrar no Musicpostr.'
+        );
+        setMode('login');
+      }
     } catch (error: any) {
       const msg = error?.message || 'Não foi possível criar a sua conta.';
       setErrorMessage('Erro ao cadastrar: ' + msg);
@@ -191,73 +271,68 @@ export function AuthScreenContent({
     }
   };
 
-  const handleSocialAuth = async (provider: 'google' | 'apple') => {
+  const handleSocialAuth = async () => {
     setErrorMessage(null);
-    setSocialLoading(provider);
+    setSuccessBanner(null);
+    setSocialLoading('google');
 
     try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: 'musicpostr://auth/callback',
-          skipBrowserRedirect: true,
-        },
-      });
+      const result = await signInWithOAuthProvider('google');
+      if (result.canceled) {
+        return;
+      }
+      if (!result.success) {
+        setErrorMessage(
+          result.error || 'Não foi possível autenticar com o Google.'
+        );
+        return;
+      }
 
-      if (error) {
-        setErrorMessage(`Não foi possível autenticar com ${provider}: ${error.message}`);
-      } else if (data?.url) {
-        await WebBrowser.openAuthSessionAsync(data.url, 'musicpostr://auth/callback');
-      } else {
-        setErrorMessage(`Provedor ${provider} não configurado no Supabase.`);
+      if (Platform.OS !== 'web') {
+        setSuccessBanner('Conectado com Google com sucesso!');
+        const target = onSuccessRedirect || '/(tabs)';
+        router.replace(target as any);
       }
     } catch (err: any) {
-      setErrorMessage(err?.message || `Erro ao autenticar com ${provider}.`);
+      setErrorMessage(err?.message || 'Erro ao autenticar com o Google.');
     } finally {
       setSocialLoading(null);
     }
   };
 
   const handleForgotPassword = () => {
-    if (Alert.prompt) {
-      Alert.prompt(
-        'Recuperação de Senha',
-        'Digite seu e-mail cadastrado para receber o link de redefinição:',
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          {
-            text: 'Enviar',
-            onPress: (val) => {
-              Alert.alert(
-                'Instruções Enviadas',
-                `Enviamos um link de recuperação para ${val || 'o seu e-mail'}. Verifique sua caixa de entrada.`
-              );
-            },
-          },
-        ],
-        'plain-text',
-        email
-      );
-    } else {
-      Alert.alert(
-        'Recuperação de Senha',
-        `Enviamos as instruções de redefinição para o e-mail ${email || 'cadastrado'}. Verifique também sua caixa de spam.`
-      );
-    }
+    router.push({
+      pathname: '/forgot-password' as any,
+      params: email.trim() ? { email: email.trim() } : {},
+    });
   };
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       style={{ flex: 1, backgroundColor: colors.background }}
     >
       <ScrollView
+        ref={scrollRef}
         style={{ flex: 1, backgroundColor: colors.background }}
-        contentContainerStyle={styles.scrollContainer}
+        contentContainerStyle={[
+          styles.scrollContainer,
+          {
+            paddingTop: Math.max(insets.top + 12, 24),
+            paddingBottom:
+              keyboardHeight > 0 ? 20 : Math.max(insets.bottom + 20, 28),
+            justifyContent: keyboardHeight > 0 ? 'flex-start' : 'center',
+          },
+        ]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         showsVerticalScrollIndicator={false}
       >
         <View
+          onLayout={(e) => {
+            sectionOffsets.current.card = e.nativeEvent.layout.y;
+          }}
           style={[
             styles.authCard,
             {
@@ -266,16 +341,6 @@ export function AuthScreenContent({
             },
           ]}
         >
-          {/* Botão Fechar Modal */}
-          <TouchableOpacity
-            style={[styles.closeBtn, { backgroundColor: colors.secondary }]}
-            onPress={() => safeGoBack('/(tabs)/index')}
-            activeOpacity={0.8}
-            accessibilityLabel="Fechar tela de autenticação"
-          >
-            <X size={18} color={colors.foreground} />
-          </TouchableOpacity>
-
           {/* Cabeçalho da Marca */}
           <View style={styles.headerCenter}>
             <View
@@ -312,10 +377,7 @@ export function AuthScreenContent({
             ]}
           >
             <TouchableOpacity
-              onPress={() => {
-                setMode('login');
-                setErrorMessage(null);
-              }}
+              onPress={() => switchMode('login')}
               style={[
                 styles.tabBtn,
                 isLogin && {
@@ -340,10 +402,7 @@ export function AuthScreenContent({
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => {
-                setMode('register');
-                setErrorMessage(null);
-              }}
+              onPress={() => switchMode('register')}
               style={[
                 styles.tabBtn,
                 !isLogin && {
@@ -414,11 +473,22 @@ export function AuthScreenContent({
             </View>
           )}
 
-          {/* Seção de Cadastro / Login Social (Google e Apple) */}
+          {/* Conteúdo animado na transição entre Entrar e Cadastrar */}
+          <Animated.View
+            onLayout={(e) => {
+              sectionOffsets.current.animated = e.nativeEvent.layout.y;
+            }}
+            style={{
+              gap: 16,
+              opacity: formAnim,
+              transform: [{ translateY: formTranslateY }],
+            }}
+          >
+          {/* Seção de Cadastro / Login Social (Google) */}
           <View style={styles.socialSection}>
             {/* Botão Google */}
             <TouchableOpacity
-              onPress={() => handleSocialAuth('google')}
+              onPress={handleSocialAuth}
               disabled={isLoading || socialLoading !== null}
               style={[
                 styles.socialBtn,
@@ -447,46 +517,6 @@ export function AuthScreenContent({
                 </>
               )}
             </TouchableOpacity>
-
-            {/* Botão Apple */}
-            <TouchableOpacity
-              onPress={() => handleSocialAuth('apple')}
-              disabled={isLoading || socialLoading !== null}
-              style={[
-                styles.socialBtn,
-                styles.appleBtn,
-                {
-                  backgroundColor: isDark ? '#ffffff' : '#000000',
-                  borderColor: isDark ? '#ffffff' : '#000000',
-                },
-              ]}
-              activeOpacity={0.85}
-            >
-              {socialLoading === 'apple' ? (
-                <ActivityIndicator
-                  size="small"
-                  color={isDark ? '#000000' : '#ffffff'}
-                />
-              ) : (
-                <>
-                  <SocialIcon
-                    name="apple"
-                    size={20}
-                    color={isDark ? '#000000' : '#ffffff'}
-                  />
-                  <Text
-                    style={[
-                      styles.socialBtnText,
-                      { color: isDark ? '#000000' : '#ffffff' },
-                    ]}
-                  >
-                    {isLogin
-                      ? 'Continuar com a Apple'
-                      : 'Cadastrar com a Apple'}
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
           </View>
 
           {/* Divisor Visual */}
@@ -508,12 +538,20 @@ export function AuthScreenContent({
           </View>
 
           {/* Formulário de E-mail e Senha */}
-          <View style={styles.formContainer}>
+          <View
+            style={styles.formContainer}
+            onLayout={(e) => {
+              sectionOffsets.current.form = e.nativeEvent.layout.y;
+            }}
+          >
             {/* Campos exclusivos de Cadastro */}
             {!isLogin && (
               <>
                 {/* Nome Completo */}
-                <View style={styles.fieldGroup}>
+                <View
+                  style={styles.fieldGroup}
+                  onLayout={(e) => registerFieldLayout('name', e.nativeEvent.layout.y)}
+                >
                   <Text style={[styles.label, { color: colors.foreground }]}>
                     Nome Completo
                   </Text>
@@ -532,6 +570,7 @@ export function AuthScreenContent({
                       placeholderTextColor={colors.mutedForeground}
                       value={name}
                       onChangeText={setName}
+                      onFocus={() => scrollToField('name')}
                       autoCapitalize="words"
                       style={[styles.input, { color: colors.foreground }]}
                     />
@@ -539,7 +578,10 @@ export function AuthScreenContent({
                 </View>
 
                 {/* Nome de Usuário (@) */}
-                <View style={styles.fieldGroup}>
+                <View
+                  style={styles.fieldGroup}
+                  onLayout={(e) => registerFieldLayout('username', e.nativeEvent.layout.y)}
+                >
                   <Text style={[styles.label, { color: colors.foreground }]}>
                     Nome de Usuário (@)
                   </Text>
@@ -565,6 +607,7 @@ export function AuthScreenContent({
                       placeholderTextColor={colors.mutedForeground}
                       value={username}
                       onChangeText={setUsername}
+                      onFocus={() => scrollToField('username')}
                       autoCapitalize="none"
                       autoCorrect={false}
                       style={[styles.input, { color: colors.foreground }]}
@@ -575,7 +618,10 @@ export function AuthScreenContent({
             )}
 
             {/* E-mail */}
-            <View style={styles.fieldGroup}>
+            <View
+              style={styles.fieldGroup}
+              onLayout={(e) => registerFieldLayout('email', e.nativeEvent.layout.y)}
+            >
               <Text style={[styles.label, { color: colors.foreground }]}>
                 Endereço de E-mail
               </Text>
@@ -594,6 +640,7 @@ export function AuthScreenContent({
                   placeholderTextColor={colors.mutedForeground}
                   value={email}
                   onChangeText={setEmail}
+                  onFocus={() => scrollToField('email')}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -603,7 +650,10 @@ export function AuthScreenContent({
             </View>
 
             {/* Senha */}
-            <View style={styles.fieldGroup}>
+            <View
+              style={styles.fieldGroup}
+              onLayout={(e) => registerFieldLayout('password', e.nativeEvent.layout.y)}
+            >
               <View style={styles.labelRow}>
                 <Text style={[styles.label, { color: colors.foreground }]}>
                   Senha
@@ -643,6 +693,7 @@ export function AuthScreenContent({
                   placeholderTextColor={colors.mutedForeground}
                   value={password}
                   onChangeText={setPassword}
+                  onFocus={() => scrollToField('password')}
                   autoCapitalize="none"
                   style={[styles.input, { color: colors.foreground }]}
                 />
@@ -662,7 +713,10 @@ export function AuthScreenContent({
 
             {/* Confirmar Senha (Apenas Cadastro) */}
             {!isLogin && (
-              <View style={styles.fieldGroup}>
+              <View
+                style={styles.fieldGroup}
+                onLayout={(e) => registerFieldLayout('confirmPassword', e.nativeEvent.layout.y)}
+              >
                 <Text style={[styles.label, { color: colors.foreground }]}>
                   Confirmar Senha
                 </Text>
@@ -682,6 +736,7 @@ export function AuthScreenContent({
                     placeholderTextColor={colors.mutedForeground}
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
+                    onFocus={() => scrollToField('confirmPassword')}
                     autoCapitalize="none"
                     style={[styles.input, { color: colors.foreground }]}
                   />
@@ -767,6 +822,7 @@ export function AuthScreenContent({
               )}
             </TouchableOpacity>
           </View>
+          </Animated.View>
 
           {/* Rodapé Alternador entre Login e Cadastro */}
           <View
@@ -786,10 +842,7 @@ export function AuthScreenContent({
                 : 'Já possui uma conta registrada? '}
             </Text>
             <TouchableOpacity
-              onPress={() => {
-                setMode(isLogin ? 'register' : 'login');
-                setErrorMessage(null);
-              }}
+              onPress={() => switchMode(isLogin ? 'register' : 'login')}
               activeOpacity={0.7}
             >
               <Text

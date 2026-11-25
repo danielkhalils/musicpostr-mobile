@@ -1,25 +1,114 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  View,
-  Text,
+  Dimensions,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   ScrollView,
+  StyleSheet,
+  Text,
   TextInput,
   TouchableOpacity,
-  Modal,
-  StyleSheet,
+  View,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/utils/navigation';
 import { INFINITE_PAGE_SIZE, isNearScrollBottom } from '@/utils/pagination';
-import { Plus, X } from 'lucide-react-native';
+import { Disc, ListMusic, Plus, X } from 'lucide-react-native';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CoverImage } from '@/components/CoverImage';
 import { PageHeader } from '@/components/PageHeader';
-import { notifyCatalogUpdated, type UserListRecord } from '@/services/musicBrainz.service';
+import {
+  notifyCatalogUpdated,
+  subscribeAlbumsUpdated,
+  type UserListRecord,
+} from '@/services/musicBrainz.service';
 import { getUserListsFromSupabase } from '@/services/profile.service';
 import { supabase } from '@/services/supabase';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const GRID_PADDING = 14;
+const GRID_GAP = 12;
+const CARD_WIDTH = Math.floor((SCREEN_WIDTH - GRID_PADDING * 2 - GRID_GAP) / 2);
+
+function ListCoverCollage({
+  albums,
+  isDefault,
+  albumCountLabel,
+}: {
+  albums?: { id: string; title: string; artist?: string; cover: string }[];
+  isDefault?: boolean;
+  albumCountLabel: string;
+}) {
+  const { colors } = useAppTheme();
+  const listAlbums = albums || [];
+
+  return (
+    <View
+      style={[
+        styles.coverBox,
+        {
+          backgroundColor: isDefault ? `${colors.primary}18` : colors.secondary,
+          borderColor: colors.border,
+        },
+      ]}
+    >
+      {listAlbums.length >= 4 ? (
+        <View style={styles.collageGrid}>
+          {listAlbums.slice(0, 4).map((album, idx) => (
+            <View key={`${album.id}-${idx}`} style={styles.collageCell}>
+              <CoverImage
+                uri={album.cover}
+                albumTitle={album.title}
+                albumArtist={album.artist}
+                style={styles.collageCellImg}
+                fallbackType="album"
+                quality="medium"
+              />
+            </View>
+          ))}
+        </View>
+      ) : listAlbums.length >= 1 ? (
+        <CoverImage
+          uri={listAlbums[0].cover}
+          albumTitle={listAlbums[0].title}
+          albumArtist={listAlbums[0].artist}
+          style={styles.singleCoverImg}
+          fallbackType="album"
+          quality="medium"
+        />
+      ) : (
+        <View style={styles.emptyCoverCenter}>
+          <ListMusic
+            size={36}
+            color={isDefault ? colors.primary : colors.mutedForeground}
+          />
+        </View>
+      )}
+
+      {/* Badge Padrão no topo esquerdo */}
+      {isDefault && (
+        <View
+          style={[
+            styles.coverTopBadge,
+            { backgroundColor: 'rgba(9, 9, 11, 0.78)' },
+          ]}
+        >
+          <Text style={styles.coverTopBadgeText}>Padrão</Text>
+        </View>
+      )}
+
+      {/* Contagem de álbuns no canto inferior direito */}
+      <View style={styles.coverCountPill}>
+        <Disc size={10} color="#ffffff" />
+        <Text style={styles.coverCountText}>{albumCountLabel}</Text>
+      </View>
+    </View>
+  );
+}
 
 export default function ListsScreen() {
   const { username } = useLocalSearchParams<{ username?: string }>();
@@ -36,28 +125,40 @@ export default function ListsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [visibleCount, setVisibleCount] = useState(INFINITE_PAGE_SIZE);
 
-  useEffect(() => {
-    let active = true;
-    const load = async () => {
-      try {
-        if (isVisiting && username) {
-          const data = await getUserListsFromSupabase({ username });
-          if (active) setLists(data);
-        } else if (user) {
-          const data = await getUserListsFromSupabase({ userId: user.id });
-          if (active) setLists(data);
-        } else {
-          setLists([]);
-        }
-      } finally {
-        if (active) setIsLoading(false);
+  const loadLists = useCallback(async () => {
+    try {
+      if (isVisiting && username) {
+        const data = await getUserListsFromSupabase({ username });
+        setLists(data);
+      } else if (user) {
+        const data = await getUserListsFromSupabase({ userId: user.id });
+        setLists(data);
+      } else {
+        setLists([]);
       }
-    };
-    load();
-    return () => {
-      active = false;
-    };
+    } finally {
+      setIsLoading(false);
+    }
   }, [isVisiting, username, user]);
+
+  useEffect(() => {
+    loadLists();
+    const unsubscribe = subscribeAlbumsUpdated(() => {
+      loadLists();
+    });
+    return unsubscribe;
+  }, [loadLists]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadLists();
+    }, [loadLists])
+  );
+
+  const totalAlbumsCount = useMemo(
+    () => lists.reduce((acc, item) => acc + (item.count || 0), 0),
+    [lists]
+  );
 
   const handleCreateList = async () => {
     if (!newTitle.trim() || !user || isSavingList) return;
@@ -79,12 +180,13 @@ export default function ListsScreen() {
       if (!error && data) {
         setLists((prev) => [
           {
-            id: data.id,
+            id: String(data.id),
             title: data.title,
             count: data.items_count || 0,
             description: data.description || '',
-            createdAt: data.created_label || data.created_at,
+            createdAt: data.created_label || 'Agora mesmo',
             isDefault: Boolean(data.is_default),
+            albums: [],
           },
           ...prev,
         ]);
@@ -110,7 +212,9 @@ export default function ListsScreen() {
         scrollEventThrottle={32}
         onScroll={(e) => {
           if (visibleCount < lists.length && isNearScrollBottom(e)) {
-            setVisibleCount((prev) => Math.min(lists.length, prev + INFINITE_PAGE_SIZE));
+            setVisibleCount((prev) =>
+              Math.min(lists.length, prev + INFINITE_PAGE_SIZE)
+            );
           }
         }}
       >
@@ -123,10 +227,8 @@ export default function ListsScreen() {
             !isVisiting ? (
               <TouchableOpacity
                 onPress={() => setIsModalOpen(true)}
-                style={[
-                  styles.newBtn,
-                  { backgroundColor: colors.primary },
-                ]}
+                style={[styles.newBtn, { backgroundColor: colors.primary }]}
+                activeOpacity={0.85}
               >
                 <Plus size={15} color="#fff" />
                 <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>
@@ -137,106 +239,125 @@ export default function ListsScreen() {
           }
         />
 
+        {/* Barra de resumo */}
+        {!isLoading && lists.length > 0 && (
+          <View
+            style={[
+              styles.summaryBar,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <View style={styles.summaryItem}>
+              <ListMusic size={14} color={colors.primary} />
+              <Text style={[styles.summaryText, { color: colors.foreground }]}>
+                {lists.length} {lists.length === 1 ? 'lista' : 'listas'}
+              </Text>
+            </View>
+            <View
+              style={[styles.summaryDivider, { backgroundColor: colors.border }]}
+            />
+            <View style={styles.summaryItem}>
+              <Disc size={14} color={colors.emerald} />
+              <Text style={[styles.summaryText, { color: colors.foreground }]}>
+                {totalAlbumsCount}{' '}
+                {totalAlbumsCount === 1 ? 'álbum salvo' : 'álbuns salvos'}
+              </Text>
+            </View>
+          </View>
+        )}
+
         {isLoading && lists.length === 0 ? (
-          <View style={{ flex: 1, minHeight: 420, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={styles.loadingBox}>
             <ActivityIndicator size="large" color={colors.primary} />
           </View>
-        ) : (
-        <View style={{ gap: 12 }}>
-          {lists.slice(0, visibleCount).map((list) => (
-            <TouchableOpacity
-              key={list.id}
+        ) : lists.length === 0 ? (
+          <View
+            style={[
+              styles.emptyStateBox,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <View
               style={[
-                styles.listCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
+                styles.emptyIconCircle,
+                { backgroundColor: `${colors.primary}18` },
               ]}
-              onPress={() => router.push(`/list/${list.id}` as any)}
-              activeOpacity={0.85}
             >
-              <View style={styles.cardTopRow}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                  <Text
-                    style={[styles.listTitle, { color: colors.foreground }]}
-                    numberOfLines={1}
-                  >
-                    {list.title}
-                  </Text>
-                  {(list.id === 'want-to-listen' || list.isDefault) && (
-                    <View
-                      style={{
-                        backgroundColor: `${colors.primary}20`,
-                        paddingHorizontal: 6,
-                        paddingVertical: 1,
-                        borderRadius: 6,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 9.5,
-                          fontWeight: '900',
-                          color: colors.primary,
-                        }}
-                      >
-                        Padrão
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                <View
+              <ListMusic size={28} color={colors.primary} />
+            </View>
+            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
+              Nenhuma lista criada ainda
+            </Text>
+            <Text style={[styles.emptySubtitle, { color: colors.mutedForeground }]}>
+              Organize seus álbuns favoritos em coleções personalizadas por humor, ano ou estilo.
+            </Text>
+            {!isVisiting && (
+              <TouchableOpacity
+                onPress={() => setIsModalOpen(true)}
+                style={[styles.emptyCtaBtn, { backgroundColor: colors.primary }]}
+                activeOpacity={0.85}
+              >
+                <Plus size={15} color="#fff" />
+                <Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '800' }}>
+                  Criar minha primeira lista
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : (
+          <View style={styles.squareGrid}>
+            {lists.slice(0, visibleCount).map((list) => {
+              const isDefaultList =
+                list.id === 'want-to-listen' || Boolean(list.isDefault);
+              const albumLabel =
+                list.count === 1 ? '1 álbum' : `${list.count} álbuns`;
+
+              return (
+                <TouchableOpacity
+                  key={list.id}
                   style={[
-                    styles.countBadge,
+                    styles.squareCard,
                     {
-                      backgroundColor: colors.secondary,
+                      width: CARD_WIDTH,
+                      backgroundColor: colors.card,
                       borderColor: colors.border,
                     },
                   ]}
+                  onPress={() => router.push(`/list/${list.id}` as any)}
+                  activeOpacity={0.85}
                 >
-                  <Text
-                    style={{
-                      fontSize: 11,
-                      fontWeight: '700',
-                      color: colors.mutedForeground,
-                    }}
-                  >
-                    {list.count} álbuns
-                  </Text>
-                </View>
-              </View>
+                  {/* Capa quadrada em colagem (4 primeiros) ou 1º álbum */}
+                  <ListCoverCollage
+                    albums={list.albums}
+                    isDefault={isDefaultList}
+                    albumCountLabel={albumLabel}
+                  />
 
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: colors.mutedForeground,
-                  lineHeight: 18,
-                }}
-              >
-                {list.description}
-              </Text>
+                  {/* Informações compactas abaixo da capa */}
+                  <View style={styles.squareCardBody}>
+                    <Text
+                      style={[styles.listTitle, { color: colors.foreground }]}
+                      numberOfLines={1}
+                    >
+                      {list.title}
+                    </Text>
 
-              <View
-                style={[
-                  styles.cardFooter,
-                  { borderTopColor: colors.border },
-                ]}
-              >
-                <Text
-                  style={{ fontSize: 11, color: colors.mutedForeground }}
-                >
-                  {list.createdAt}
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 12,
-                    fontWeight: '800',
-                    color: colors.primary,
-                  }}
-                >
-                  Ver lista →
-                </Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
+                    {Boolean(list.description) && (
+                      <Text
+                        style={[
+                          styles.listDesc,
+                          { color: colors.mutedForeground },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {list.description}
+                      </Text>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         )}
       </ScrollView>
 
@@ -247,7 +368,10 @@ export default function ListsScreen() {
         statusBarTranslucent
         onRequestClose={() => setIsModalOpen(false)}
       >
-        <View style={styles.modalBackdrop}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalBackdrop}
+        >
           <View
             style={[
               styles.modalCard,
@@ -308,10 +432,6 @@ export default function ListsScreen() {
                 {
                   backgroundColor: colors.primary,
                   opacity: !newTitle.trim() || isSavingList ? 0.7 : 1,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
                 },
               ]}
             >
@@ -321,7 +441,7 @@ export default function ListsScreen() {
               </Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -329,28 +449,9 @@ export default function ListsScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    padding: 14,
-    paddingBottom: 36,
+    padding: GRID_PADDING,
+    paddingBottom: 42,
     gap: 14,
-  },
-  backBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  pageTitle: {
-    fontSize: 22,
-    fontWeight: '900',
-  },
-  pageSubtitle: {
-    fontSize: 12,
-    lineHeight: 17,
   },
   newBtn: {
     flexDirection: 'row',
@@ -360,36 +461,150 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 12,
   },
-  listCard: {
+  summaryBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    gap: 16,
+  },
+  summaryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  summaryText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  summaryDivider: {
+    width: 1,
+    height: 16,
+  },
+  loadingBox: {
+    flex: 1,
+    minHeight: 380,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateBox: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 28,
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 8,
+  },
+  emptyIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: {
+    fontSize: 15.5,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontSize: 12.5,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  emptyCtaBtn: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 18,
+    height: 40,
+    borderRadius: 999,
+  },
+  squareGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: GRID_GAP,
+  },
+  squareCard: {
     borderRadius: 18,
     borderWidth: 1,
-    padding: 14,
-    gap: 8,
+    overflow: 'hidden',
   },
-  cardTopRow: {
+  coverBox: {
+    width: '100%',
+    aspectRatio: 1,
+    overflow: 'hidden',
+    position: 'relative',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  collageGrid: {
+    width: '100%',
+    height: '100%',
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
+    flexWrap: 'wrap',
   },
-  listTitle: {
+  collageCell: {
+    width: '50%',
+    height: '50%',
+  },
+  collageCellImg: {
+    width: '100%',
+    height: '100%',
+  },
+  singleCoverImg: {
+    width: '100%',
+    height: '100%',
+  },
+  emptyCoverCenter: {
     flex: 1,
-    fontSize: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coverTopBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 999,
+  },
+  coverTopBadgeText: {
+    color: '#ffffff',
+    fontSize: 9.5,
     fontWeight: '800',
   },
-  countBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  cardFooter: {
+  coverCountPill: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    borderTopWidth: 1,
-    paddingTop: 10,
-    marginTop: 4,
+    gap: 4,
+    backgroundColor: 'rgba(9, 9, 11, 0.78)',
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 999,
+  },
+  coverCountText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  squareCardBody: {
+    padding: 10,
+    gap: 3,
+  },
+  listTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+  },
+  listDesc: {
+    fontSize: 11,
+    lineHeight: 15,
   },
   modalBackdrop: {
     flex: 1,
@@ -411,24 +626,26 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   input: {
-    height: 42,
+    height: 44,
     borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
-    fontSize: 13,
+    fontSize: 13.5,
   },
   textarea: {
     minHeight: 80,
     borderRadius: 12,
     borderWidth: 1,
     padding: 12,
-    fontSize: 13,
+    fontSize: 13.5,
     textAlignVertical: 'top',
   },
   createBtn: {
-    height: 42,
+    height: 44,
     borderRadius: 999,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
   },
 });

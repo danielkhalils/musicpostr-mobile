@@ -23,6 +23,7 @@ import {
   Globe,
   Check,
   Info,
+  Star,
   Users,
   X,
   Calendar,
@@ -53,7 +54,9 @@ import {
   getArtistFromSupabase,
   getArtistAwardsFromSupabase,
   getFollowedArtistIdsFromSupabase,
+  getSuperfanArtistIdsFromSupabase,
   toggleFollowArtistInSupabase,
+  toggleSuperfanArtistInSupabase,
   updateArtistLabelInSupabase,
   type ArtistAwardRecord,
 } from '@/services/catalog.service';
@@ -89,6 +92,7 @@ export default function ArtistDetailScreen() {
   const [isSyncingBio, setIsSyncingBio] = useState(false);
 
   const [followedIds, setFollowedIds] = useState<string[]>([]);
+  const [superfanIds, setSuperfanIds] = useState<string[]>([]);
 
   const [visibleAlbumsCount, setVisibleAlbumsCount] = useState(10);
   const [visibleEpsCount, setVisibleEpsCount] = useState(10);
@@ -127,11 +131,20 @@ export default function ArtistDetailScreen() {
     let active = true;
     const loadFollowed = async () => {
       if (!user) {
-        if (active) setFollowedIds([]);
+        if (active) {
+          setFollowedIds([]);
+          setSuperfanIds([]);
+        }
         return;
       }
-      const ids = await getFollowedArtistIdsFromSupabase(user.id);
-      if (active) setFollowedIds(ids);
+      const [ids, sfIds] = await Promise.all([
+        getFollowedArtistIdsFromSupabase(user.id),
+        getSuperfanArtistIdsFromSupabase(user.id),
+      ]);
+      if (active) {
+        setFollowedIds(ids);
+        setSuperfanIds(sfIds);
+      }
     };
     loadFollowed();
     const unsubscribe = subscribeAlbumsUpdated(() => {
@@ -383,6 +396,7 @@ export default function ArtistDetailScreen() {
   };
 
   const isFollowing = Boolean(id && followedIds.includes(id));
+  const isSuperfan = Boolean(id && superfanIds.includes(id));
 
   const handleToggleFollow = async () => {
     if (!id) return;
@@ -394,6 +408,9 @@ export default function ArtistDetailScreen() {
     setFollowedIds((prev) =>
       currentlyFollowing ? prev.filter((item) => item !== id) : [...prev, id]
     );
+    if (currentlyFollowing) {
+      setSuperfanIds((prev) => prev.filter((item) => item !== id));
+    }
     await toggleFollowArtistInSupabase(
       user.id,
       {
@@ -405,6 +422,33 @@ export default function ArtistDetailScreen() {
         nbFans: artistFans,
       },
       currentlyFollowing
+    );
+  };
+
+  const handleToggleSuperfan = async () => {
+    if (!id) return;
+    if (!user) {
+      router.push('/login' as any);
+      return;
+    }
+    const currentlySuperfan = superfanIds.includes(id);
+    setSuperfanIds((prev) =>
+      currentlySuperfan ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+    if (!currentlySuperfan && !followedIds.includes(id)) {
+      setFollowedIds((prev) => [...prev, id]);
+    }
+    await toggleSuperfanArtistInSupabase(
+      user.id,
+      {
+        id,
+        name: artistName || 'Artista',
+        imageUrl: artistBanner,
+        genre: artistGenre,
+        country: artistCountry,
+        nbFans: artistFans,
+      },
+      currentlySuperfan
     );
   };
 
@@ -616,6 +660,43 @@ export default function ArtistDetailScreen() {
                   ]}
                 >
                   {isFollowing ? 'Seguindo' : 'Seguir'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Botão de Superfã com estrela dourada */}
+              <TouchableOpacity
+                onPress={handleToggleSuperfan}
+                style={[
+                  styles.heroFollowBtn,
+                  isSuperfan
+                    ? {
+                        backgroundColor: 'rgba(245, 158, 11, 0.24)',
+                        borderColor: '#f59e0b',
+                      }
+                    : {
+                        backgroundColor: isDark
+                          ? 'rgba(0, 0, 0, 0.55)'
+                          : 'rgba(245, 158, 11, 0.10)',
+                        borderColor: isDark
+                          ? 'rgba(251, 191, 36, 0.55)'
+                          : 'rgba(217, 119, 6, 0.35)',
+                      },
+                ]}
+                activeOpacity={0.85}
+                accessibilityLabel={isSuperfan ? 'Remover Superfã' : 'Tornar-se Superfã'}
+              >
+                <Star
+                  size={12}
+                  color="#fbbf24"
+                  fill={isSuperfan ? '#fbbf24' : 'transparent'}
+                />
+                <Text
+                  style={[
+                    styles.heroFollowBtnText,
+                    { color: isSuperfan ? '#fbbf24' : isDark ? '#fde68a' : '#b45309' },
+                  ]}
+                >
+                  Superfã
                 </Text>
               </TouchableOpacity>
             </View>

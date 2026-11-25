@@ -20,7 +20,8 @@ SplashScreen.preventAutoHideAsync().catch(() => { });
 
 function RootNavigator() {
   const { colors, isDark } = useAppTheme();
-  const { isLoading } = useAuth();
+  const { isLoading, session, user } = useAuth();
+  const isAuthenticated = Boolean(session && user);
 
   useEffect(() => {
     if (!isLoading) {
@@ -53,34 +54,47 @@ function RootNavigator() {
           gestureEnabled: true,
         }}
       >
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="album/[id]" options={{ headerShown: false }} />
-        <Stack.Screen name="artist/[id]" options={{ headerShown: false }} />
-        <Stack.Screen name="label/[id]" options={{ headerShown: false }} />
-        <Stack.Screen name="top-albuns" options={{ headerShown: false }} />
-        <Stack.Screen name="my-reviews" options={{ headerShown: false }} />
-        <Stack.Screen name="favorites" options={{ headerShown: false }} />
-        <Stack.Screen name="friends" options={{ headerShown: false }} />
-        <Stack.Screen name="idols" options={{ headerShown: false }} />
-        <Stack.Screen name="lists" options={{ headerShown: false }} />
-        <Stack.Screen name="settings" options={{ headerShown: false }} />
-        <Stack.Screen name="user/[username]" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="login"
-          options={{
-            headerShown: false,
-            presentation: 'modal',
-            animation: 'fade_from_bottom',
-          }}
-        />
-        <Stack.Screen
-          name="register"
-          options={{
-            headerShown: false,
-            presentation: 'modal',
-            animation: 'fade_from_bottom',
-          }}
-        />
+        <Stack.Protected guard={isAuthenticated} redirectTo="/login">
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="album/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="artist/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="label/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="list/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="top-albuns" options={{ headerShown: false }} />
+          <Stack.Screen name="my-reviews" options={{ headerShown: false }} />
+          <Stack.Screen name="favorites" options={{ headerShown: false }} />
+          <Stack.Screen name="friends" options={{ headerShown: false }} />
+          <Stack.Screen name="idols" options={{ headerShown: false }} />
+          <Stack.Screen name="lists" options={{ headerShown: false }} />
+          <Stack.Screen name="settings" options={{ headerShown: false }} />
+          <Stack.Screen name="user/[username]" options={{ headerShown: false }} />
+        </Stack.Protected>
+
+        <Stack.Protected guard={!isAuthenticated} redirectTo="/(tabs)">
+          <Stack.Screen
+            name="login"
+            options={{
+              headerShown: false,
+              gestureEnabled: false,
+              animation: 'fade',
+            }}
+          />
+          <Stack.Screen
+            name="register"
+            options={{
+              headerShown: false,
+              gestureEnabled: false,
+              animation: 'fade',
+            }}
+          />
+          <Stack.Screen
+            name="forgot-password"
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+        </Stack.Protected>
       </Stack>
     </>
   );

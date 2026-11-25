@@ -69,6 +69,7 @@ import {
   Animated,
   BackHandler,
   Easing,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -78,6 +79,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardHeight } from '@/hooks/use-keyboard-height';
 
 type SettingsSection =
   | 'hub'
@@ -111,8 +113,8 @@ const HUB_ITEMS: HubItemDef[] = [
     id: 'account',
     group: 'account',
     title: 'Conta & Conexões',
-    subtitle: 'E-mail, telefone, Google, Apple, Spotify e Last.fm',
-    keywords: 'conta email telefone google apple spotify lastfm vinculada login provedor',
+    subtitle: 'E-mail, telefone, Google, Spotify e Last.fm',
+    keywords: 'conta email telefone google spotify lastfm vinculada login provedor',
   },
   {
     id: 'security',
@@ -169,6 +171,7 @@ export default function SettingsScreen() {
   const { colors, isDark, setDarkMode } = useAppTheme();
   const { user, profile: authProfile, updateProfileData, signOut } = useAuth();
   const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
 
   const [activeSection, setActiveSection] = useState<SettingsSection>('hub');
@@ -1186,12 +1189,6 @@ export default function SettingsScreen() {
             onToggle: () => setIsLinkedGoogle(!isLinkedGoogle),
           },
           {
-            title: 'Apple ID',
-            desc: 'Autenticação segura com Sign in with Apple.',
-            linked: isLinkedApple,
-            onToggle: () => setIsLinkedApple(!isLinkedApple),
-          },
-          {
             title: 'Spotify',
             desc: 'Importe favoritos e sincronize álbuns ouvidos.',
             linked: ext.isLinkedSpotify,
@@ -2150,7 +2147,10 @@ export default function SettingsScreen() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{ flex: 1, backgroundColor: colors.background }}
+    >
       <Animated.View
         style={{
           flex: 1,
@@ -2163,10 +2163,14 @@ export default function SettingsScreen() {
           style={{ flex: 1 }}
           contentContainerStyle={[
             styles.container,
-            { paddingTop: Math.max(insets.top, 16) },
+            {
+              paddingTop: Math.max(insets.top, 16),
+              paddingBottom: keyboardHeight > 0 ? 24 : 44,
+            },
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
         >
           {activeSection === 'hub' && renderHub()}
           {activeSection === 'profile' && renderProfileSection()}
@@ -2180,7 +2184,7 @@ export default function SettingsScreen() {
           {activeSection === 'data_about' && renderDataAboutSection()}
         </ScrollView>
       </Animated.View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
