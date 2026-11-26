@@ -10,20 +10,32 @@ function looksLikeDomain(value: string): boolean {
  * em uma URL navegável com esquema https://.
  * Retorna null quando o valor é apenas um identificador sem URL (ex.: usuário do Discord).
  */
+function isSafeHttpUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
 export function resolveSocialUrl(platform: string, rawValue: string): string | null {
   const value = rawValue.trim();
   if (!value) return null;
 
-  if (/^https?:\/\//i.test(value)) {
-    return value;
+  // Bloqueia esquemas não-HTTP (ex.: javascript:, data:, file:, tel:)
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) {
+    return isSafeHttpUrl(value) ? value : null;
   }
 
   if (looksLikeDomain(value)) {
-    return `https://${value}`;
+    const candidate = `https://${value}`;
+    return isSafeHttpUrl(candidate) ? candidate : null;
   }
 
   const key = platform.toLowerCase().trim().replace(/[\s.-]+/g, '_');
-  const handle = value.replace(/^@+/, '');
+  const rawHandle = value.replace(/^@+/, '');
+  const handle = encodeURIComponent(rawHandle);
 
   switch (key) {
     case 'instagram':
@@ -56,12 +68,16 @@ export function resolveSocialUrl(platform: string, rawValue: string): string | n
     case 'bluesky':
     case 'bsky':
       return `https://bsky.app/profile/${handle}`;
-    case 'bandcamp':
-      return `https://${handle}.bandcamp.com`;
+    case 'bandcamp': {
+      const safeSubdomain = rawHandle.toLowerCase().replace(/[^a-z0-9-]/g, '');
+      return safeSubdomain ? `https://${safeSubdomain}.bandcamp.com` : null;
+    }
     case 'discord':
       return null;
-    default:
-      return `https://${value}`;
+    default: {
+      const candidate = `https://${value}`;
+      return isSafeHttpUrl(candidate) ? candidate : null;
+    }
   }
 }
 

@@ -842,12 +842,17 @@ export async function getTopTracksFromSupabase(limit = 20): Promise<CatalogTrack
   }
 }
 
+function sanitizePostgrestSearchTerm(value: string): string {
+  // Remove caracteres de controle do PostgREST (.or) e wildcards perigosos
+  return value.replace(/[(),%*\\]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 export async function searchCatalogInSupabase(query: string): Promise<{
   artists: CatalogArtist[];
   albums: CatalogAlbum[];
   tracks: CatalogTrack[];
 }> {
-  const q = query.trim();
+  const q = sanitizePostgrestSearchTerm(query);
   if (!q) {
     return { artists: [], albums: [], tracks: [] };
   }
@@ -956,6 +961,7 @@ export async function getAlbumFromSupabase(
         avatar: r.user_avatar || '',
         rating: Number(r.rating || 0),
         comment: r.comment || '',
+        favoriteTrack: r.favorite_track || undefined,
         date: formatRelativeTime(r.created_at, r.display_date, Boolean(r.is_edited)),
         likes: Number(r.likes_count || 0),
         likedByMe: likedReviewIds.has(String(r.id)),
@@ -1327,6 +1333,27 @@ export async function ensureAlbumExistsInSupabase(
 // FEED DA COMUNIDADE (`feed_posts`, `feed_post_comments`, `feed_post_likes`)
 // ============================================================================
 
+function deduplicateFeedPosts(items: FeedPostItem[]): FeedPostItem[] {
+  const seen = new Set<string>();
+  const result: FeedPostItem[] = [];
+
+  for (const item of items) {
+    const actor = (item.userId || item.friendUsername || 'user').toLowerCase();
+    const type = item.activityType || 'review';
+    const target =
+      type === 'superfan' || type === 'follow_idol'
+        ? (item.artistId || item.artistName || item.albumTitle || item.id).toLowerCase()
+        : (item.albumId || item.reviewId || item.albumTitle || item.id).toLowerCase();
+
+    const dedupeKey = `${actor}::${type}::${target}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    result.push(item);
+  }
+
+  return result;
+}
+
 export async function getFeedPostsFromSupabase(currentUserId?: string): Promise<FeedPostItem[]> {
   if (!currentUserId) return [];
   try {
@@ -1434,6 +1461,7 @@ export async function getFeedPostsFromSupabase(currentUserId?: string): Promise<
           albumCover: p.album_cover || '',
           rating: Number(p.rating || 0),
           comment: resolveFeedComment(p),
+          favoriteTrack: p.favorite_track || undefined,
           timeAgo: formatRelativeTime(p.created_at, p.time_ago, Boolean(p.is_edited)),
           likesCount: Number(p.likes_count || 0),
           isLiked: likedSet.has(String(p.id)),
@@ -1470,6 +1498,7 @@ export async function getFeedPostsFromSupabase(currentUserId?: string): Promise<
           albumCover: album?.cover_xl || album?.cover_big || album?.cover_medium || '',
           rating: Number(r.rating || 0),
           comment: r.comment || '',
+          favoriteTrack: r.favorite_track || undefined,
           timeAgo: formatRelativeTime(r.created_at, r.display_date, Boolean(r.is_edited)),
           likesCount: Number(r.likes_count || 0),
           isLiked: false,
@@ -1480,7 +1509,7 @@ export async function getFeedPostsFromSupabase(currentUserId?: string): Promise<
     }
 
     combined.sort((a, b) => b.sortTime - a.sortTime);
-    return combined.slice(0, 60).map((entry) => entry.item);
+    return deduplicateFeedPosts(combined.map((entry) => entry.item)).slice(0, 60);
   } catch (err) {
     console.warn('[CatalogService] Erro ao buscar feed_posts:', err);
     return [];
@@ -1749,6 +1778,7 @@ export async function getUserFeedPostsFromSupabase(
           albumCover: p.album_cover || '',
           rating: Number(p.rating || 0),
           comment: resolveFeedComment(p),
+          favoriteTrack: p.favorite_track || undefined,
           timeAgo: formatRelativeTime(p.created_at, p.time_ago, Boolean(p.is_edited)),
           likesCount: Number(p.likes_count || 0),
           isLiked: likedSet.has(String(p.id)),
@@ -1785,6 +1815,7 @@ export async function getUserFeedPostsFromSupabase(
           albumCover: album?.cover_xl || album?.cover_big || album?.cover_medium || '',
           rating: Number(r.rating || 0),
           comment: r.comment || '',
+          favoriteTrack: r.favorite_track || undefined,
           timeAgo: formatRelativeTime(r.created_at, r.display_date, Boolean(r.is_edited)),
           likesCount: Number(r.likes_count || 0),
           isLiked: false,
@@ -1861,7 +1892,7 @@ export async function getUserFeedPostsFromSupabase(
     }
 
     combined.sort((a, b) => b.sortTime - a.sortTime);
-    return combined.map((entry) => entry.item);
+    return deduplicateFeedPosts(combined.map((entry) => entry.item));
   } catch (err) {
     console.warn('[CatalogService] Erro ao buscar feed_posts do usuário:', err);
     return [];
@@ -2091,6 +2122,7 @@ export async function submitAlbumReviewToSupabase(params: {
   avatarUrl: string;
   rating: number;
   comment: string;
+  favoriteTrack?: string;
 }): Promise<{ review: AlbumUserReview | null; isEdited?: boolean; error?: string }> {
   try {
     const ensured = await ensureAlbumExistsInSupabase(params.album);
@@ -2102,6 +2134,12 @@ export async function submitAlbumReviewToSupabase(params: {
     }
 
     const clampedRating = Math.min(10, Math.max(1, Number(params.rating) || 8));
+    const cleanFavoriteTrack = params.favoriteTrack?.trim() || null;
+
+    const isMissingColumnError = (err: any) =>
+      err?.code === '42703' ||
+      err?.code === 'PGRST204' ||
+      String(err?.message || '').toLowerCase().includes('favorite_track');
 
     // Verifica se o usuário já avaliou este álbum (para atualizar em vez de duplicar)
     const { data: existingReview } = await supabase
@@ -2117,39 +2155,61 @@ export async function submitAlbumReviewToSupabase(params: {
 
     if (existingReview?.id) {
       isEdited = true;
-      const { data, error } = await supabase
+      const updatePayload: Record<string, any> = {
+        rating: clampedRating,
+        comment: params.comment,
+        favorite_track: cleanFavoriteTrack,
+        user_display_name: params.displayName,
+        username: params.username,
+        user_avatar: params.avatarUrl,
+        display_date: 'Editado agora',
+        is_edited: true,
+        updated_at: new Date().toISOString(),
+      };
+      let { data, error } = await supabase
         .from('album_reviews')
-        .update({
-          rating: clampedRating,
-          comment: params.comment,
-          user_display_name: params.displayName,
-          username: params.username,
-          user_avatar: params.avatarUrl,
-          display_date: 'Editado agora',
-          is_edited: true,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq('id', existingReview.id)
         .eq('user_id', params.userId)
         .select('*')
         .single();
+      if (error && isMissingColumnError(error)) {
+        delete updatePayload.favorite_track;
+        ({ data, error } = await supabase
+          .from('album_reviews')
+          .update(updatePayload)
+          .eq('id', existingReview.id)
+          .eq('user_id', params.userId)
+          .select('*')
+          .single());
+      }
       savedRow = data;
       saveError = error;
     } else {
-      const { data, error } = await supabase
+      const insertPayload: Record<string, any> = {
+        album_id: params.album.id,
+        user_id: params.userId,
+        user_display_name: params.displayName,
+        username: params.username,
+        user_avatar: params.avatarUrl,
+        rating: clampedRating,
+        comment: params.comment,
+        favorite_track: cleanFavoriteTrack,
+        display_date: 'Agora mesmo',
+      };
+      let { data, error } = await supabase
         .from('album_reviews')
-        .insert({
-          album_id: params.album.id,
-          user_id: params.userId,
-          user_display_name: params.displayName,
-          username: params.username,
-          user_avatar: params.avatarUrl,
-          rating: clampedRating,
-          comment: params.comment,
-          display_date: 'Agora mesmo',
-        })
+        .insert(insertPayload)
         .select('*')
         .single();
+      if (error && isMissingColumnError(error)) {
+        delete insertPayload.favorite_track;
+        ({ data, error } = await supabase
+          .from('album_reviews')
+          .insert(insertPayload)
+          .select('*')
+          .single());
+      }
       savedRow = data;
       saveError = error;
     }
@@ -2165,7 +2225,15 @@ export async function submitAlbumReviewToSupabase(params: {
     // Publica ou atualiza também na timeline (feed_posts) — garante aparição no início
     try {
       const insertFeedPost = async () => {
-        const basePayload = {
+        // Garante que nunca haja duplicata de review para o mesmo usuário + álbum
+        await supabase
+          .from('feed_posts')
+          .delete()
+          .eq('user_id', params.userId)
+          .eq('album_id', params.album.id)
+          .eq('activity_type', 'review');
+
+        const basePayload: Record<string, any> = {
           activity_type: 'review' as const,
           user_id: params.userId,
           friend_name: params.displayName,
@@ -2179,12 +2247,17 @@ export async function submitAlbumReviewToSupabase(params: {
           album_cover: params.album.cover_xl || params.album.cover_big || params.album.cover_medium || '',
           rating: clampedRating,
           comment: params.comment,
+          favorite_track: cleanFavoriteTrack,
           time_ago: 'agora',
           is_edited: isEdited,
           review_id: savedRow.id,
         };
 
-        const { error: feedErr } = await supabase.from('feed_posts').insert(basePayload);
+        let { error: feedErr } = await supabase.from('feed_posts').insert(basePayload);
+        if (feedErr && isMissingColumnError(feedErr)) {
+          delete basePayload.favorite_track;
+          ({ error: feedErr } = await supabase.from('feed_posts').insert(basePayload));
+        }
         if (feedErr) {
           // Se falhar por FK de artist_id (ex.: artista com ID divergente), tenta novamente com artist_id = null
           if (feedErr.code === '23503' && basePayload.artist_id) {
@@ -2201,21 +2274,32 @@ export async function submitAlbumReviewToSupabase(params: {
       };
 
       if (isEdited) {
-        const { data: updatedPosts, error: updateErr } = await supabase
+        const feedUpdatePayload: Record<string, any> = {
+          friend_name: params.displayName,
+          friend_username: params.username,
+          friend_avatar: params.avatarUrl || '',
+          rating: clampedRating,
+          comment: params.comment,
+          favorite_track: cleanFavoriteTrack,
+          is_edited: true,
+          time_ago: 'agora · editado',
+          updated_at: new Date().toISOString(),
+        };
+        let { data: updatedPosts, error: updateErr } = await supabase
           .from('feed_posts')
-          .update({
-            friend_name: params.displayName,
-            friend_username: params.username,
-            friend_avatar: params.avatarUrl || '',
-            rating: clampedRating,
-            comment: params.comment,
-            is_edited: true,
-            time_ago: 'agora · editado',
-            updated_at: new Date().toISOString(),
-          })
+          .update(feedUpdatePayload)
           .eq('review_id', savedRow.id)
           .eq('user_id', params.userId)
           .select('id');
+        if (updateErr && isMissingColumnError(updateErr)) {
+          delete feedUpdatePayload.favorite_track;
+          ({ data: updatedPosts, error: updateErr } = await supabase
+            .from('feed_posts')
+            .update(feedUpdatePayload)
+            .eq('review_id', savedRow.id)
+            .eq('user_id', params.userId)
+            .select('id'));
+        }
 
         if (updateErr || !updatedPosts || updatedPosts.length === 0) {
           await insertFeedPost();
@@ -2237,6 +2321,7 @@ export async function submitAlbumReviewToSupabase(params: {
         avatar: savedRow.user_avatar || '',
         rating: Number(savedRow.rating),
         comment: savedRow.comment,
+        favoriteTrack: savedRow.favorite_track || cleanFavoriteTrack || undefined,
         date: formatRelativeTime(savedRow.created_at, undefined, isEdited),
         likes: Number(savedRow.likes_count || 0),
         likedByMe: false,
@@ -2298,6 +2383,14 @@ export async function toggleFavoriteAlbumInSupabase(
         .insert({ user_id: userId, album_id: album.id });
 
       try {
+        // Garante que nunca haja duplicata de favorito para o mesmo usuário + álbum
+        await supabase
+          .from('feed_posts')
+          .delete()
+          .eq('user_id', userId)
+          .eq('album_id', album.id)
+          .eq('activity_type', 'favorite');
+
         const { data: userProfile } = await supabase
           .from('profiles')
           .select('full_name, username, avatar_url')
@@ -2486,8 +2579,24 @@ export async function toggleSuperfanArtistInSupabase(
         }
       }
 
-      // Publica atividade de Superfã na timeline
+      // Publica atividade de Superfã na timeline (removendo antes qualquer registro anterior do mesmo artista)
       try {
+        await Promise.all([
+          supabase
+            .from('feed_posts')
+            .delete()
+            .eq('user_id', userId)
+            .eq('artist_id', artist.id)
+            .eq('activity_type', 'superfan'),
+          supabase
+            .from('feed_posts')
+            .delete()
+            .eq('user_id', userId)
+            .eq('artist_id', artist.id)
+            .eq('activity_type', 'follow_idol')
+            .eq('comment', SUPERFAN_FEED_MARKER),
+        ]);
+
         const { data: userProfile } = await supabase
           .from('profiles')
           .select('full_name, username, avatar_url')
@@ -2583,6 +2692,15 @@ export async function toggleFollowArtistInSupabase(
         .insert({ user_id: userId, artist_id: artist.id });
 
       try {
+        // Garante que nunca haja duplicata de follow_idol para o mesmo usuário + artista
+        await supabase
+          .from('feed_posts')
+          .delete()
+          .eq('user_id', userId)
+          .eq('artist_id', artist.id)
+          .eq('activity_type', 'follow_idol')
+          .neq('comment', SUPERFAN_FEED_MARKER);
+
         const { data: userProfile } = await supabase
           .from('profiles')
           .select('full_name, username, avatar_url')
@@ -2721,7 +2839,7 @@ export async function searchAlbumsInSupabase(
   query: string,
   limit = 15
 ): Promise<CatalogAlbum[]> {
-  const trimmed = query.trim();
+  const trimmed = sanitizePostgrestSearchTerm(query);
   if (!trimmed) return [];
   try {
     const { data, error } = await supabase

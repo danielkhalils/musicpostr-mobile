@@ -415,6 +415,7 @@ export function FeedShareModal({ post, onClose }: FeedShareModalProps) {
                 albumCover={post.albumCover}
                 rating={post.rating}
                 comment={post.comment}
+                favoriteTrack={post.favoriteTrack}
                 username={post.friendUsername}
                 userName={post.friendName}
                 userAvatar={post.friendAvatar}

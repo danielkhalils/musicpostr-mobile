@@ -1,4 +1,21 @@
-import React, { ComponentRef, useRef, useState } from 'react';
+import { useAppTheme } from '@/context/ThemeContext';
+import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Sharing from 'expo-sharing';
+import {
+  ArrowRight,
+  Download,
+  Heart,
+  Music,
+  Quote,
+  Share2,
+  Smartphone,
+  Sparkles,
+  Square,
+  Star,
+  UserCheck,
+} from 'lucide-react-native';
+import { ComponentRef, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -8,26 +25,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
 import { captureRef } from 'react-native-view-shot';
-import * as Sharing from 'expo-sharing';
-import {
-  ArrowRight,
-  Download,
-  Heart,
-  Quote,
-  Share2,
-  Smartphone,
-  Sparkles,
-  Square,
-  Star,
-  UserCheck,
-} from 'lucide-react-native';
-import { useAppTheme } from '@/context/ThemeContext';
+import { formatRating } from '../utils/rating';
 import { CoverImage } from './CoverImage';
 import { SocialIcon } from './SocialIcon';
-import { formatRating } from '../utils/rating';
 
 const MUSICPOSTR_LOGO = require('../../assets/icon_transparent_96x96.png');
 
@@ -37,6 +38,7 @@ export interface ShareableReviewCardProps {
   albumCover?: string;
   rating: number;
   comment?: string;
+  favoriteTrack?: string;
   username: string;
   userName?: string;
   userAvatar?: string;
@@ -207,6 +209,7 @@ export function ShareableReviewCard({
   albumCover,
   rating,
   comment,
+  favoriteTrack,
   username,
   userName,
   userAvatar,
@@ -229,6 +232,7 @@ export function ShareableReviewCard({
   const scoreColor = getScoreColor(rating);
   const isStory = format === 'story';
   const cleanComment = comment?.trim() || '';
+  const cleanFavoriteTrack = favoriteTrack?.trim() || '';
   const displayAuthorName = userName?.trim() || username;
 
   const handleExportCard = async (action: Exclude<ExportAction, null>) => {
@@ -528,6 +532,41 @@ export function ShareableReviewCard({
                     </Text>
                   </View>
                 ) : null}
+
+                {/* Favorito do álbum (quando escolhida) */}
+                {Boolean(cleanFavoriteTrack) && !isIdol && (
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 4,
+                      marginTop: 5,
+                      paddingHorizontal: 8,
+                      paddingVertical: 3.5,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      backgroundColor: cardTheme.surface,
+                      borderColor: cardTheme.border,
+                      maxWidth: '100%',
+                    }}
+                  >
+                    <Music size={8.5} color={cardTheme.quoteColor} />
+                    <Text
+                      style={{
+                        fontSize: 8.5,
+                        fontWeight: '700',
+                        color: cardTheme.text,
+                        flexShrink: 1,
+                      }}
+                      numberOfLines={1}
+                    >
+                      <Text style={{ color: cardTheme.muted, fontWeight: '600' }}>
+                        Favorito:{' '}
+                      </Text>
+                      {cleanFavoriteTrack}
+                    </Text>
+                  </View>
+                )}
               </View>
 
               {/* Card de Comentário do Usuário (padrão da avaliação na tela do álbum) */}

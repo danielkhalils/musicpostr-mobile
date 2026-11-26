@@ -1,3 +1,4 @@
+import { ensureOAuthUserProfile } from '@/services/auth.service';
 import { isSupabaseConfigured, supabase } from '@/services/supabase';
 import { UserProfileData, updateProfile as updateProfileInDb } from '@/services/profile.service';
 import { Session, User } from '@supabase/supabase-js';
@@ -31,16 +32,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   // Função para buscar os dados extras da tabela profiles no Supabase
+  // (criando automaticamente o perfil caso seja o primeiro login via Google OAuth)
   const fetchUserProfile = async (userId: string) => {
     try {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
       if (!error && data) {
         setProfile(data);
+        return;
+      }
+
+      await ensureOAuthUserProfile('google');
+
+      const { data: createdProfile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (createdProfile) {
+        setProfile(createdProfile);
       }
     } catch {
       // Falha silenciosa ou tratamento de rede

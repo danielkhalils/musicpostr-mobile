@@ -12,6 +12,7 @@ import {
   Disc,
   Heart,
   MessageSquare,
+  Music,
   Share2,
   Star,
   Trash2,
@@ -53,7 +54,7 @@ function getActivityActionText(item: FeedPostItem) {
   return item.isEdited ? 'editou uma avaliação' : 'publicou uma avaliação';
 }
 
-export function FeedPostCard({
+export const FeedPostCard = React.memo(function FeedPostCard({
   item,
   cardMode,
   isCommentsOpen = false,
@@ -310,6 +311,17 @@ export function FeedPostCard({
                 {item.artistName}
               </Text>
             )}
+            {Boolean(item.favoriteTrack) && !isIdolActivity && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 }}>
+                <Music size={10.5} color={colors.primary} />
+                <Text
+                  style={{ fontSize: 11, fontWeight: '700', color: colors.primary, flexShrink: 1 }}
+                  numberOfLines={1}
+                >
+                  Favorito: {item.favoriteTrack}
+                </Text>
+              </View>
+            )}
             {Boolean(item.comment) && (
               <Text
                 style={[styles.compactComment, { color: colors.foreground }]}
@@ -466,6 +478,39 @@ export function FeedPostCard({
         )}
       </View>
 
+      {/* 3.5. FAVORITO (quando escolhida na avaliação) */}
+      {cardMode === 'full' && Boolean(item.favoriteTrack) && !isIdolActivity && (
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            alignSelf: 'flex-start',
+            marginHorizontal: 14,
+            marginBottom: 6,
+            paddingHorizontal: 10,
+            paddingVertical: 5,
+            borderRadius: 999,
+            backgroundColor: `${colors.primary}14`,
+            borderWidth: 1,
+            borderColor: `${colors.primary}35`,
+          }}
+        >
+          <Music size={12} color={colors.primary} />
+          <Text
+            style={{
+              fontSize: 12,
+              fontWeight: '700',
+              color: colors.foreground,
+              flexShrink: 1,
+            }}
+            numberOfLines={1}
+          >
+            Favorito: {item.favoriteTrack}
+          </Text>
+        </View>
+      )}
+
       {/* 4. CAPTION DO USUÁRIO ESTILO INSTAGRAM */}
       {cardMode === 'full' && Boolean(item.comment) && (
         <View style={styles.instagramCaptionContainer}>
@@ -538,7 +583,7 @@ export function FeedPostCard({
       )}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   postCard: {

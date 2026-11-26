@@ -1,7 +1,7 @@
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { HeaderVisibilityProvider } from '@/context/HeaderVisibilityContext';
 import { AppThemeProvider, useAppTheme } from '@/context/ThemeContext';
-import { Stack } from 'expo-router';
+import { router, Stack, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
@@ -21,7 +21,30 @@ SplashScreen.preventAutoHideAsync().catch(() => { });
 function RootNavigator() {
   const { colors, isDark } = useAppTheme();
   const { isLoading, session, user } = useAuth();
+  const segments = useSegments();
   const isAuthenticated = Boolean(session && user);
+
+  useEffect(() => {
+    if (isLoading) return;
+    const topSegment = segments[0];
+    const isPublicAuthRoute =
+      topSegment === 'login' ||
+      topSegment === 'register' ||
+      topSegment === 'forgot-password' ||
+      topSegment === 'auth';
+
+    if (!isAuthenticated && !isPublicAuthRoute) {
+      router.replace('/login' as any);
+    } else if (
+      isAuthenticated &&
+      (topSegment === 'login' ||
+        topSegment === 'register' ||
+        topSegment === 'forgot-password' ||
+        topSegment === 'auth')
+    ) {
+      router.replace('/(tabs)' as any);
+    }
+  }, [isLoading, isAuthenticated, segments]);
 
   useEffect(() => {
     if (!isLoading) {
@@ -95,6 +118,21 @@ function RootNavigator() {
             }}
           />
         </Stack.Protected>
+        <Stack.Screen
+          name="auth/callback"
+          options={{
+            headerShown: false,
+            gestureEnabled: false,
+            animation: 'none',
+          }}
+        />
+        <Stack.Screen
+          name="+not-found"
+          options={{
+            headerShown: false,
+            animation: 'none',
+          }}
+        />
       </Stack>
     </>
   );

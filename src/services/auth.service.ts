@@ -1,9 +1,21 @@
+import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 import { isSupabaseConfigured, supabase } from './supabase';
 
 WebBrowser.maybeCompleteAuthSession();
+
+let lastCapturedOAuthUrl: string | null = null;
+let inFlightCallbackPromise: Promise<{ success: boolean; error?: string }> | null = null;
+
+export function getLastCapturedOAuthUrl(): string | null {
+  return lastCapturedOAuthUrl;
+}
+
+export function clearLastCapturedOAuthUrl(): void {
+  lastCapturedOAuthUrl = null;
+}
 
 const SUPABASE_NOT_CONFIGURED_ERROR =
   'Supabase não configurado. Crie o arquivo .env na raiz do projeto com EXPO_PUBLIC_SUPABASE_URL e EXPO_PUBLIC_SUPABASE_ANON_KEY e reinicie o servidor Expo com "npx expo start -c".';
@@ -25,10 +37,22 @@ const DEFAULT_AVATAR_URL =
   'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500';
 
 export function getAuthRedirectUrl(path = 'auth/callback'): string {
+  const cleanPath = path.replace(/^\/+/, '');
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     return `${window.location.origin}/login`;
   }
-  return Linking.createURL(path);
+  if (Constants.appOwnership !== 'expo') {
+    return `musicpostr://${cleanPath}`;
+  }
+  return Linking.createURL(cleanPath);
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function parseParamsFromUrl(url: string): Record<string, string> {
@@ -41,8 +65,8 @@ function parseParamsFromUrl(url: string): Record<string, string> {
     for (const pair of segment.split('&')) {
       const eqIdx = pair.indexOf('=');
       if (eqIdx === -1) continue;
-      const key = decodeURIComponent(pair.slice(0, eqIdx));
-      const value = decodeURIComponent(pair.slice(eqIdx + 1).replace(/\+/g, ' '));
+      const key = safeDecodeURIComponent(pair.slice(0, eqIdx));
+      const value = safeDecodeURIComponent(pair.slice(eqIdx + 1).replace(/\+/g, ' '));
       if (key) params[key] = value;
     }
   };
@@ -58,7 +82,7 @@ function parseParamsFromUrl(url: string): Record<string, string> {
   return params;
 }
 
-async function ensureOAuthUserProfile(provider: 'google') {
+export async function ensureOAuthUserProfile(provider: 'google' = 'google') {
   try {
     const {
       data: { user },
@@ -151,6 +175,83 @@ export async function isOAuthProviderEnabled(
   }
 }
 
+export function hasOAuthPayloadInUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const params = parseParamsFromUrl(url);
+  return Boolean(
+    (params.access_token && params.refresh_token) ||
+      params.code ||
+      params.error ||
+      params.error_description
+  );
+}
+
+export async function completeOAuthCallbackUrl(
+  url: string,
+  provider: 'google' = 'google'
+): Promise<{ success: boolean; error?: string }> {
+  if (inFlightCallbackPromise) {
+    return inFlightCallbackPromise;
+  }
+
+  const run = async (): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const params = parseParamsFromUrl(url);
+
+      if (params.error || params.error_description) {
+        return {
+          success: false,
+          error: params.error_description || params.error,
+        };
+      }
+
+      if (params.access_token && params.refresh_token) {
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: params.access_token,
+          refresh_token: params.refresh_token,
+        });
+        if (sessionError) {
+          return { success: false, error: sessionError.message };
+        }
+        await ensureOAuthUserProfile(provider);
+        clearLastCapturedOAuthUrl();
+        return { success: true };
+      }
+
+      if (params.code) {
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
+          params.code
+        );
+        if (exchangeError) {
+          return { success: false, error: exchangeError.message };
+        }
+        await ensureOAuthUserProfile(provider);
+        clearLastCapturedOAuthUrl();
+        return { success: true };
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session?.user) {
+        await ensureOAuthUserProfile(provider);
+        clearLastCapturedOAuthUrl();
+        return { success: true };
+      }
+
+      return { success: false };
+    } catch (err: any) {
+      return { success: false, error: err?.message };
+    }
+  };
+
+  inFlightCallbackPromise = run().finally(() => {
+    inFlightCallbackPromise = null;
+  });
+
+  return inFlightCallbackPromise;
+}
+
 export async function signInWithOAuthProvider(
   provider: 'google'
 ): Promise<{ success: boolean; canceled?: boolean; error?: string }> {
@@ -159,15 +260,9 @@ export async function signInWithOAuthProvider(
   const providerLabel = 'Google';
   const redirectTo = getAuthRedirectUrl('auth/callback');
 
-  try {
-    const enabled = await isOAuthProviderEnabled(provider);
-    if (enabled === false) {
-      return {
-        success: false,
-        error: formatOAuthError(providerLabel, 'Unsupported provider: provider is not enabled'),
-      };
-    }
+  let linkingSub: { remove: () => void } | null = null;
 
+  try {
     if (Platform.OS === 'web') {
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
@@ -185,6 +280,8 @@ export async function signInWithOAuthProvider(
       }
       return { success: true };
     }
+
+    clearLastCapturedOAuthUrl();
 
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
@@ -209,58 +306,50 @@ export async function signInWithOAuthProvider(
       };
     }
 
+    // No Android, o redirecionamento para `musicpostr://auth/callback#access_token=...`
+    // frequentemente chega via Intent do sistema (Linking) e fecha o Custom Tab com `type: 'dismiss'`.
+    linkingSub = Linking.addEventListener('url', (event) => {
+      if (event?.url && hasOAuthPayloadInUrl(event.url)) {
+        lastCapturedOAuthUrl = event.url;
+        try {
+          WebBrowser.dismissAuthSession();
+        } catch {
+          // ignore
+        }
+      }
+    });
+
     const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+
+    const candidateUrl =
+      (result.type === 'success' && result.url ? result.url : null) ||
+      lastCapturedOAuthUrl ||
+      Linking.getLinkingURL();
+
+    if (candidateUrl && hasOAuthPayloadInUrl(candidateUrl)) {
+      const completed = await completeOAuthCallbackUrl(candidateUrl, provider);
+      if (completed.success) {
+        return { success: true };
+      }
+      if (completed.error) {
+        return {
+          success: false,
+          error: formatOAuthError(providerLabel, completed.error),
+        };
+      }
+    }
+
+    // Verifica se a tela `auth/callback` já concluiu a sessão em paralelo
+    const {
+      data: { session: currentSession },
+    } = await supabase.auth.getSession();
+    if (currentSession?.user) {
+      await ensureOAuthUserProfile(provider);
+      return { success: true };
+    }
 
     if (result.type === 'cancel' || result.type === 'dismiss') {
       return { success: false, canceled: true };
-    }
-
-    if (result.type !== 'success' || !result.url) {
-      return {
-        success: false,
-        error: `Não foi possível concluir a autenticação com ${providerLabel}.`,
-      };
-    }
-
-    const params = parseParamsFromUrl(result.url);
-
-    if (params.error || params.error_description) {
-      return {
-        success: false,
-        error: formatOAuthError(
-          providerLabel,
-          params.error_description || params.error
-        ),
-      };
-    }
-
-    if (params.code) {
-      const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
-        params.code
-      );
-      if (exchangeError) {
-        return {
-          success: false,
-          error: formatOAuthError(providerLabel, exchangeError.message),
-        };
-      }
-      await ensureOAuthUserProfile(provider);
-      return { success: true };
-    }
-
-    if (params.access_token && params.refresh_token) {
-      const { error: sessionError } = await supabase.auth.setSession({
-        access_token: params.access_token,
-        refresh_token: params.refresh_token,
-      });
-      if (sessionError) {
-        return {
-          success: false,
-          error: formatOAuthError(providerLabel, sessionError.message),
-        };
-      }
-      await ensureOAuthUserProfile(provider);
-      return { success: true };
     }
 
     return {
@@ -272,6 +361,8 @@ export async function signInWithOAuthProvider(
       success: false,
       error: formatOAuthError(providerLabel, err?.message || 'Erro inesperado.'),
     };
+  } finally {
+    linkingSub?.remove();
   }
 }
 

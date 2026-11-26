@@ -1,10 +1,23 @@
-import { CoverImage } from '@/components/CoverImage';
 import { AwardLogo } from '@/components/AwardLogo';
+import { CoverImage } from '@/components/CoverImage';
 import { KeyboardAwareSheetModal } from '@/components/KeyboardAwareSheetModal';
 import { MobileHeader } from '@/components/MobileHeader';
+import { ShareableReviewCard } from '@/components/ShareableReviewCard';
 import { StreamingIcon } from '@/components/StreamingIcon';
-import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
+import { useAppTheme } from '@/context/ThemeContext';
+import {
+  addAlbumToUserListInSupabase,
+  createUserListInSupabase,
+  getAlbumAwardsFromSupabase,
+  getAlbumFromSupabase,
+  getFollowedArtistIdsFromSupabase,
+  isAlbumFavoritedInSupabase,
+  submitAlbumReviewToSupabase,
+  toggleFavoriteAlbumInSupabase,
+  toggleFollowArtistInSupabase,
+  toggleListenedAlbumInSupabase,
+} from '@/services/catalog.service';
 import {
   findAlbumCoverArt,
   type CoverArtResult,
@@ -19,24 +32,10 @@ import {
   type UserListRecord,
 } from '@/services/musicBrainz.service';
 import {
-  getAlbumFromSupabase,
-  getAlbumAwardsFromSupabase,
-  isAlbumFavoritedInSupabase,
-  toggleFavoriteAlbumInSupabase,
-  toggleListenedAlbumInSupabase,
-  submitAlbumReviewToSupabase,
-  getFollowedArtistIdsFromSupabase,
-  toggleFollowArtistInSupabase,
-  createUserListInSupabase,
-  addAlbumToUserListInSupabase,
-} from '@/services/catalog.service';
-import {
   deleteReviewFromSupabase,
   getUserFriends,
   getUserListsFromSupabase,
 } from '@/services/profile.service';
-import { SocialIcon } from '@/components/SocialIcon';
-import { ShareableReviewCard } from '@/components/ShareableReviewCard';
 import { safeGoBack } from '@/utils/navigation';
 import { formatRating } from '@/utils/rating';
 import { BlurView } from 'expo-blur';
@@ -44,31 +43,31 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   ArrowLeft,
+  ArrowRight,
+  Award,
   Calendar,
+  Check,
   Clock,
+  ExternalLink,
   Headphones,
   Heart,
   Layers,
+  ListPlus,
   Maximize2,
+  MoreVertical,
   Music,
+  Plus,
+  Quote,
+  Share2,
   Star,
+  Trash2,
+  Trophy,
+  UserCheck,
+  UserPlus,
   Users,
   X,
-  ListPlus,
-  Check,
-  Plus,
-  ArrowRight,
-  Trophy,
-  Quote,
-  ExternalLink,
-  Award,
-  MoreVertical,
-  Share2,
-  Trash2,
-  UserPlus,
-  UserCheck,
 } from 'lucide-react-native';
-import { type ComponentRef, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -118,12 +117,14 @@ export default function AlbumDetailScreen() {
 
   const [album, setAlbum] = useState<CatalogAlbum | null>(null);
   const [awards, setAwards] = useState<AlbumAward[]>([]);
+  const [visibleAwardsCount, setVisibleAwardsCount] = useState<number>(5);
   const [isLoadingAwards, setIsLoadingAwards] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isLoadingTracks, setIsLoadingTracks] = useState<boolean>(false);
 
   const [rating, setRating] = useState<number>(0);
   const [reviewText, setReviewText] = useState<string>('');
+  const [favoriteTrack, setFavoriteTrack] = useState<string>('');
   const [postSuccess, setPostSuccess] = useState<boolean>(false);
   const [isSubmittingReview, setIsSubmittingReview] = useState<boolean>(false);
   const [isDeletingReview, setIsDeletingReview] = useState<boolean>(false);
@@ -196,6 +197,7 @@ export default function AlbumDetailScreen() {
 
       if (!isMounted) return;
       setAwards(dbAwards);
+      setVisibleAwardsCount(5);
 
       if (dbAlbum) {
         const enriched: CatalogAlbum = { ...dbAlbum, isFavorite: isFav };
@@ -299,6 +301,7 @@ export default function AlbumDetailScreen() {
         avatarUrl: authProfile?.avatar_url || '',
         rating: chosenRating,
         comment: chosenReview,
+        favoriteTrack: favoriteTrack.trim() || undefined,
       });
 
       if (error || !created) {
@@ -344,6 +347,7 @@ export default function AlbumDetailScreen() {
 
       setRating(chosenRating);
       setReviewText(chosenReview);
+      setFavoriteTrack(created.favoriteTrack || '');
       setPostSuccess(true);
       setIsReviewModalOpen(false);
     } finally {
@@ -455,47 +459,6 @@ export default function AlbumDetailScreen() {
       await Share.share({
         title: `${album.title} - ${album.artist?.name || 'Artista'}`,
         message: `Confira o álbum "${album.title}" de ${album.artist?.name || 'Artista'} no Musicpostr! Avaliação da comunidade: ${formatRating(album.communityRating)}/10 ⭐`,
-      });
-    } catch {}
-  };
-
-  const handleShareReviewGeneral = async () => {
-    if (!album || !currentUserReview) return;
-    setIsShareModalOpen(false);
-    try {
-      await Share.share({
-        title: `Minha avaliação de ${album.title} no Musicpostr`,
-        message: `Minha avaliação para "${album.title}" de ${album.artist?.name || 'Artista'} no Musicpostr: ⭐️ ${formatRating(currentUserReview.rating)}/10!\n"${currentUserReview.comment}"\n\nConfira no Musicpostr!`,
-      });
-    } catch {}
-  };
-
-  const handleShareReviewInstagramStories = async () => {
-    if (!album || !currentUserReview) return;
-    setIsShareModalOpen(false);
-    const storyText = `Minha nota para "${album.title}" de ${album.artist?.name || 'Artista'} no Musicpostr: ⭐️ ${formatRating(currentUserReview.rating)}/10!\n"${currentUserReview.comment}"`;
-
-    const igStoryUrl = 'instagram://story-camera';
-    try {
-      const canOpen = await Linking.canOpenURL(igStoryUrl);
-      if (canOpen) {
-        await Linking.openURL(igStoryUrl);
-        return;
-      }
-    } catch {}
-
-    try {
-      const igAppUrl = 'instagram://app';
-      if (await Linking.canOpenURL(igAppUrl)) {
-        await Linking.openURL(igAppUrl);
-        return;
-      }
-    } catch {}
-
-    try {
-      await Share.share({
-        title: `Minha avaliação de ${album.title}`,
-        message: `${storyText}\n\nCompartilhado via Musicpostr`,
       });
     } catch {}
   };
@@ -631,6 +594,7 @@ export default function AlbumDetailScreen() {
         coverUrl: album.cover_medium || album.cover_big,
         rating: foundInSubmitted.rating,
         comment: foundInSubmitted.comment,
+        favoriteTrack: foundInSubmitted.favoriteTrack,
         date: foundInSubmitted.date || 'Recente',
       };
     }
@@ -1066,6 +1030,35 @@ export default function AlbumDetailScreen() {
                   </Text>
                 </View>
 
+                {Boolean(currentUserReview.favoriteTrack) && (
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6,
+                      alignSelf: 'flex-start',
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                      borderRadius: 999,
+                      backgroundColor: `${colors.primary}14`,
+                      borderWidth: 1,
+                      borderColor: `${colors.primary}32`,
+                    }}
+                  >
+                    <Music size={12} color={colors.primary} />
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontWeight: '700',
+                        color: colors.foreground,
+                      }}
+                      numberOfLines={1}
+                    >
+                      Favorito: {currentUserReview.favoriteTrack}
+                    </Text>
+                  </View>
+                )}
+
                 <View style={styles.userReviewFooter}>
                   <Text style={[styles.userReviewDateText, { color: colors.mutedForeground }]}>
                     {currentUserReview.date || 'Recente'}
@@ -1090,6 +1083,7 @@ export default function AlbumDetailScreen() {
                       onPress={() => {
                         setRating(Number(currentUserReview.rating) || 8);
                         setReviewText(currentUserReview.comment || '');
+                        setFavoriteTrack(currentUserReview.favoriteTrack || '');
                         setIsReviewModalOpen(true);
                       }}
                       style={styles.editReviewLink}
@@ -1319,7 +1313,7 @@ export default function AlbumDetailScreen() {
             </View>
           ) : (
             <View style={{ gap: 10 }}>
-              {awards.map((aw) => {
+              {awards.slice(0, visibleAwardsCount).map((aw) => {
                 const isWinner = aw.result === 'winner';
                 return (
                   <View
@@ -1395,6 +1389,68 @@ export default function AlbumDetailScreen() {
                   </View>
                 );
               })}
+
+              {awards.length > 5 && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                  {visibleAwardsCount < awards.length && (
+                    <TouchableOpacity
+                      onPress={() =>
+                        setVisibleAwardsCount((prev) => Math.min(awards.length, prev + 5))
+                      }
+                      activeOpacity={0.8}
+                      style={{
+                        flex: 1,
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        backgroundColor: `${colors.primary}14`,
+                        borderColor: `${colors.primary}38`,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 12.5,
+                          fontWeight: '800',
+                          color: colors.primary,
+                        }}
+                      >
+                        Ver mais (+{Math.min(5, awards.length - visibleAwardsCount)})
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {visibleAwardsCount > 5 && (
+                    <TouchableOpacity
+                      onPress={() => setVisibleAwardsCount(5)}
+                      activeOpacity={0.8}
+                      style={{
+                        flex: visibleAwardsCount < awards.length ? 0.75 : 1,
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        backgroundColor: colors.secondary,
+                        borderColor: colors.border,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 12.5,
+                          fontWeight: '700',
+                          color: colors.mutedForeground,
+                        }}
+                      >
+                        Recolher
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
             </View>
           )}
         </View>
@@ -1750,6 +1806,9 @@ export default function AlbumDetailScreen() {
             if (currentUserReview) {
               setRating(Number(currentUserReview.rating) || 8);
               setReviewText(currentUserReview.comment || '');
+              setFavoriteTrack(currentUserReview.favoriteTrack || '');
+            } else {
+              setFavoriteTrack('');
             }
             setIsReviewModalOpen(true);
           }}
@@ -1971,76 +2030,124 @@ export default function AlbumDetailScreen() {
                 })}
               </View>
 
-              {/* Ajuste fino decimal */}
-              <View style={{ alignItems: 'center', marginTop: 2, marginBottom: 4, gap: 6 }}>
+              {/* Dica de ajuste decimal pelas estrelas */}
+              <View style={{ alignItems: 'center', marginTop: 2, marginBottom: 4 }}>
                 <Text style={{ fontSize: 11, color: colors.mutedForeground, textAlign: 'center' }}>
                   Toque na mesma estrela até 9x para ajustar os décimos (ex: 9.1 a 9.9)
                 </Text>
+              </View>
 
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      const next = Math.max(1, Number((rating - 0.1).toFixed(1)));
-                      setRating(next);
+              {/* Seletor de Música Favorita do Álbum */}
+              {(isLoadingTracks || (album.tracks?.data && album.tracks.data.length > 0)) && (
+                <View style={{ gap: 6, marginBottom: 2 }}>
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
                     }}
-                    style={[
-                      styles.decStepBtn,
-                      { backgroundColor: colors.secondary, borderColor: colors.border },
-                    ]}
-                    activeOpacity={0.7}
                   >
-                    <Text style={{ fontSize: 11, fontWeight: '800', color: colors.foreground }}>
-                      -0.1
-                    </Text>
-                  </TouchableOpacity>
-
-                  {[0, 2, 5, 8].map((dec) => {
-                    const base = Math.max(1, Math.floor(rating) || 8);
-                    const candidate = Number((base + dec * 0.1).toFixed(1));
-                    const isCurrent = rating === candidate;
-                    return (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                      <Music size={13} color={colors.primary} />
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          fontWeight: '700',
+                          color: colors.foreground,
+                        }}
+                      >
+                        Música favorita (opcional)
+                      </Text>
+                    </View>
+                    {Boolean(favoriteTrack) && (
                       <TouchableOpacity
-                        key={dec}
-                        onPress={() => setRating(candidate)}
-                        style={[
-                          styles.decChipBtn,
-                          {
-                            backgroundColor: isCurrent ? colors.primary : colors.secondary,
-                            borderColor: isCurrent ? colors.primary : colors.border,
-                          },
-                        ]}
+                        onPress={() => setFavoriteTrack('')}
                         activeOpacity={0.7}
                       >
                         <Text
                           style={{
                             fontSize: 11,
                             fontWeight: '700',
-                            color: isCurrent ? '#fff' : colors.foreground,
+                            color: colors.mutedForeground,
                           }}
                         >
-                          .{dec}
+                          Limpar
                         </Text>
                       </TouchableOpacity>
-                    );
-                  })}
+                    )}
+                  </View>
 
-                  <TouchableOpacity
-                    onPress={() => {
-                      const next = Math.min(10, Number((rating + 0.1).toFixed(1)));
-                      setRating(next);
-                    }}
-                    style={[
-                      styles.decStepBtn,
-                      { backgroundColor: colors.secondary, borderColor: colors.border },
-                    ]}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: '800', color: colors.foreground }}>
-                      +0.1
-                    </Text>
-                  </TouchableOpacity>
+                  {isLoadingTracks && (!album.tracks?.data || album.tracks.data.length === 0) ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}>
+                      <ActivityIndicator size="small" color={colors.primary} />
+                      <Text style={{ fontSize: 11.5, color: colors.mutedForeground }}>
+                        Carregando faixas do álbum...
+                      </Text>
+                    </View>
+                  ) : (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ gap: 6, paddingVertical: 2 }}
+                      keyboardShouldPersistTaps="handled"
+                    >
+                      {album.tracks!.data.map((track, idx) => {
+                        const isSelected = favoriteTrack === track.title;
+                        return (
+                          <TouchableOpacity
+                            key={`${track.id}-${idx}`}
+                            onPress={() =>
+                              setFavoriteTrack((prev) =>
+                                prev === track.title ? '' : track.title
+                              )
+                            }
+                            activeOpacity={0.75}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 5,
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
+                              borderRadius: 999,
+                              borderWidth: 1,
+                              backgroundColor: isSelected
+                                ? colors.primary
+                                : colors.secondary,
+                              borderColor: isSelected
+                                ? colors.primary
+                                : colors.border,
+                              maxWidth: 210,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                fontWeight: '700',
+                                color: isSelected
+                                  ? 'rgba(255,255,255,0.8)'
+                                  : colors.mutedForeground,
+                              }}
+                            >
+                              {idx + 1}.
+                            </Text>
+                            <Text
+                              style={{
+                                fontSize: 11.5,
+                                fontWeight: '700',
+                                color: isSelected ? '#ffffff' : colors.foreground,
+                                flexShrink: 1,
+                              }}
+                              numberOfLines={1}
+                            >
+                              {track.title}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
                 </View>
-              </View>
+              )}
 
               {postSuccess && (
                 <View
@@ -2599,6 +2706,7 @@ export default function AlbumDetailScreen() {
                   albumCover={activeCoverUrl}
                   rating={Number(currentUserReview?.rating || 0)}
                   comment={currentUserReview?.comment}
+                  favoriteTrack={currentUserReview?.favoriteTrack}
                   username={
                     authProfile?.username ||
                     user?.email?.split('@')[0] ||
@@ -3136,18 +3244,6 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-  },
-  decStepBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  decChipBtn: {
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 8,
-    borderWidth: 1,
   },
   streamingBtnsWrap: {
     flexDirection: 'row',

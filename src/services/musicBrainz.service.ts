@@ -40,6 +40,7 @@ export interface AlbumUserReview {
   avatar?: string;
   comment: string;
   rating: number;
+  favoriteTrack?: string;
   date?: string;
   likes?: number;
   likedByMe?: boolean;
@@ -106,6 +107,7 @@ export interface FeedPostItem {
   artistGenre?: string;
   rating: number;
   comment: string;
+  favoriteTrack?: string;
   timeAgo: string;
   likesCount: number;
   isLiked: boolean;
@@ -721,16 +723,6 @@ function translateArtistType(rawType?: string | null): string {
       return '';
   }
 }
-
-const EXCLUDED_STUDIO_SECONDARY_TYPES = new Set([
-  'compilation',
-  'live',
-  'interview',
-  'audiobook',
-  'spokenword',
-  'audio drama',
-  'dj-mix',
-]);
 
 const COUNTRY_CODE_PT: Record<string, string> = {
   US: 'Estados Unidos',
